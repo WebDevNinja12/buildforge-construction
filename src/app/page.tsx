@@ -88,6 +88,9 @@ export default function HomePage() {
               <Home className="w-4 h-4" />
               Hama Construction
             </div>
+            <p className="text-accent-400 font-medium tracking-wide uppercase text-sm sm:text-base mb-4">
+              Building innovation through quality and trust
+            </p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
               Build Smarter.{" "}
               <span className="text-accent-400">Manage Everything.</span>
@@ -182,7 +185,10 @@ export default function HomePage() {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
               <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">Why Choose Hama Construction?</h2>
-              <p className="mt-4 text-lg text-construction-gray">
+              <p className="mt-4 text-lg text-accent-600 font-medium italic">
+                Building innovation through quality and trust.
+              </p>
+              <p className="mt-3 text-lg text-construction-gray">
                 We combine traditional construction expertise with modern digital tools so you can focus on building, not paperwork.
               </p>
               <ul className="mt-8 space-y-4">
@@ -242,6 +248,9 @@ export default function HomePage() {
 
       <section className="py-20 bg-gradient-to-r from-primary-700 to-primary-900 text-white">
         <div className="max-w-4xl mx-auto px-4 text-center">
+          <p className="text-accent-300 font-medium tracking-wide uppercase text-sm mb-3">
+            Building innovation through quality and trust
+          </p>
           <h2 className="text-3xl sm:text-4xl font-bold">Ready to Start Your Next Project?</h2>
           <p className="mt-4 text-lg text-primary-100">
             Create an account to browse assets, hire tools & workers, and manage projects today.

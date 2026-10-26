@@ -15,9 +15,12 @@ export default function Footer() {
                 Hama <span className="text-accent-500">Construction</span>
               </span>
             </Link>
+            <p className="text-sm font-medium text-accent-400 italic">
+              Building innovation through quality and trust.
+            </p>
             <p className="text-sm text-slate-400 leading-relaxed">
               Your trusted partner for construction assets, tools, labor, and
-              complete project management. Building tomorrow, today.
+              complete project management.
             </p>
           </div>
           <div>
@@ -60,10 +63,7 @@ export default function Footer() {
         </div>
         <div className="mt-10 pt-6 border-t border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-500">
           <p>&copy; {new Date().getFullYear()} Hama Construction. All rights reserved.</p>
-          <div className="flex gap-4">
-            <Link href="/privacy" className="hover:text-slate-300">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-slate-300">Terms of Service</Link>
-          </div>
+          <p className="text-slate-500 italic text-xs sm:text-sm">Building innovation through quality and trust.</p>
         </div>
       </div>
     </footer>
