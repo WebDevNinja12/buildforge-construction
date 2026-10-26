@@ -13,6 +13,7 @@ interface NavbarProps {
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About Us" },
+  { href: "/projects", label: "Projects" },
   { href: "/services", label: "Services" },
   { href: "/contact", label: "Contact" },
 ];
@@ -30,7 +31,7 @@ export default function Navbar({ user }: NavbarProps) {
               <HardHat className="w-6 h-6 text-white" />
             </div>
             <span className="text-xl font-bold text-white tracking-tight">
-              Build<span className="text-accent-500">Forge</span>
+              Hama <span className="text-accent-500">Construction</span>
             </span>
           </Link>
           <nav className="hidden md:flex items-center gap-1">

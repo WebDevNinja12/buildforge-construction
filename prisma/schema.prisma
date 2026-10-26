@@ -188,3 +188,18 @@ model ContactMessage {
   status    String   @default("NEW")
   createdAt DateTime @default(now())
 }
+
+// Public showcase of completed builds (display + admin update)
+model FinishedProject {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  location    String
+  category    String   @default("RESIDENTIAL")
+  completedAt DateTime
+  imageUrl    String?
+  featured    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

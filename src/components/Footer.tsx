@@ -12,7 +12,7 @@ export default function Footer() {
                 <HardHat className="w-5 h-5 text-white" />
               </div>
               <span className="text-lg font-bold text-white">
-                Build<span className="text-accent-500">Forge</span>
+                Hama <span className="text-accent-500">Construction</span>
               </span>
             </Link>
             <p className="text-sm text-slate-400 leading-relaxed">
@@ -25,6 +25,7 @@ export default function Footer() {
             <ul className="space-y-2 text-sm">
               <li><Link href="/" className="hover:text-accent-400 transition-colors">Home</Link></li>
               <li><Link href="/about" className="hover:text-accent-400 transition-colors">About Us</Link></li>
+              <li><Link href="/projects" className="hover:text-accent-400 transition-colors">Finished Projects</Link></li>
               <li><Link href="/services" className="hover:text-accent-400 transition-colors">Services</Link></li>
               <li><Link href="/contact" className="hover:text-accent-400 transition-colors">Contact</Link></li>
             </ul>
@@ -52,13 +53,13 @@ export default function Footer() {
               </li>
               <li className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-accent-500 shrink-0" />
-                <a href="mailto:info@buildforge.com" className="hover:text-accent-400">info@buildforge.com</a>
+                <a href="mailto:info@hamaconstruction.com" className="hover:text-accent-400">info@hamaconstruction.com</a>
               </li>
             </ul>
           </div>
         </div>
         <div className="mt-10 pt-6 border-t border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-500">
-          <p>&copy; {new Date().getFullYear()} BuildForge Construction. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Hama Construction. All rights reserved.</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-slate-300">Privacy Policy</Link>
             <Link href="/terms" className="hover:text-slate-300">Terms of Service</Link>

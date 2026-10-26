@@ -5,9 +5,9 @@ import Footer from "@/components/Footer";
 import { getSession } from "@/lib/auth";
 
 export const metadata: Metadata = {
-  title: "BuildForge | Construction Assets, Tools & Project Management",
+  title: "Hama Construction | Assets, Tools & Project Management",
   description:
-    "Buy and reserve houses, hotels, land. Hire tools and construction workers. Manage your building projects with BuildForge.",
+    "Buy and reserve houses, hotels, land. Hire tools and construction workers. Manage your building projects with Hama Construction.",
 };
 
 export default async function RootLayout({
