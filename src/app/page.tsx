@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Star,
 } from "lucide-react";
+import FinishedProjectsShowcase from "@/components/FinishedProjectsShowcase";
 
 const features = [
   {
@@ -60,7 +61,7 @@ const testimonials = [
   {
     name: "James Okonkwo",
     role: "Property Developer",
-    text: "BuildForge made acquiring our hotel site and managing the entire build seamless. Highly recommended.",
+    text: "Hama Construction made acquiring our hotel site and managing the entire build seamless. Highly recommended.",
     rating: 5,
   },
   {
@@ -85,7 +86,7 @@ export default function HomePage() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 bg-accent-500/20 text-accent-300 text-sm font-medium px-3 py-1 rounded-full mb-6">
               <Home className="w-4 h-4" />
-              Construction Platform
+              Hama Construction
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
               Build Smarter.{" "}
@@ -105,10 +106,10 @@ export default function HomePage() {
                 <ArrowRight className="w-5 h-5" />
               </Link>
               <Link
-                href="/contact"
+                href="/projects"
                 className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors border border-white/20"
               >
-                Contact Us
+                Finished Projects
               </Link>
             </div>
           </div>
@@ -164,9 +165,23 @@ export default function HomePage() {
 
       <section className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">
+              Recent Finished Projects
+            </h2>
+            <p className="mt-4 text-lg text-construction-gray">
+              A selection of completed builds delivered by Hama Construction.
+            </p>
+          </div>
+          <FinishedProjectsShowcase />
+        </div>
+      </section>
+
+      <section className="py-20 lg:py-28 bg-slate-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">Why Choose BuildForge?</h2>
+              <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">Why Choose Hama Construction?</h2>
               <p className="mt-4 text-lg text-construction-gray">
                 We combine traditional construction expertise with modern digital tools so you can focus on building, not paperwork.
               </p>
@@ -201,7 +216,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-20 lg:py-28 bg-slate-50">
+      <section className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">What Our Clients Say</h2>
