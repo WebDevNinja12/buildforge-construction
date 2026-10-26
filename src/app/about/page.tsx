@@ -61,7 +61,7 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
-              About BuildForge
+              About Hama Construction
             </h1>
             <p className="mt-6 text-lg text-slate-300 leading-relaxed">
               We are a construction and property platform dedicated to making
@@ -79,7 +79,7 @@ export default function AboutPage() {
               <h2 className="text-3xl font-bold text-construction-dark">Our Story</h2>
               <div className="mt-6 space-y-4 text-construction-gray leading-relaxed">
                 <p>
-                  BuildForge was founded with a simple idea: construction should
+                  Hama Construction was founded with a simple idea: construction should
                   not be fragmented across phone calls, paper contracts, and
                   scattered suppliers. Clients deserve one place to buy land or
                   properties, reserve assets, hire tools and skilled workers, and
@@ -93,8 +93,8 @@ export default function AboutPage() {
                 </p>
                 <p>
                   Whether you are purchasing a plot, reserving a completed house,
-                  renting excavators, or managing a multi-phase hotel development,
-                  BuildForge is built to support you.
+                  renting excavators, or managing a multi-phase development,
+                  Hama Construction is built to support you.
                 </p>
               </div>
             </div>
