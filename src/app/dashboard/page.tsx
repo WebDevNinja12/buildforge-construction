@@ -10,6 +10,7 @@ import {
   ClipboardList,
   CreditCard,
   ArrowRight,
+  Shield,
 } from "lucide-react";
 
 export default async function DashboardPage() {
@@ -60,12 +61,20 @@ export default async function DashboardPage() {
           </div>
           <div className="flex flex-wrap gap-3">
             {session.role === "ADMIN" && (
-              <Link
-                href="/dashboard/finished-projects"
-                className="inline-flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
-              >
-                Manage Finished Projects
-              </Link>
+              <>
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
+                >
+                  <Shield className="w-4 h-4" /> Admin Control
+                </Link>
+                <Link
+                  href="/dashboard/finished-projects"
+                  className="inline-flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
+                >
+                  Finished Projects
+                </Link>
+              </>
             )}
             <Link
               href="/services"
@@ -162,7 +171,7 @@ export default async function DashboardPage() {
                       <p className="text-xs text-slate-400">Start: {formatDate(h.startDate)}</p>
                     </div>
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      h.status === "COMPLETED" ? "bg-green-100 text-blue-700" :
+                      h.status === "COMPLETED" ? "bg-green-100 text-green-700" :
                       h.status === "IN_PROGRESS" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
                     }`}>{h.status}</span>
                   </div>
