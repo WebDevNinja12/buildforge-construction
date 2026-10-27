@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApproved } from "@/lib/auth";
-import { RESERVATION_PAYMENT_HOURS, runMaintenance } from "@/lib/maintenance";
+import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
 
 export async function GET(req: NextRequest) {
   try {
-    await runMaintenance();
+    await runMaintenance().catch(() => null);
     const { searchParams } = new URL(req.url);
     const specialty = searchParams.get("specialty");
+    const all = searchParams.get("all") === "1";
 
     const workers = await prisma.worker.findMany({
       where: {
-        available: true,
+        active: true,
+        ...(all ? {} : { available: true }),
         ...(specialty ? { specialty } : {}),
       },
       orderBy: { rating: "desc" },
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await runMaintenance();
+    await runMaintenance().catch(() => null);
     let session;
     try {
       session = await requireApproved();
@@ -63,14 +65,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const expiresAt = new Date(
-      Date.now() + RESERVATION_PAYMENT_HOURS * 60 * 60 * 1000
-    );
+    const hours = await getExpiryHours("WORKERS", null);
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
-    // If a specific worker is chosen, mark unavailable until hire completes/expires
     if (workerId) {
       const worker = await prisma.worker.findUnique({ where: { id: workerId } });
-      if (!worker || !worker.available) {
+      if (!worker || !worker.available || !worker.active) {
         return NextResponse.json({ error: "Worker not available" }, { status: 400 });
       }
     }
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ...hire,
-        message: "Hire request submitted. Review details were confirmed by you before booking.",
+        message: "Hire request submitted.",
       },
       { status: 201 }
     );

@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
   try {
     const body = await req.json();
-    const { name, specialty, experience, dailyRate, rating, bio, imageUrl, image } = body;
+    const {
+      name, specialty, experience, dailyRate, rating, bio,
+      imageUrl, image, location, skills, gallery, pastWork,
+    } = body;
     if (!name || !specialty || experience == null || dailyRate == null) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
@@ -33,7 +36,24 @@ export async function POST(req: NextRequest) {
         rating: rating != null ? Number(rating) : 4.5,
         bio: bio || null,
         image: imageUrl || image || null,
+        location: location || null,
+        skills: skills
+          ? typeof skills === "string"
+            ? skills
+            : JSON.stringify(skills)
+          : null,
+        gallery: gallery
+          ? typeof gallery === "string"
+            ? gallery
+            : JSON.stringify(gallery)
+          : null,
+        pastWork: pastWork
+          ? typeof pastWork === "string"
+            ? pastWork
+            : JSON.stringify(pastWork)
+          : null,
         available: true,
+        active: true,
       },
     });
     return NextResponse.json(worker, { status: 201 });

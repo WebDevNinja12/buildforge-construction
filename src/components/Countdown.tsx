@@ -3,43 +3,68 @@
 import { useEffect, useState } from "react";
 import { formatCountdown, isExpiringSoon } from "@/lib/countdown";
 
+/** Live countdown. Pass ISO string from server components. */
 export function Countdown({
   expiresAt,
   status,
+  label = "Expires in",
   className = "",
+  showWhenSettled = false,
 }: {
   expiresAt?: string | Date | null;
   status?: string;
+  label?: string;
   className?: string;
+  /** If true, still show for CONFIRMED / FULLY_PAID as remaining time */
+  showWhenSettled?: boolean;
 }) {
-  const [label, setLabel] = useState(() => formatCountdown(expiresAt));
+  const iso =
+    !expiresAt
+      ? null
+      : typeof expiresAt === "string"
+        ? expiresAt
+        : expiresAt.toISOString?.() || String(expiresAt);
+
+  const [text, setText] = useState(() => (iso ? formatCountdown(iso) : ""));
 
   useEffect(() => {
-    if (!expiresAt || status === "EXPIRED" || status === "CANCELLED" || status === "FULLY_PAID" || status === "CONFIRMED") {
-      setLabel(status === "EXPIRED" ? "Expired" : formatCountdown(expiresAt));
+    if (!iso) {
+      setText("");
       return;
     }
-    const tick = () => setLabel(formatCountdown(expiresAt));
+    const tick = () => setText(formatCountdown(iso));
     tick();
-    const id = setInterval(tick, 30000);
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [expiresAt, status]);
+  }, [iso]);
 
-  if (!expiresAt) return null;
+  if (!iso) return null;
+
+  const settled = ["EXPIRED", "CANCELLED", "REFUNDED", "FULLY_PAID"].includes(status || "");
   if (status === "EXPIRED") {
-    return <span className={`text-xs font-medium text-red-600 ${className}`}>Expired</span>;
+    return (
+      <span className={`inline-flex items-center text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded ${className}`}>
+        Expired
+      </span>
+    );
   }
-  if (["CONFIRMED", "FULLY_PAID", "CANCELLED"].includes(status || "")) return null;
+  if (settled && !showWhenSettled) return null;
 
-  const urgent = isExpiringSoon(expiresAt, 24);
+  const urgent = isExpiringSoon(iso, 24);
+  const overdue = text === "Expired";
+
   return (
     <span
-      className={`text-xs font-semibold tabular-nums ${
-        urgent ? "text-amber-600" : "text-slate-600"
+      className={`inline-flex items-center text-xs font-semibold tabular-nums px-2 py-0.5 rounded ${
+        overdue
+          ? "text-red-700 bg-red-50"
+          : urgent
+            ? "text-amber-800 bg-amber-50"
+            : "text-slate-700 bg-slate-100"
       } ${className}`}
-      title={typeof expiresAt === "string" ? expiresAt : expiresAt?.toISOString()}
+      title={iso}
     >
-      Expires in {label}
+      {overdue ? "Overdue / expired" : `${label} ${text}`}
     </span>
   );
 }
