@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Building2, MapPin, Wrench, Users, ClipboardList,
-  CheckCircle2, Loader2, DollarSign,
+  CheckCircle2, Loader2, DollarSign, Star,
 } from "lucide-react";
 import { formatCurrency, WORKER_SPECIALTIES } from "@/lib/utils";
+import { PaymentMethodModal } from "@/components/PaymentMethodModal";
 
 type Tab = "assets" | "land" | "tools" | "workers" | "projects";
 
@@ -14,14 +15,16 @@ interface Asset {
   id: string; title: string; description: string; type: string;
   price: number; location: string; size: string | null;
   bedrooms: number | null; bathrooms: number | null; status: string;
+  images?: string;
 }
 interface Tool {
   id: string; name: string; description: string; category: string;
-  dailyRate: number; weeklyRate: number; available: number;
+  dailyRate: number; weeklyRate: number; available: number; image?: string | null;
 }
 interface Worker {
   id: string; name: string; specialty: string; experience: number;
   dailyRate: number; rating: number; bio: string | null;
+  image?: string | null; location?: string | null;
 }
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -47,6 +50,20 @@ export default function ServicesPage() {
   const [projectForm, setProjectForm] = useState({
     title: "", description: "", budget: "", location: "", startDate: "", endDate: "",
   });
+  const [payModal, setPayModal] = useState<{
+    assetId: string; title: string; price: number; category: string;
+  } | null>(null);
+
+  useEffect(() => {
+    // deep link ?tab=workers&hire=id
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams(window.location.search);
+      const t = q.get("tab") as Tab | null;
+      if (t && tabs.some((x) => x.id === t)) setActiveTab(t);
+      const hire = q.get("hire");
+      if (hire) setHireForm((f) => ({ ...f, workerId: hire }));
+    }
+  }, []);
 
   useEffect(() => { loadData(); }, [activeTab]);
 
@@ -71,31 +88,40 @@ export default function ServicesPage() {
     }
   }
 
-  async function handleReserve(assetId: string) {
-    const asset = assets.find((a) => a.id === assetId);
-    if (!asset) return;
-    const deposit = asset.price * 0.1;
-    const ok = window.confirm(
-      "Confirm reservation\n\nTitle: " + asset.title + "\nType: " + asset.type + "\nLocation: " + asset.location +
-      "\nPrice: " + formatCurrency(asset.price) + "\nDeposit (10%): " + formatCurrency(deposit) +
-      "\n\n" + asset.description +
-      "\n\nThis item will be removed from available listings.\nPay the deposit within 24 hours or the hold expires automatically."
-    );
-    if (!ok) return;
-    setActionLoading(assetId);
+  function openReserve(asset: Asset) {
+    setPayModal({
+      assetId: asset.id,
+      title: asset.title,
+      price: asset.price,
+      category: asset.type,
+    });
+  }
+
+  async function confirmReserve(payload: {
+    paymentMethod: "FULL" | "INSTALLMENT";
+    documents: { key: string; label: string; fileUrl: string; fileName?: string }[];
+  }) {
+    if (!payModal) return;
+    setActionLoading(payModal.assetId);
     setMessage(null);
     try {
       const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assetId, confirmed: true }),
+        body: JSON.stringify({
+          assetId: payModal.assetId,
+          confirmed: true,
+          paymentMethod: payload.paymentMethod,
+          documents: payload.documents,
+          rulesAgreed: payload.paymentMethod === "INSTALLMENT",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Reservation failed");
       setMessage({ type: "success", text: data.message || "Reservation submitted!" });
       loadData();
     } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Reservation failed" });
+      throw err;
     } finally {
       setActionLoading(null);
     }
@@ -107,8 +133,7 @@ export default function ServicesPage() {
     if (!tool) return;
     const ok = window.confirm(
       "Confirm tool rental\n\nTool: " + tool.name + "\n" + tool.description +
-      "\nQty: " + rentalForm.quantity + "\nFrom " + rentalForm.startDate + " to " + rentalForm.endDate +
-      "\n\nStock will be reduced immediately. Pay within 24 hours or the hold is cancelled."
+      "\nQty: " + rentalForm.quantity + "\nFrom " + rentalForm.startDate + " to " + rentalForm.endDate
     );
     if (!ok) return;
     setActionLoading("rent");
@@ -137,8 +162,7 @@ export default function ServicesPage() {
     const ok = window.confirm(
       "Confirm hire request\n\nWorker: " + (w?.name || "Open request") +
       "\nService: " + hireForm.serviceType + "\nLocation: " + hireForm.location +
-      "\nStart: " + hireForm.startDate + "\n\n" + hireForm.description +
-      "\n\nPlease verify these details before continuing."
+      "\nStart: " + hireForm.startDate + "\n\n" + hireForm.description
     );
     if (!ok) return;
     setActionLoading("hire");
@@ -193,7 +217,7 @@ export default function ServicesPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Our Services</h1>
           <p className="mt-4 text-lg text-slate-300 max-w-2xl">
-            Preview and confirm every booking. Reserved items leave available stock immediately. Unpaid holds expire in 24 hours.
+            Choose full payment or installment. Review worker profiles before you hire. Unpaid holds expire automatically.
           </p>
         </div>
       </section>
@@ -235,7 +259,7 @@ export default function ServicesPage() {
                 <h2 className="text-2xl font-bold text-construction-dark mb-2">
                   {activeTab === "land" ? "Land for Sale" : "Properties for Sale & Reservation"}
                 </h2>
-                <p className="text-construction-gray mb-8">Review the full description, then confirm before reserving.</p>
+                <p className="text-construction-gray mb-8">Select full payment or installment when you reserve.</p>
                 {filteredAssets.length === 0 ? (
                   <div className="text-center py-16 bg-slate-50 rounded-2xl border"><Building2 className="w-12 h-12 text-slate-400 mx-auto" /><p className="mt-4 text-construction-gray">No listings available.</p></div>
                 ) : (
@@ -254,9 +278,9 @@ export default function ServicesPage() {
                           <div className="mt-3 text-sm text-slate-500 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{asset.location}</div>
                           <div className="mt-4 flex items-center justify-between">
                             <span className="text-lg font-bold text-accent-600">{formatCurrency(asset.price)}</span>
-                            <button onClick={() => handleReserve(asset.id)} disabled={!!actionLoading}
+                            <button onClick={() => openReserve(asset)} disabled={!!actionLoading}
                               className="text-sm font-medium bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg">
-                              {actionLoading === asset.id ? "..." : "Preview & Reserve"}
+                              {actionLoading === asset.id ? "..." : "Reserve"}
                             </button>
                           </div>
                         </div>
@@ -285,7 +309,7 @@ export default function ServicesPage() {
                   <input type="number" min={1} value={rentalForm.quantity} onChange={(e) => setRentalForm({ ...rentalForm, quantity: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg border" placeholder="Qty" />
                   <input type="date" required value={rentalForm.startDate} onChange={(e) => setRentalForm({ ...rentalForm, startDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <input type="date" required value={rentalForm.endDate} onChange={(e) => setRentalForm({ ...rentalForm, endDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <button type="submit" disabled={!rentalForm.toolId || actionLoading === "rent"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50">Preview & Confirm</button>
+                  <button type="submit" disabled={!rentalForm.toolId || actionLoading === "rent"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50">Confirm rental</button>
                 </form>
               </div>
             )}
@@ -294,21 +318,54 @@ export default function ServicesPage() {
               <div className="grid lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
                   {workers.map((w) => (
-                    <div key={w.id} onClick={() => setHireForm({ ...hireForm, workerId: w.id })}
-                      className={`p-4 rounded-xl border cursor-pointer ${hireForm.workerId === w.id ? "border-primary-500 bg-primary-50" : "border-slate-200"}`}>
-                      <h3 className="font-semibold">{w.name}</h3>
-                      <p className="text-sm text-primary-600">{WORKER_SPECIALTIES.find((s) => s.value === w.specialty)?.label || w.specialty}</p>
-                      <p className="text-sm text-slate-500">{w.experience} yrs · {formatCurrency(w.dailyRate)}/day</p>
-                      {w.bio && <p className="text-xs text-slate-500 mt-1">{w.bio}</p>}
+                    <div key={w.id} className={`rounded-xl border overflow-hidden ${
+                      hireForm.workerId === w.id ? "border-primary-500 ring-2 ring-primary-200" : "border-slate-200"
+                    }`}>
+                      <div className="p-4">
+                        <div className="flex gap-3">
+                          <div className="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
+                            {w.image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={w.image} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <Users className="w-6 h-6 text-slate-400" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="font-semibold">{w.name}</h3>
+                            <p className="text-sm text-primary-600">
+                              {WORKER_SPECIALTIES.find((s) => s.value === w.specialty)?.label || w.specialty}
+                            </p>
+                            <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                              <Star className="w-3 h-3 text-amber-500" />{w.rating} · {w.experience} yrs
+                              {w.location ? ` · ${w.location}` : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold text-accent-600 mt-3">{formatCurrency(w.dailyRate)}/day</p>
+                        {w.bio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{w.bio}</p>}
+                        <div className="mt-3 flex gap-2">
+                          <Link href={`/workers/${w.id}`} className="text-xs font-medium text-primary-600 hover:underline">
+                            Full profile
+                          </Link>
+                          <button type="button" onClick={() => setHireForm({ ...hireForm, workerId: w.id })}
+                            className="text-xs font-medium bg-primary-600 text-white px-3 py-1 rounded-lg ml-auto">
+                            Select
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
                 <form onSubmit={handleHire} className="bg-slate-50 rounded-2xl p-6 border h-fit space-y-3">
                   <h3 className="font-semibold">Hire request</h3>
+                  <p className="text-sm text-slate-500">
+                    {hireForm.workerId ? workers.find((x) => x.id === hireForm.workerId)?.name : "Select a worker or open request"}
+                  </p>
                   <textarea required rows={3} placeholder="Job description" value={hireForm.description} onChange={(e) => setHireForm({ ...hireForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <input required placeholder="Location" value={hireForm.location} onChange={(e) => setHireForm({ ...hireForm, location: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <input type="date" required value={hireForm.startDate} onChange={(e) => setHireForm({ ...hireForm, startDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <button type="submit" disabled={actionLoading === "hire"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl">Preview & Confirm</button>
+                  <button type="submit" disabled={actionLoading === "hire"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl">Confirm hire</button>
                 </form>
               </div>
             )}
@@ -326,6 +383,15 @@ export default function ServicesPage() {
           </>
         )}
       </div>
+
+      <PaymentMethodModal
+        open={!!payModal}
+        onClose={() => setPayModal(null)}
+        title={payModal?.title || ""}
+        price={payModal?.price || 0}
+        category={payModal?.category || "HOUSE"}
+        onConfirm={confirmReserve}
+      />
     </div>
   );
 }
