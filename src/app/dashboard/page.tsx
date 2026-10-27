@@ -18,6 +18,9 @@ export default async function DashboardPage() {
   if (!session) {
     redirect("/login");
   }
+  if (session.role !== "ADMIN" && session.status !== "APPROVED") {
+    redirect("/pending-approval");
+  }
 
   const [reservations, rentals, hires, projects, payments] = await Promise.all([
     prisma.reservation.findMany({
@@ -61,20 +64,12 @@ export default async function DashboardPage() {
           </div>
           <div className="flex flex-wrap gap-3">
             {session.role === "ADMIN" && (
-              <>
-                <Link
-                  href="/admin"
-                  className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
-                >
-                  <Shield className="w-4 h-4" /> Admin Control
-                </Link>
-                <Link
-                  href="/dashboard/finished-projects"
-                  className="inline-flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
-                >
-                  Finished Projects
-                </Link>
-              </>
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
+              >
+                <Shield className="w-4 h-4" /> Admin Control
+              </Link>
             )}
             <Link
               href="/services"
@@ -118,10 +113,13 @@ export default async function DashboardPage() {
                       <p className="font-medium text-construction-dark">{r.asset.title}</p>
                       <p className="text-sm text-slate-500">{r.asset.type} · Deposit {formatCurrency(r.deposit)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">{formatDate(r.createdAt)}</p>
+                      {r.expiresAt && r.status === "PENDING" && (
+                        <p className="text-xs text-amber-600 mt-0.5">Pay by {formatDate(r.expiresAt)}</p>
+                      )}
                     </div>
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
                       r.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
-                      r.status === "CANCELLED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                      r.status === "EXPIRED" || r.status === "CANCELLED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
                     }`}>{r.status}</span>
                   </div>
                 ))
@@ -146,7 +144,7 @@ export default async function DashboardPage() {
                     </div>
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
                       r.status === "ACTIVE" ? "bg-green-100 text-green-700" :
-                      r.status === "RETURNED" ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-700"
+                      r.status === "EXPIRED" || r.status === "RETURNED" ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-700"
                     }`}>{r.status}</span>
                   </div>
                 ))
@@ -168,12 +166,8 @@ export default async function DashboardPage() {
                     <div>
                       <p className="font-medium text-construction-dark line-clamp-1">{h.description}</p>
                       <p className="text-sm text-slate-500">{h.worker?.name || h.serviceType} · {h.location}</p>
-                      <p className="text-xs text-slate-400">Start: {formatDate(h.startDate)}</p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      h.status === "COMPLETED" ? "bg-green-100 text-green-700" :
-                      h.status === "IN_PROGRESS" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
-                    }`}>{h.status}</span>
+                    <span className={`text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700`}>{h.status}</span>
                   </div>
                 ))
               )}
@@ -194,20 +188,9 @@ export default async function DashboardPage() {
                     <div className="flex justify-between items-start gap-3">
                       <div>
                         <p className="font-medium text-construction-dark">{p.title}</p>
-                        <p className="text-sm text-slate-500">Budget {formatCurrency(p.budget)} · Spent {formatCurrency(p.spent)}</p>
+                        <p className="text-sm text-slate-500">Budget {formatCurrency(p.budget)}</p>
                       </div>
-                      <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                        p.status === "COMPLETED" ? "bg-green-100 text-green-700" :
-                        p.status === "IN_PROGRESS" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
-                      }`}>{p.status}</span>
-                    </div>
-                    <div className="mt-2">
-                      <div className="flex justify-between text-xs text-slate-500 mb-1">
-                        <span>Progress</span><span>{p.progress}%</span>
-                      </div>
-                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary-500 rounded-full transition-all" style={{ width: `${p.progress}%` }} />
-                      </div>
+                      <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-600">{p.status}</span>
                     </div>
                   </div>
                 ))
@@ -227,26 +210,19 @@ export default async function DashboardPage() {
                 <tr>
                   <th className="px-5 py-3 font-medium">Type</th>
                   <th className="px-5 py-3 font-medium">Amount</th>
-                  <th className="px-5 py-3 font-medium">Method</th>
                   <th className="px-5 py-3 font-medium">Status</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {payments.length === 0 ? (
-                  <tr><td colSpan={5} className="px-5 py-6 text-center text-construction-gray">No payments yet.</td></tr>
+                  <tr><td colSpan={4} className="px-5 py-6 text-center text-construction-gray">No payments yet.</td></tr>
                 ) : (
                   payments.map((pay) => (
                     <tr key={pay.id}>
-                      <td className="px-5 py-3 font-medium text-construction-dark">{pay.type}</td>
+                      <td className="px-5 py-3 font-medium">{pay.type}</td>
                       <td className="px-5 py-3">{formatCurrency(pay.amount)}</td>
-                      <td className="px-5 py-3 text-slate-500">{pay.method}</td>
-                      <td className="px-5 py-3">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          pay.status === "COMPLETED" ? "bg-green-100 text-green-700" :
-                          pay.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                        }`}>{pay.status}</span>
-                      </td>
+                      <td className="px-5 py-3">{pay.status}</td>
                       <td className="px-5 py-3 text-slate-500">{formatDate(pay.createdAt)}</td>
                     </tr>
                   ))

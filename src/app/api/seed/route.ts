@@ -14,12 +14,15 @@ export async function POST(req: NextRequest) {
     const adminPassword = await bcrypt.hash("admin123", 12);
     await prisma.user.upsert({
       where: { email: "admin@buildforge.com" },
-      update: {},
+      update: { status: "APPROVED", approvedAt: new Date() },
       create: {
         email: "admin@buildforge.com",
         password: adminPassword,
         name: "Admin User",
         role: "ADMIN",
+        status: "APPROVED",
+        approvedAt: new Date(),
+        agreedTermsAt: new Date(),
         phone: "+1234567890",
       },
     });
@@ -27,12 +30,15 @@ export async function POST(req: NextRequest) {
     const clientPassword = await bcrypt.hash("client123", 12);
     await prisma.user.upsert({
       where: { email: "client@example.com" },
-      update: {},
+      update: { status: "APPROVED", approvedAt: new Date() },
       create: {
         email: "client@example.com",
         password: clientPassword,
         name: "Demo Client",
         role: "CLIENT",
+        status: "APPROVED",
+        approvedAt: new Date(),
+        agreedTermsAt: new Date(),
         phone: "+1987654321",
       },
     });
@@ -132,15 +138,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const users = await prisma.user.count();
-    const assets = await prisma.asset.count();
-    const tools = await prisma.tool.count();
-    const workers = await prisma.worker.count();
-
     return NextResponse.json({
       ok: true,
       message: "Database seeded",
-      counts: { users, assets, tools, workers },
       login: {
         admin: { email: "admin@buildforge.com", password: "admin123" },
         client: { email: "client@example.com", password: "client123" },
