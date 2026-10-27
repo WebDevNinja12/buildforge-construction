@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireApproved } from "@/lib/auth";
+import { RESERVATION_PAYMENT_HOURS, runMaintenance } from "@/lib/maintenance";
 
 export async function GET(req: NextRequest) {
   try {
+    await runMaintenance();
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
 
     const tools = await prisma.tool.findMany({
-      where: category ? { category } : undefined,
+      where: {
+        ...(category ? { category } : {}),
+        available: { gt: 0 },
+      },
       orderBy: { name: "asc" },
     });
 
@@ -21,17 +26,30 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Please login to rent tools" }, { status: 401 });
+    await runMaintenance();
+    let session;
+    try {
+      session = await requireApproved();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unauthorized";
+      return NextResponse.json(
+        { error: msg === "Account pending approval" ? msg : "Please login to rent tools" },
+        { status: msg === "Account pending approval" ? 403 : 401 }
+      );
     }
 
     const body = await req.json();
-    const { toolId, quantity, startDate, endDate } = body;
+    const { toolId, quantity, startDate, endDate, confirmed } = body;
 
     if (!toolId || !startDate || !endDate) {
       return NextResponse.json(
         { error: "Tool, start and end dates required" },
+        { status: 400 }
+      );
+    }
+    if (!confirmed) {
+      return NextResponse.json(
+        { error: "Please confirm the rental details before booking" },
         { status: 400 }
       );
     }
@@ -56,7 +74,12 @@ export async function POST(req: NextRequest) {
         ? Math.ceil(days / 7) * tool.weeklyRate * qty
         : days * tool.dailyRate * qty;
 
+    const expiresAt = new Date(
+      Date.now() + RESERVATION_PAYMENT_HOURS * 60 * 60 * 1000
+    );
+
     const rental = await prisma.$transaction(async (tx) => {
+      // Remove from available inventory
       await tx.tool.update({
         where: { id: toolId },
         data: { available: { decrement: qty } },
@@ -71,6 +94,7 @@ export async function POST(req: NextRequest) {
           endDate: end,
           totalCost,
           status: "PENDING",
+          expiresAt,
         },
         include: { tool: true },
       });
@@ -88,7 +112,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(rental, { status: 201 });
+    return NextResponse.json(
+      {
+        ...rental,
+        message: `Rental held for ${RESERVATION_PAYMENT_HOURS}h. Pay before then or it is cancelled and stock restored.`,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Rental failed" }, { status: 500 });
