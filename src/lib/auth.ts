@@ -57,7 +57,6 @@ export async function verifyToken(token: string): Promise<SessionUser | null> {
 }
 
 export async function getSession(): Promise<SessionUser | null> {
-  // Opportunistic maintenance (auto-approve + expire reservations)
   try {
     await runMaintenance();
   } catch {
@@ -70,7 +69,6 @@ export async function getSession(): Promise<SessionUser | null> {
   const session = await verifyToken(token);
   if (!session) return null;
 
-  // Refresh status from DB so auto-approval is reflected
   const user = await prisma.user.findUnique({
     where: { id: session.id },
     select: { id: true, email: true, name: true, role: true, status: true },
@@ -104,22 +102,18 @@ export async function clearSession() {
 
 export async function requireAuth(roles?: string[]) {
   const session = await getSession();
-  if (!session) {
-    throw new Error("Unauthorized");
-  }
-  if (roles && !roles.includes(session.role)) {
-    throw new Error("Forbidden");
-  }
+  if (!session) throw new Error("Unauthorized");
+  if (roles && !roles.includes(session.role)) throw new Error("Forbidden");
   return session;
 }
 
+/** Clients may use the platform when APPROVED, UNDER_REVIEW (auto or admin), or VERIFIED */
 export async function requireApproved() {
   const session = await getSession();
   if (!session) throw new Error("Unauthorized");
   if (session.role === "ADMIN") return session;
-  if (session.status !== "APPROVED") {
-    throw new Error("Account pending approval");
-  }
+  const ok = ["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "");
+  if (!ok) throw new Error("Account pending approval");
   return session;
 }
 
@@ -134,9 +128,7 @@ export async function registerUser(
     throw new Error("You must agree to the terms and rules before registering");
   }
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    throw new Error("Email already registered");
-  }
+  if (existing) throw new Error("Email already registered");
   const hashed = await hashPassword(password);
   const user = await prisma.user.create({
     data: {
@@ -146,6 +138,7 @@ export async function registerUser(
       phone,
       role: "CLIENT",
       status: "PENDING_APPROVAL",
+      verificationStatus: "UNDER_REVIEW",
       agreedTermsAt: new Date(),
     },
   });
@@ -161,15 +154,15 @@ export async function registerUser(
 export async function loginUser(email: string, password: string) {
   await runMaintenance();
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    throw new Error("Invalid email or password");
-  }
+  if (!user) throw new Error("Invalid email or password");
   const valid = await verifyPassword(password, user.password);
-  if (!valid) {
-    throw new Error("Invalid email or password");
-  }
-  if (user.status === "REJECTED") {
-    throw new Error("Your account was not approved. Contact support.");
+  if (!valid) throw new Error("Invalid email or password");
+  if (user.status === "REJECTED" || user.status === "SUSPENDED") {
+    throw new Error(
+      user.status === "SUSPENDED"
+        ? "Your account is suspended. Contact support."
+        : "Your account was not approved. Contact support."
+    );
   }
   return {
     id: user.id,
