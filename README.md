@@ -1,109 +1,82 @@
-# BuildForge – Construction Platform
+# Hama Construction Platform
 
-Full-stack construction website built with **Next.js 15**, **Prisma**, **SQLite**, and **Tailwind CSS**.
+Full-stack construction platform: asset reservations, tool hire, worker hire, installments, and project management.
 
-## Features
+**Stack:** Next.js 15 · Prisma · PostgreSQL (Neon) · Tailwind CSS · JWT auth
 
-- **Static pages**: Home, About Us, Contact
-- **Services page** (interactive):
-  - Buy & reserve houses, hotels, apartments, commercial properties
-  - Land listing and payment-plan info
-  - Tool & equipment hiring (daily/weekly rates)
-  - Construction worker hiring (specialists & crews)
-  - Project management (create & track projects)
-- **Auth**: Register / Login with JWT cookies
-- **Dashboard**: Reservations, rentals, hire requests, projects, payments
-- **Modern construction theme**: Blues, grays, orange accents
+## Production setup
 
-## Tech Stack
-
-- Next.js 15 (App Router)
-- TypeScript
-- Prisma + SQLite (easy to switch to PostgreSQL)
-- Tailwind CSS
-- jose (JWT) + bcryptjs
-- Lucide icons
-
-## Quick Start
-
-### 1. Install dependencies
-
-```bash
-cd construction-site
-npm install
-```
-
-### 2. Environment
-
-Copy `.env` and set values (already has defaults for local SQLite):
+### 1. Environment variables (Vercel / `.env`)
 
 ```env
-DATABASE_URL="file:./dev.db"
-JWT_SECRET="your-long-random-secret-at-least-32-chars"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+construction_storage_PRISMA_DATABASE_URL="postgresql://..."
+JWT_SECRET="long-random-secret-at-least-32-characters"
+SETUP_SECRET="another-long-secret-for-one-time-admin-setup"
+NEXT_PUBLIC_APP_URL="https://your-domain.vercel.app"
 
-# Optional – Stripe (replace with your keys)
-STRIPE_SECRET_KEY="sk_test_..."
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_..."
-STRIPE_WEBHOOK_SECRET="whsec_..."
+# Optional: create admin during `npm run db:seed`
+ADMIN_EMAIL="you@yourcompany.com"
+ADMIN_PASSWORD="strong-password-min-8-chars"
+ADMIN_NAME="Your Name"
 ```
 
-### 3. Database
+### 2. Database
 
 ```bash
 npx prisma generate
 npx prisma db push
-npm run db:seed
+npm run db:seed   # category rules only (+ admin if ADMIN_* set)
 ```
 
-### 4. Run
+### 3. Create the first admin (if not seeded)
 
 ```bash
+curl -X POST https://YOUR_DOMAIN/api/setup/admin \
+  -H "Content-Type: application/json" \
+  -H "x-setup-secret: YOUR_SETUP_SECRET" \
+  -d '{"email":"you@yourcompany.com","password":"YourStrongPassword","name":"Admin"}'
+```
+
+Then sign in at `/login`. **Do not commit passwords.**
+
+### 4. Remove old demo data (if the database was seeded earlier)
+
+```bash
+curl -X POST https://YOUR_DOMAIN/api/setup/purge-demo \
+  -H "Content-Type: application/json" \
+  -H "x-setup-secret: YOUR_SETUP_SECRET" \
+  -d '{"purgeCatalog":true}'
+```
+
+This deletes demo users (`admin@buildforge.com`, `client@example.com`) and, with `purgeCatalog: true`, all listings so you start clean.
+
+### 5. Add real content
+
+In **Admin Control** (`/admin` after login):
+
+- Customers, reservations, payments  
+- Assets / land, tools, workers (with image URLs)  
+- Finished projects  
+
+Clients register at `/register` (terms + approval flow).
+
+## Local development
+
+```bash
+npm install
+# set .env with Postgres URL + JWT_SECRET + SETUP_SECRET
+npx prisma db push
+npm run db:seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+## Security notes
 
-## Demo Accounts (after seed)
-
-| Role   | Email                  | Password   |
-|--------|------------------------|------------|
-| Admin  | admin@buildforge.com   | admin123   |
-| Client | client@example.com     | client123  |
-
-## Project Structure
-
-```
-src/
-  app/
-    page.tsx              # Home
-    about/                # About Us
-    contact/              # Contact form
-    services/             # Main interactive services
-    login/ register/      # Auth
-    dashboard/            # User dashboard
-    api/                  # API routes
-  components/             # Navbar, Footer, etc.
-  lib/                    # prisma, auth, utils
-prisma/
-  schema.prisma
-  seed.ts
-```
-
-## Switching to PostgreSQL
-
-1. Change `provider` in `prisma/schema.prisma` to `"postgresql"`.
-2. Set `DATABASE_URL` to your Postgres connection string.
-3. Run `npx prisma db push` and seed again.
-
-## Payments (Stripe)
-
-Payment records are created with status `PENDING`. To integrate Stripe:
-
-1. Add your keys to `.env`.
-2. Create checkout sessions in the reservation / rental / hire API routes.
-3. Use webhooks to mark payments `COMPLETED` and update related entities.
+- Demo seed API is **disabled** (`/api/seed` returns 410).
+- Passwords are bcrypt-hashed (cost 12).
+- Set `SETUP_ALLOW_RESET=true` only temporarily if you must recreate an admin when one already exists.
+- Configure Stripe keys when you enable live payments.
 
 ## License
 
-MIT – use and adapt for your construction business.
+Private — Hama Construction.
