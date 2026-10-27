@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession, requireApproved } from "@/lib/auth";
-import { RESERVATION_PAYMENT_HOURS, runMaintenance } from "@/lib/maintenance";
+import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
 
 export async function GET() {
   try {
@@ -11,14 +11,14 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const where =
-      session.role === "ADMIN" ? {} : { userId: session.id };
+    const where = session.role === "ADMIN" ? {} : { userId: session.id };
 
     const reservations = await prisma.reservation.findMany({
       where,
       include: {
         asset: true,
         user: { select: { id: true, name: true, email: true } },
+        installments: { orderBy: { sequence: "asc" } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { assetId, notes, deposit, confirmed } = body;
+    const { assetId, notes, deposit, confirmed, payInFull } = body;
 
     if (!assetId) {
       return NextResponse.json({ error: "Asset ID required" }, { status: 400 });
@@ -58,43 +58,70 @@ export async function POST(req: NextRequest) {
     }
 
     const asset = await prisma.asset.findUnique({ where: { id: assetId } });
-    if (!asset || asset.status !== "AVAILABLE") {
-      return NextResponse.json(
-        { error: "Asset not available" },
-        { status: 400 }
-      );
+    if (!asset || asset.status !== "AVAILABLE" || asset.active === false) {
+      return NextResponse.json({ error: "Asset not available" }, { status: 400 });
     }
 
+    const hours = await getExpiryHours(asset.type, asset.reservationHours);
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
     const depositAmount = deposit ?? asset.price * 0.1;
-    const expiresAt = new Date(
-      Date.now() + RESERVATION_PAYMENT_HOURS * 60 * 60 * 1000
-    );
+    const totalAmount = asset.price;
 
     const reservation = await prisma.$transaction(async (tx) => {
-      // Remove from available listings immediately
       await tx.asset.update({
         where: { id: assetId },
         data: { status: "RESERVED" },
       });
 
-      return tx.reservation.create({
+      const res = await tx.reservation.create({
         data: {
           userId: session.id,
           assetId,
           deposit: depositAmount,
+          totalAmount,
+          amountPaid: 0,
           notes: notes || null,
           status: "PENDING",
           expiresAt,
         },
         include: { asset: true },
       });
+
+      // Optional installment schedule
+      if (asset.installmentCount && asset.installmentCount > 1) {
+        let percents: number[] = [];
+        try {
+          percents = JSON.parse(asset.installmentPercents || "[]");
+        } catch {
+          percents = [];
+        }
+        if (percents.length !== asset.installmentCount) {
+          percents = Array(asset.installmentCount).fill(100 / asset.installmentCount);
+        }
+        for (let i = 0; i < asset.installmentCount; i++) {
+          const amount = Math.round((totalAmount * (percents[i] / 100)) * 100) / 100;
+          const due = new Date(Date.now() + (i + 1) * 30 * 24 * 60 * 60 * 1000);
+          await tx.installment.create({
+            data: {
+              reservationId: res.id,
+              sequence: i + 1,
+              amount,
+              dueDate: due,
+              status: "PENDING",
+            },
+          });
+        }
+      }
+
+      return res;
     });
 
+    const firstAmount = payInFull ? totalAmount : depositAmount;
     await prisma.payment.create({
       data: {
         userId: session.id,
-        amount: depositAmount,
-        type: "RESERVATION",
+        amount: firstAmount,
+        type: payInFull ? "FULL" : "DEPOSIT",
         method: "PENDING",
         status: "PENDING",
         reservationId: reservation.id,
@@ -102,10 +129,21 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    await prisma.notification.create({
+      data: {
+        userId: session.id,
+        title: "Reservation created",
+        body: `Hold on "${asset.title}" for ${hours} hours. Complete payment before expiry or it will be released.`,
+        type: "RESERVATION",
+        link: "/dashboard",
+      },
+    });
+
     return NextResponse.json(
       {
         ...reservation,
-        message: `Reservation held for ${RESERVATION_PAYMENT_HOURS} hours. Pay the deposit before then or it will be released automatically.`,
+        message: `Reservation held for ${hours} hours. Pay before then or it will be released automatically.`,
+        expiryHours: hours,
       },
       { status: 201 }
     );

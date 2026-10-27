@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { runMaintenance } from "@/lib/maintenance";
+import { Countdown } from "@/components/Countdown";
 import {
   Building2,
   Wrench,
@@ -11,23 +13,36 @@ import {
   CreditCard,
   ArrowRight,
   Shield,
+  BadgeCheck,
+  Clock,
 } from "lucide-react";
 
 export default async function DashboardPage() {
   const session = await getSession();
-  if (!session) {
-    redirect("/login");
-  }
-  if (session.role !== "ADMIN" && session.status !== "APPROVED") {
+  if (!session) redirect("/login");
+  if (session.role !== "ADMIN" && !["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "")) {
     redirect("/pending-approval");
   }
 
-  const [reservations, rentals, hires, projects, payments] = await Promise.all([
+  await runMaintenance().catch(() => null);
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: {
+      status: true,
+      verificationStatus: true,
+      verificationNote: true,
+      verifiedAt: true,
+      approvedAt: true,
+    },
+  });
+
+  const [reservations, rentals, hires, projects, payments, notifications] = await Promise.all([
     prisma.reservation.findMany({
       where: { userId: session.id },
-      include: { asset: true },
+      include: { asset: true, installments: { orderBy: { sequence: "asc" } } },
       orderBy: { createdAt: "desc" },
-      take: 10,
+      take: 20,
     }),
     prisma.toolRental.findMany({
       where: { userId: session.id },
@@ -50,33 +65,60 @@ export default async function DashboardPage() {
     prisma.payment.findMany({
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
-      take: 10,
+      take: 15,
     }),
+    prisma.notification.findMany({
+      where: { userId: session.id },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }).catch(() => []),
   ]);
+
+  const vStatus = user?.verificationStatus || "PENDING";
 
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
             <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
           </div>
           <div className="flex flex-wrap gap-3">
             {session.role === "ADMIN" && (
-              <Link
-                href="/admin"
-                className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
-              >
+              <Link href="/admin" className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl">
                 <Shield className="w-4 h-4" /> Admin Control
               </Link>
             )}
-            <Link
-              href="/services"
-              className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
+            <Link href="/services" className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-5 py-2.5 rounded-xl">
               Browse Services <ArrowRight className="w-4 h-4" />
             </Link>
+          </div>
+        </div>
+
+        {/* Verification banner */}
+        <div className={`mb-8 rounded-xl border px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 ${
+          vStatus === "VERIFIED" ? "bg-green-50 border-green-200" :
+          vStatus === "REJECTED" ? "bg-red-50 border-red-200" :
+          "bg-amber-50 border-amber-200"
+        }`}>
+          <BadgeCheck className={`w-6 h-6 shrink-0 ${
+            vStatus === "VERIFIED" ? "text-green-600" : "text-amber-600"
+          }`} />
+          <div className="flex-1">
+            <p className="font-semibold text-construction-dark">
+              Verification status: {" "}
+              <span className="underline decoration-dotted">{vStatus.replace(/_/g, " ")}</span>
+            </p>
+            <p className="text-sm text-slate-600 mt-0.5">
+              {vStatus === "VERIFIED"
+                ? "Your documents and profile have been fully verified."
+                : vStatus === "REUPLOAD_REQUIRED"
+                ? user?.verificationNote || "Please re-upload the requested documents."
+                : vStatus === "REJECTED"
+                ? user?.verificationNote || "Your registration was rejected. Contact support."
+                : "Account may be usable while under review. Final verification is completed by admin after document check."}
+            </p>
           </div>
         </div>
 
@@ -102,6 +144,7 @@ export default async function DashboardPage() {
             <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-primary-600" />
               <h2 className="font-semibold text-construction-dark">Reservations</h2>
+              <Clock className="w-4 h-4 text-slate-400 ml-auto" />
             </div>
             <div className="divide-y divide-slate-100">
               {reservations.length === 0 ? (
@@ -109,17 +152,35 @@ export default async function DashboardPage() {
               ) : (
                 reservations.map((r) => (
                   <div key={r.id} className="px-5 py-4 flex justify-between items-start gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-construction-dark">{r.asset.title}</p>
-                      <p className="text-sm text-slate-500">{r.asset.type} · Deposit {formatCurrency(r.deposit)}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(r.createdAt)}</p>
-                      {r.expiresAt && r.status === "PENDING" && (
-                        <p className="text-xs text-amber-600 mt-0.5">Pay by {formatDate(r.expiresAt)}</p>
+                      <p className="text-sm text-slate-500">
+                        {r.asset.type} · Deposit {formatCurrency(r.deposit)}
+                        {r.totalAmount ? ` · Total ${formatCurrency(r.totalAmount)}` : ""}
+                      </p>
+                      {r.amountPaid > 0 && (
+                        <p className="text-xs text-green-700 mt-0.5">
+                          Paid {formatCurrency(r.amountPaid)}
+                          {r.totalAmount ? ` · Balance ${formatCurrency(Math.max(0, r.totalAmount - r.amountPaid))}` : ""}
+                        </p>
                       )}
+                      {r.installments?.length > 0 && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          Installments: {r.installments.filter((i) => i.status === "PAID").length}/{r.installments.length} paid
+                          {r.installments.find((i) => i.status === "PENDING") && (
+                            <> · Next {formatCurrency(r.installments.find((i) => i.status === "PENDING")!.amount)}</>
+                          )}
+                        </p>
+                      )}
+                      <div className="mt-1">
+                        <Countdown expiresAt={r.expiresAt} status={r.status} />
+                      </div>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      r.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
-                      r.status === "EXPIRED" || r.status === "CANCELLED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                    <span className={`text-xs font-medium px-2 py-1 rounded-full shrink-0 ${
+                      r.status === "CONFIRMED" || r.status === "FULLY_PAID" ? "bg-green-100 text-green-700" :
+                      r.status === "EXPIRED" || r.status === "CANCELLED" ? "bg-red-100 text-red-700" :
+                      r.status === "PARTIALLY_PAID" ? "bg-blue-100 text-blue-700" :
+                      "bg-amber-100 text-amber-700"
                     }`}>{r.status}</span>
                   </div>
                 ))
@@ -141,10 +202,10 @@ export default async function DashboardPage() {
                     <div>
                       <p className="font-medium text-construction-dark">{r.tool.name}</p>
                       <p className="text-sm text-slate-500">{formatDate(r.startDate)} → {formatDate(r.endDate)} · {formatCurrency(r.totalCost)}</p>
+                      <Countdown expiresAt={r.expiresAt} status={r.status} />
                     </div>
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                      r.status === "ACTIVE" ? "bg-green-100 text-green-700" :
-                      r.status === "EXPIRED" || r.status === "RETURNED" ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-700"
+                      r.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
                     }`}>{r.status}</span>
                   </div>
                 ))
@@ -167,7 +228,7 @@ export default async function DashboardPage() {
                       <p className="font-medium text-construction-dark line-clamp-1">{h.description}</p>
                       <p className="text-sm text-slate-500">{h.worker?.name || h.serviceType} · {h.location}</p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700`}>{h.status}</span>
+                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700">{h.status}</span>
                   </div>
                 ))
               )}
@@ -177,21 +238,17 @@ export default async function DashboardPage() {
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
               <ClipboardList className="w-5 h-5 text-purple-600" />
-              <h2 className="font-semibold text-construction-dark">Projects</h2>
+              <h2 className="font-semibold text-construction-dark">Notifications</h2>
             </div>
-            <div className="divide-y divide-slate-100">
-              {projects.length === 0 ? (
-                <p className="p-5 text-sm text-construction-gray">No projects yet.</p>
+            <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <p className="p-5 text-sm text-construction-gray">No notifications.</p>
               ) : (
-                projects.map((p) => (
-                  <div key={p.id} className="px-5 py-4">
-                    <div className="flex justify-between items-start gap-3">
-                      <div>
-                        <p className="font-medium text-construction-dark">{p.title}</p>
-                        <p className="text-sm text-slate-500">Budget {formatCurrency(p.budget)}</p>
-                      </div>
-                      <span className="text-xs font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-600">{p.status}</span>
-                    </div>
+                notifications.map((n: any) => (
+                  <div key={n.id} className="px-5 py-3">
+                    <p className="font-medium text-sm text-construction-dark">{n.title}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{n.body}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">{formatDate(n.createdAt)}</p>
                   </div>
                 ))
               )}
@@ -202,7 +259,7 @@ export default async function DashboardPage() {
         <section className="mt-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-slate-600" />
-            <h2 className="font-semibold text-construction-dark">Recent Payments</h2>
+            <h2 className="font-semibold text-construction-dark">Payments</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -211,18 +268,26 @@ export default async function DashboardPage() {
                   <th className="px-5 py-3 font-medium">Type</th>
                   <th className="px-5 py-3 font-medium">Amount</th>
                   <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Note</th>
                   <th className="px-5 py-3 font-medium">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {payments.length === 0 ? (
-                  <tr><td colSpan={4} className="px-5 py-6 text-center text-construction-gray">No payments yet.</td></tr>
+                  <tr><td colSpan={5} className="px-5 py-6 text-center text-construction-gray">No payments yet.</td></tr>
                 ) : (
                   payments.map((pay) => (
                     <tr key={pay.id}>
                       <td className="px-5 py-3 font-medium">{pay.type}</td>
                       <td className="px-5 py-3">{formatCurrency(pay.amount)}</td>
-                      <td className="px-5 py-3">{pay.status}</td>
+                      <td className="px-5 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          pay.status === "APPROVED" || pay.status === "COMPLETED" ? "bg-green-100 text-green-700" :
+                          pay.status === "REJECTED" || pay.status === "FAILED" ? "bg-red-100 text-red-700" :
+                          "bg-amber-100 text-amber-700"
+                        }`}>{pay.status}</span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500 max-w-[200px]">{pay.rejectReason || "—"}</td>
                       <td className="px-5 py-3 text-slate-500">{formatDate(pay.createdAt)}</td>
                     </tr>
                   ))
