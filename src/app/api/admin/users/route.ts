@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession, hashPassword } from "@/lib/auth";
-import { runMaintenance } from "@/lib/maintenance";
+import { getSession } from "@/lib/auth";
+import bcrypt from "bcryptjs";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -9,14 +9,20 @@ async function requireAdmin() {
   return session;
 }
 
-/** List users with activity counts — never returns password */
+async function log(adminId: string, action: string, entityId?: string, details?: string) {
+  try {
+    await prisma.adminActivityLog.create({
+      data: { adminId, action, entity: "User", entityId, details },
+    });
+  } catch { /* */ }
+}
+
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
-  await runMaintenance();
-
   const users = await prisma.user.findMany({
+    orderBy: { createdAt: "desc" },
     select: {
       id: true,
       email: true,
@@ -24,137 +30,143 @@ export async function GET() {
       phone: true,
       role: true,
       status: true,
-      agreedTermsAt: true,
+      verificationStatus: true,
+      verificationNote: true,
       approvedAt: true,
+      verifiedAt: true,
       createdAt: true,
       _count: {
-        select: {
-          reservations: true,
-          toolRentals: true,
-          hireRequests: true,
-          projects: true,
-          payments: true,
-        },
+        select: { reservations: true, toolRentals: true, hireRequests: true, documents: true },
+      },
+      documents: {
+        select: { id: true, type: true, fileUrl: true, status: true, rejectReason: true, fileName: true },
       },
     },
-    orderBy: { createdAt: "desc" },
   });
   return NextResponse.json(users);
 }
 
-/** Create user (admin) — password bcrypt-hashed; can set APPROVED */
 export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
-
   try {
     const body = await req.json();
-    const { email, password, name, phone, role, status } = body;
-    if (!email || !password || !name) {
-      return NextResponse.json({ error: "email, password, name required" }, { status: 400 });
+    if (!body.email || !body.password || !body.name) {
+      return NextResponse.json({ error: "name, email, password required" }, { status: 400 });
     }
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return NextResponse.json({ error: "Email already exists" }, { status: 400 });
-
-    const hashed = await hashPassword(password);
-    const isAdmin = role === "ADMIN";
+    const hash = await bcrypt.hash(body.password, 12);
     const user = await prisma.user.create({
       data: {
-        email,
-        password: hashed,
-        name,
-        phone: phone || null,
-        role: isAdmin ? "ADMIN" : "CLIENT",
-        status: isAdmin ? "APPROVED" : status === "APPROVED" ? "APPROVED" : "PENDING_APPROVAL",
+        email: body.email.toLowerCase().trim(),
+        password: hash,
+        name: body.name,
+        phone: body.phone || null,
+        role: body.role || "CLIENT",
+        status: body.status || "APPROVED",
+        verificationStatus: body.verificationStatus || "VERIFIED",
+        approvedAt: new Date(),
+        verifiedAt: new Date(),
         agreedTermsAt: new Date(),
-        approvedAt: isAdmin || status === "APPROVED" ? new Date() : null,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        status: true,
-        phone: true,
-        createdAt: true,
       },
     });
-    return NextResponse.json(user, { status: 201 });
-  } catch (e) {
+    await log(admin.id, "CREATE_USER", user.id, user.email);
+    const { password: _, ...safe } = user;
+    return NextResponse.json(safe, { status: 201 });
+  } catch (e: any) {
+    if (e?.code === "P2002") return NextResponse.json({ error: "Email already exists" }, { status: 400 });
     console.error(e);
     return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
   }
 }
 
-/** Approve / reject client */
+/**
+ * PATCH body:
+ * { id, status?, verificationStatus?, verificationNote?, action?: "FINAL_VERIFY" | "REQUEST_REUPLOAD" | "SUSPEND" }
+ */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
   try {
     const body = await req.json();
-    const { id, status } = body;
-    if (!id || !status) {
-      return NextResponse.json({ error: "id and status required" }, { status: 400 });
+    const { id, status, verificationStatus, verificationNote, action } = body;
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const data: Record<string, unknown> = {};
+
+    if (action === "FINAL_VERIFY") {
+      data.status = "VERIFIED";
+      data.verificationStatus = "VERIFIED";
+      data.verifiedAt = new Date();
+      data.approvedAt = data.approvedAt || new Date();
+    } else if (action === "SUSPEND") {
+      data.status = "SUSPENDED";
+    } else if (action === "REQUEST_REUPLOAD") {
+      data.verificationStatus = "REUPLOAD_REQUIRED";
+      data.verificationNote = verificationNote || "Please re-upload required documents.";
+    } else {
+      if (status) {
+        data.status = status;
+        if (status === "APPROVED" || status === "UNDER_REVIEW") {
+          data.approvedAt = new Date();
+          if (!verificationStatus) data.verificationStatus = "UNDER_REVIEW";
+        }
+        if (status === "VERIFIED") {
+          data.verificationStatus = "VERIFIED";
+          data.verifiedAt = new Date();
+          data.approvedAt = new Date();
+        }
+        if (status === "REJECTED") {
+          data.verificationStatus = "REJECTED";
+          data.verificationNote = verificationNote || "Registration rejected.";
+        }
+      }
+      if (verificationStatus) data.verificationStatus = verificationStatus;
+      if (verificationNote != null) data.verificationNote = verificationNote;
     }
-    if (!["APPROVED", "REJECTED", "PENDING_APPROVAL"].includes(status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
-    }
-    const user = await prisma.user.update({
-      where: { id },
+
+    const user = await prisma.user.update({ where: { id }, data });
+
+    await prisma.notification.create({
       data: {
-        status,
-        approvedAt: status === "APPROVED" ? new Date() : null,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        status: true,
-        approvedAt: true,
+        userId: id,
+        title: "Account status updated",
+        body: `Your account status is now: ${user.verificationStatus || user.status}.${user.verificationNote ? " Note: " + user.verificationNote : ""}`,
+        type: "VERIFICATION",
+        link: "/dashboard",
       },
     });
-    return NextResponse.json(user);
+
+    await log(admin.id, action || `STATUS_${status}`, id, JSON.stringify(data));
+    const { password: _, ...safe } = user;
+    return NextResponse.json(safe);
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
   }
 }
 
-/** Delete any customer (not self) */
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
-
   try {
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-    if (id === admin.id) {
-      return NextResponse.json({ error: "Cannot delete your own admin account" }, { status: 400 });
-    }
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (target.role === "ADMIN") return NextResponse.json({ error: "Cannot delete admin" }, { status: 400 });
 
-    await prisma.$transaction(async (tx) => {
-      await tx.payment.deleteMany({ where: { userId: id } });
-      await tx.reservation.deleteMany({ where: { userId: id } });
-      await tx.toolRental.deleteMany({ where: { userId: id } });
-      await tx.hireRequest.deleteMany({ where: { userId: id } });
-      const clientProjects = await tx.project.findMany({
-        where: { clientId: id },
-        select: { id: true },
-      });
-      for (const p of clientProjects) {
-        await tx.milestone.deleteMany({ where: { projectId: p.id } });
-        await tx.payment.deleteMany({ where: { projectId: p.id } });
-      }
-      await tx.project.deleteMany({ where: { clientId: id } });
-      await tx.project.updateMany({ where: { managerId: id }, data: { managerId: null } });
-      await tx.user.delete({ where: { id } });
-    });
-
+    await prisma.notification.deleteMany({ where: { userId: id } });
+    await prisma.userDocument.deleteMany({ where: { userId: id } });
+    await prisma.payment.deleteMany({ where: { userId: id } });
+    await prisma.reservation.deleteMany({ where: { userId: id } });
+    await prisma.toolRental.deleteMany({ where: { userId: id } });
+    await prisma.hireRequest.deleteMany({ where: { userId: id } });
+    await prisma.user.delete({ where: { id } });
+    await log(admin.id, "DELETE_USER", id, target.email);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
   }
 }
