@@ -100,6 +100,20 @@ export default function AdminPage() {
     loadTab("users");
   }
 
+  async function setReservationStatus(id: string, action: "ACCEPT" | "REJECT") {
+    const label = action === "ACCEPT" ? "accept" : "reject";
+    if (!confirm(`Are you sure you want to ${label} this reservation?`)) return;
+    const res = await fetch("/api/admin/reservations", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action }),
+    });
+    const data = await res.json();
+    if (!res.ok) return notify(data.error || "Update failed", true);
+    notify(data.message || (action === "ACCEPT" ? "Reservation accepted" : "Reservation rejected"));
+    loadTab("activity");
+  }
+
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -276,7 +290,7 @@ export default function AdminPage() {
         <h1 className="text-3xl font-bold text-construction-dark flex items-center gap-2">
           <Shield className="w-8 h-8 text-primary-600" /> Admin Control
         </h1>
-        <p className="text-sm text-construction-gray mb-6">Add services with image and description. Passwords are bcrypt-hashed.</p>
+        <p className="text-sm text-construction-gray mb-6">Accept or reject reservations, manage clients and services.</p>
         {message && <p className="mb-4 text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-4 py-2">{message}</p>}
         {error && <p className="mb-4 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>}
 
@@ -336,13 +350,89 @@ export default function AdminPage() {
             )}
 
             {tab === "activity" && activity && (
-              <div className="space-y-4">
-                <p className="text-sm">Pending approvals: <strong>{activity.pendingApprovals ?? 0}</strong></p>
-                <ul className="bg-white border rounded-xl divide-y max-h-96 overflow-y-auto">
-                  {(activity.reservations || []).map((r: any) => (
-                    <li key={r.id} className="px-4 py-2 text-sm">{r.user?.name} · {r.asset?.title} · {r.status}</li>
-                  ))}
-                </ul>
+              <div className="space-y-6">
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-xl border p-4">
+                    <p className="text-2xl font-bold text-amber-600">{activity.pendingApprovals ?? 0}</p>
+                    <p className="text-sm text-slate-500">Pending client approvals</p>
+                  </div>
+                  <div className="bg-white rounded-xl border p-4">
+                    <p className="text-2xl font-bold">{(activity.reservations || []).filter((r: any) => r.status === "PENDING").length}</p>
+                    <p className="text-sm text-slate-500">Pending reservations</p>
+                  </div>
+                  <div className="bg-white rounded-xl border p-4">
+                    <p className="text-2xl font-bold">{activity.payments?.length ?? 0}</p>
+                    <p className="text-sm text-slate-500">Recent payments</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border overflow-hidden">
+                  <div className="px-5 py-3 border-b font-semibold flex items-center justify-between">
+                    <span>Reservations — Accept or Reject</span>
+                    <span className="text-xs font-normal text-slate-500">Green = accept · Red = reject</span>
+                  </div>
+                  <ul className="divide-y max-h-[28rem] overflow-y-auto">
+                    {(activity.reservations || []).length === 0 ? (
+                      <li className="px-5 py-6 text-sm text-slate-500 text-center">No reservations yet</li>
+                    ) : (
+                      (activity.reservations || []).map((r: any) => (
+                        <li key={r.id} className="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-construction-dark">
+                              {r.asset?.title || "Asset"}{" "}
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                r.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
+                                r.status === "CANCELLED" || r.status === "EXPIRED" ? "bg-red-100 text-red-700" :
+                                "bg-amber-100 text-amber-700"
+                              }`}>{r.status}</span>
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {r.user?.name} ({r.user?.email}) · Deposit ${Number(r.deposit || 0).toLocaleString()}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {r.asset?.location} · {r.asset?.type}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {r.status === "PENDING" && (
+                              <button type="button" onClick={() => setReservationStatus(r.id, "ACCEPT")}
+                                className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                                <Check className="w-3.5 h-3.5" /> Accept
+                              </button>
+                            )}
+                            {(r.status === "PENDING" || r.status === "CONFIRMED") && (
+                              <button type="button" onClick={() => setReservationStatus(r.id, "REJECT")}
+                                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                                <X className="w-3.5 h-3.5" /> Reject
+                              </button>
+                            )}
+                            {r.status !== "PENDING" && r.status !== "CONFIRMED" && (
+                              <span className="text-xs text-slate-400">No action</span>
+                            )}
+                          </div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+
+                <div className="bg-white rounded-2xl border overflow-hidden">
+                  <div className="px-5 py-3 border-b font-semibold">Tool rentals</div>
+                  <ul className="divide-y max-h-48 overflow-y-auto">
+                    {(activity.rentals || []).map((r: any) => (
+                      <li key={r.id} className="px-5 py-2 text-sm">{r.user?.name} · {r.tool?.name} · {r.status}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-white rounded-2xl border overflow-hidden">
+                  <div className="px-5 py-3 border-b font-semibold">Hire requests</div>
+                  <ul className="divide-y max-h-48 overflow-y-auto">
+                    {(activity.hires || []).map((h: any) => (
+                      <li key={h.id} className="px-5 py-2 text-sm">{h.user?.name} · {(h.description || "").slice(0, 50)} · {h.status}</li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
 
@@ -371,7 +461,7 @@ export default function AdminPage() {
                     <li key={a.id} className="bg-white border rounded-xl px-4 py-3 flex gap-3 justify-between">
                       <div className="flex gap-3 min-w-0">
                         {img ? <img src={img} alt="" className="w-14 h-14 rounded-lg object-cover" /> : <div className="w-14 h-14 bg-slate-100 rounded-lg" />}
-                        <div><p className="font-medium">{a.title}</p><p className="text-sm text-slate-500">{a.location}</p><p className="text-xs text-slate-400 line-clamp-1">{a.description}</p></div>
+                        <div><p className="font-medium">{a.title}</p><p className="text-sm text-slate-500">{a.location}</p></div>
                       </div>
                       <button type="button" onClick={() => deleteAsset(a.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </li>
@@ -383,7 +473,7 @@ export default function AdminPage() {
             {tab === "tools" && (
               <div className="space-y-6">
                 <form onSubmit={createTool} className="bg-white rounded-2xl border p-6 space-y-3">
-                  <h2 className="font-semibold">Add tool (image + description)</h2>
+                  <h2 className="font-semibold">Add tool</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
                     <input required placeholder="Name *" value={toolForm.name} onChange={(e) => setToolForm({ ...toolForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input required type="number" placeholder="Daily rate *" value={toolForm.dailyRate} onChange={(e) => setToolForm({ ...toolForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
@@ -396,7 +486,7 @@ export default function AdminPage() {
                 </form>
                 <ul className="space-y-2">{tools.map((t) => (
                   <li key={t.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{t.name}</p><p className="text-sm text-slate-500 line-clamp-1">{t.description}</p></div>
+                    <div><p className="font-medium">{t.name}</p></div>
                     <button type="button" onClick={() => deleteTool(t.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
@@ -406,7 +496,7 @@ export default function AdminPage() {
             {tab === "workers" && (
               <div className="space-y-6">
                 <form onSubmit={createWorker} className="bg-white rounded-2xl border p-6 space-y-3">
-                  <h2 className="font-semibold">Add worker (photo + bio)</h2>
+                  <h2 className="font-semibold">Add worker</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
                     <input required placeholder="Name *" value={workerForm.name} onChange={(e) => setWorkerForm({ ...workerForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <select value={workerForm.specialty} onChange={(e) => setWorkerForm({ ...workerForm, specialty: e.target.value })} className="px-3 py-2 rounded-lg border">
@@ -416,12 +506,12 @@ export default function AdminPage() {
                     <input required type="number" placeholder="Daily rate *" value={workerForm.dailyRate} onChange={(e) => setWorkerForm({ ...workerForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input type="url" placeholder="Photo URL" value={workerForm.imageUrl} onChange={(e) => setWorkerForm({ ...workerForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border sm:col-span-2" />
                   </div>
-                  <textarea rows={3} placeholder="Bio / description" value={workerForm.bio} onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
+                  <textarea rows={3} placeholder="Bio" value={workerForm.bio} onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">Add worker</button>
                 </form>
                 <ul className="space-y-2">{workers.map((w) => (
                   <li key={w.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{w.name}</p><p className="text-sm text-slate-500">{w.specialty}</p></div>
+                    <div><p className="font-medium">{w.name}</p></div>
                     <button type="button" onClick={() => deleteWorker(w.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
@@ -443,7 +533,7 @@ export default function AdminPage() {
                 </form>
                 <ul className="space-y-2">{finished.map((p) => (
                   <li key={p.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{p.title}</p><p className="text-sm text-slate-500">{p.location}</p></div>
+                    <div><p className="font-medium">{p.title}</p></div>
                     <button type="button" onClick={() => deleteFinished(p.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
