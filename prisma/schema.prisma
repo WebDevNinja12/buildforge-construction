@@ -8,102 +8,137 @@ datasource db {
 }
 
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  password        String
-  name            String
-  phone           String?
-  role            String          @default("CLIENT")
-  // PENDING_APPROVAL | UNDER_REVIEW | APPROVED | VERIFIED | REJECTED | SUSPENDED
-  status          String          @default("PENDING_APPROVAL")
-  // Document verification: PENDING | UNDER_REVIEW | VERIFIED | REJECTED | REUPLOAD_REQUIRED
-  verificationStatus String       @default("PENDING")
-  verificationNote String?
-  agreedTermsAt   DateTime?
-  approvedAt      DateTime?
-  verifiedAt      DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  reservations    Reservation[]
-  toolRentals     ToolRental[]
-  hireRequests    HireRequest[]
-  projects        Project[]       @relation("ClientProjects")
-  managedProjects Project[]       @relation("ManagerProjects")
-  payments        Payment[]
-  documents       UserDocument[]
-  notifications   Notification[]
-  adminLogs       AdminActivityLog[] @relation("AdminActor")
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  password           String
+  name               String
+  phone              String?
+  role               String            @default("CLIENT")
+  status             String            @default("PENDING_APPROVAL")
+  verificationStatus String            @default("PENDING")
+  verificationNote   String?
+  agreedTermsAt      DateTime?
+  approvedAt         DateTime?
+  verifiedAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  reservations       Reservation[]
+  toolRentals        ToolRental[]
+  hireRequests       HireRequest[]
+  projects           Project[]         @relation("ClientProjects")
+  managedProjects    Project[]         @relation("ManagerProjects")
+  payments           Payment[]
+  documents          UserDocument[]
+  notifications      Notification[]
+  adminLogs          AdminActivityLog[] @relation("AdminActor")
+  installmentDocs    InstallmentDocument[]
+  workerReviews      WorkerReview[]
 }
 
 model UserDocument {
-  id          String   @id @default(cuid())
-  userId      String
-  type        String   // ID | PROOF_OF_ADDRESS | PASSPORT_PHOTO | CAC | OTHER
-  label       String?
-  fileUrl     String
-  fileName    String?
-  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED | REUPLOAD_REQUIRED
+  id           String   @id @default(cuid())
+  userId       String
+  type         String
+  label        String?
+  fileUrl      String
+  fileName     String?
+  status       String   @default("PENDING")
   rejectReason String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CategoryDefault {
-  id                  String @id @default(cuid())
-  category            String @unique // HOUSE | HOTEL | LAND | TOOLS | WORKERS | OTHER
-  name                String
-  // Reservation hold duration in hours
-  defaultExpiryHours  Int
-  sortOrder           Int    @default(0)
-  active              Boolean @default(true)
-  updatedAt           DateTime @updatedAt
+  id                     String  @id @default(cuid())
+  category               String  @unique
+  name                   String
+  defaultExpiryHours     Int
+  // HOUSE/LAND: months after deposit for full plan; null for in-period categories
+  installmentPlanMonths  Int?
+  // HOTEL/TOOLS/WORKERS: % deducted on cancel after grace
+  cancelDeductionPercent Float   @default(0)
+  // hours after reservation end before cancel+refund
+  graceHours             Int     @default(24)
+  // true = House/Land style (plan continues after hold)
+  continuesAfterHold     Boolean @default(false)
+  installmentRulesText   String?
+  sortOrder              Int     @default(0)
+  active                 Boolean @default(true)
+  updatedAt              DateTime @updatedAt
+  requiredDocs           RequiredDocumentType[]
+}
+
+model RequiredDocumentType {
+  id         String          @id @default(cuid())
+  category   String
+  key        String
+  label      String
+  description String?
+  required   Boolean         @default(true)
+  sortOrder  Int             @default(0)
+  active     Boolean         @default(true)
+  categoryRef CategoryDefault? @relation(fields: [category], references: [category])
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([category, key])
 }
 
 model Asset {
-  id              String        @id @default(cuid())
-  title           String
-  description     String
-  type            String        // HOUSE | HOTEL | LAND | APARTMENT | COMMERCIAL | OTHER
-  price           Float
-  location        String
-  size            String?
-  bedrooms        Int?
-  bathrooms       Int?
-  images          String        // JSON array of URLs
-  status          String        @default("AVAILABLE") // AVAILABLE | RESERVED | SOLD | INACTIVE
-  features        String?
-  // Override category default expiry (hours). null = use CategoryDefault
-  reservationHours Int?
-  // Installment config (optional)
-  installmentCount Int?
-  installmentPercents String?   // JSON e.g. [30,30,40]
-  active          Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  reservations    Reservation[]
+  id                   String        @id @default(cuid())
+  title                String
+  description          String
+  type                 String
+  price                Float
+  location             String
+  size                 String?
+  bedrooms             Int?
+  bathrooms            Int?
+  images               String
+  status               String        @default("AVAILABLE")
+  features             String?
+  reservationHours     Int?
+  installmentCount     Int?
+  installmentPercents  String?
+  installmentPlanMonths Int?
+  active               Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  reservations         Reservation[]
 }
 
 model Reservation {
-  id              String   @id @default(cuid())
-  userId          String
-  assetId         String
-  // PENDING | CONFIRMED | PARTIALLY_PAID | FULLY_PAID | CANCELLED | EXPIRED
-  status          String   @default("PENDING")
-  deposit         Float
-  totalAmount     Float?
-  amountPaid      Float    @default(0)
-  notes           String?
-  startDate       DateTime?
-  expiresAt       DateTime?
-  reminder24hSent Boolean  @default(false)
-  reminder1hSent  Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id])
-  asset           Asset    @relation(fields: [assetId], references: [id])
-  payments        Payment[]
-  installments    Installment[]
+  id               String   @id @default(cuid())
+  userId           String
+  assetId          String
+  // PENDING | CONFIRMED | INSTALLMENT_PLAN | PARTIALLY_PAID | FULLY_PAID | CANCELLED | EXPIRED | REFUND_PENDING | REFUNDED
+  status           String   @default("PENDING")
+  paymentMethod    String   @default("FULL") // FULL | INSTALLMENT
+  deposit          Float
+  totalAmount      Float?
+  amountPaid       Float    @default(0)
+  notes            String?
+  startDate        DateTime?
+  expiresAt        DateTime?
+  // House/Land installment plan end
+  planDeadline     DateTime?
+  graceEndsAt      DateTime?
+  deductionPercent Float?
+  refundAmount     Float?
+  cancelReason     String?
+  rulesAgreedAt    DateTime?
+  reminder24hSent  Boolean  @default(false)
+  reminder1hSent   Boolean  @default(false)
+  planReminderSent Boolean  @default(false)
+  graceNotified    Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id])
+  asset            Asset    @relation(fields: [assetId], references: [id])
+  payments         Payment[]
+  installments     Installment[]
+  installmentDocs  InstallmentDocument[]
 }
 
 model Installment {
@@ -112,12 +147,28 @@ model Installment {
   sequence      Int
   amount        Float
   dueDate       DateTime?
-  status        String   @default("PENDING") // PENDING | PAID | OVERDUE | WAIVED
+  status        String   @default("PENDING")
   paidAt        DateTime?
   paymentId     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+}
+
+model InstallmentDocument {
+  id            String   @id @default(cuid())
+  reservationId String
+  userId        String
+  docKey        String
+  label         String?
+  fileUrl       String
+  fileName      String?
+  status        String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectReason  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Tool {
@@ -146,6 +197,7 @@ model ToolRental {
   endDate     DateTime
   totalCost   Float
   status      String   @default("PENDING")
+  paymentMethod String @default("FULL")
   expiresAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -155,20 +207,39 @@ model ToolRental {
 }
 
 model Worker {
-  id               String        @id @default(cuid())
+  id               String         @id @default(cuid())
   name             String
   specialty        String
   experience       Int
   dailyRate        Float
-  available        Boolean       @default(true)
-  rating           Float         @default(4.5)
+  available        Boolean        @default(true)
+  rating           Float          @default(4.5)
   image            String?
+  gallery          String?        // JSON array of image URLs
   bio              String?
+  location         String?
+  skills           String?        // JSON array of strings
+  pastWork         String?        // JSON array of {title, description, imageUrl?}
   reservationHours Int?
-  active           Boolean       @default(true)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  active           Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
   hireRequests     HireRequest[]
+  reviews          WorkerReview[]
+}
+
+model WorkerReview {
+  id        String   @id @default(cuid())
+  workerId  String
+  userId    String?
+  author    String   // company or client name
+  rating    Float    @default(5)
+  comment   String
+  source    String   @default("CLIENT") // CLIENT | COMPANY
+  visible   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
 }
 
 model HireRequest {
@@ -182,6 +253,7 @@ model HireRequest {
   endDate       DateTime?
   estimatedCost Float?
   status        String   @default("PENDING")
+  paymentMethod String   @default("FULL")
   expiresAt     DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -229,10 +301,9 @@ model Payment {
   userId          String
   amount          Float
   currency        String       @default("USD")
-  method          String       // STRIPE | BANK_TRANSFER | CASH | ADMIN_CONFIRMED | PROOF_UPLOAD
-  // PENDING | APPROVED | REJECTED | COMPLETED | FAILED
+  method          String
   status          String       @default("PENDING")
-  type            String       // DEPOSIT | FULL | INSTALLMENT | RENTAL | HIRE
+  type            String
   referenceId     String?
   stripeId        String?
   proofUrl        String?
@@ -258,7 +329,7 @@ model Notification {
   userId    String
   title     String
   body      String
-  type      String   @default("INFO") // INFO | PAYMENT | RESERVATION | VERIFICATION
+  type      String   @default("INFO")
   read      Boolean  @default(false)
   link      String?
   createdAt DateTime @default(now())
