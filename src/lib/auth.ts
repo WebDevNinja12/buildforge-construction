@@ -107,7 +107,6 @@ export async function requireAuth(roles?: string[]) {
   return session;
 }
 
-/** Clients may use the platform when APPROVED, UNDER_REVIEW (auto or admin), or VERIFIED */
 export async function requireApproved() {
   const session = await getSession();
   if (!session) throw new Error("Unauthorized");
@@ -115,6 +114,47 @@ export async function requireApproved() {
   const ok = ["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "");
   if (!ok) throw new Error("Account pending approval");
   return session;
+}
+
+/** Create/update admin from ADMIN_EMAIL + ADMIN_PASSWORD env vars. */
+export async function ensureAdminFromEnv(): Promise<boolean> {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+  const name = process.env.ADMIN_NAME?.trim() || "Administrator";
+  if (!email || !password || password.length < 8) {
+    console.warn("ensureAdminFromEnv: ADMIN_EMAIL or ADMIN_PASSWORD missing");
+    return false;
+  }
+  try {
+    const hashed = await hashPassword(password);
+    await prisma.user.upsert({
+      where: { email },
+      update: {
+        password: hashed,
+        name,
+        role: "ADMIN",
+        status: "APPROVED",
+        verificationStatus: "VERIFIED",
+        approvedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+      create: {
+        email,
+        password: hashed,
+        name,
+        role: "ADMIN",
+        status: "APPROVED",
+        verificationStatus: "VERIFIED",
+        approvedAt: new Date(),
+        verifiedAt: new Date(),
+        agreedTermsAt: new Date(),
+      },
+    });
+    return true;
+  } catch (e) {
+    console.error("ensureAdminFromEnv failed", e);
+    return false;
+  }
 }
 
 export async function registerUser(
@@ -127,12 +167,13 @@ export async function registerUser(
   if (!agreedTerms) {
     throw new Error("You must agree to the terms and rules before registering");
   }
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const normalized = email.trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: normalized } });
   if (existing) throw new Error("Email already registered");
   const hashed = await hashPassword(password);
   const user = await prisma.user.create({
     data: {
-      email,
+      email: normalized,
       password: hashed,
       name,
       phone,
@@ -151,12 +192,24 @@ export async function registerUser(
   };
 }
 
-export async function loginUser(email: string, password: string) {
-  await runMaintenance();
-  const user = await prisma.user.findUnique({ where: { email } });
+export async function loginUser(
+  email: string,
+  password: string,
+  options?: { requireRole?: "ADMIN" | "CLIENT" }
+) {
+  try {
+    await runMaintenance();
+  } catch {
+    /* ignore */
+  }
+
+  const normalized = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
   if (!user) throw new Error("Invalid email or password");
+
   const valid = await verifyPassword(password, user.password);
   if (!valid) throw new Error("Invalid email or password");
+
   if (user.status === "REJECTED" || user.status === "SUSPENDED") {
     throw new Error(
       user.status === "SUSPENDED"
@@ -164,6 +217,14 @@ export async function loginUser(email: string, password: string) {
         : "Your account was not approved. Contact support."
     );
   }
+
+  if (options?.requireRole === "ADMIN" && user.role !== "ADMIN") {
+    throw new Error("This portal is for administrators only. Use the client login.");
+  }
+  if (options?.requireRole === "CLIENT" && user.role === "ADMIN") {
+    throw new Error("Administrators must sign in at the Admin Login page.");
+  }
+
   return {
     id: user.id,
     email: user.email,

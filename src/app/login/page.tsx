@@ -22,11 +22,14 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
-      router.push("/dashboard");
+      router.push(data.redirect || "/dashboard");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -42,23 +45,29 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 bg-accent-500 rounded-xl mb-4">
             <HardHat className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-construction-dark">Welcome back</h1>
+          <h1 className="text-2xl font-bold text-construction-dark">Client sign in</h1>
           <p className="mt-2 text-construction-gray">
-            Sign in to manage your assets, rentals and projects
+            Access your reservations, rentals and projects
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 space-y-5"
+        >
           {error && (
             <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
+              Email
+            </label>
             <input
               id="email"
               type="email"
               required
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
@@ -67,12 +76,15 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
+              Password
+            </label>
             <div className="relative">
               <input
                 id="password"
                 type={showPassword ? "text" : "password"}
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
@@ -94,12 +106,26 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full flex items-center justify-center gap-2 bg-accent-500 hover:bg-accent-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
           >
-            {loading ? "Signing in..." : (<><LogIn className="w-4 h-4" /> Sign In</>)}
+            {loading ? (
+              "Signing in..."
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" /> Sign In
+              </>
+            )}
           </button>
 
           <p className="text-center text-sm text-construction-gray">
             Don&apos;t have an account?{" "}
-            <Link href="/register" className="text-primary-600 font-medium hover:underline">Create one</Link>
+            <Link href="/register" className="text-primary-600 font-medium hover:underline">
+              Create one
+            </Link>
+          </p>
+          <p className="text-center text-xs text-slate-400 pt-2 border-t border-slate-100">
+            Staff?{" "}
+            <Link href="/admin/login" className="text-primary-600 font-medium hover:underline">
+              Admin login
+            </Link>
           </p>
         </form>
       </div>
