@@ -8,7 +8,6 @@ import {
   MapPin,
   ArrowRight,
   CheckCircle2,
-  Star,
 } from "lucide-react";
 import FinishedProjectsShowcase from "@/components/FinishedProjectsShowcase";
 
@@ -17,64 +16,36 @@ const features = [
     icon: Building2,
     title: "Buy & Reserve Assets",
     description:
-      "Browse houses, hotels, apartments and commercial properties. Reserve or purchase with secure payments.",
-    href: "/services#assets",
+      "Browse houses, hotels, apartments and commercial properties. Reserve or purchase with clear payment options.",
+    href: "/services",
   },
   {
     icon: MapPin,
     title: "Land Payments",
     description:
-      "Flexible land acquisition and installment payment plans tailored to your budget and timeline.",
-    href: "/services#land",
+      "Land acquisition with full payment or structured installment plans managed on the platform.",
+    href: "/services",
   },
   {
     icon: Wrench,
     title: "Tool Hiring",
     description:
-      "Rent professional power tools, hand tools and heavy equipment by the day or week.",
-    href: "/services#tools",
+      "Hire professional tools and equipment with transparent daily and weekly rates.",
+    href: "/services",
   },
   {
     icon: Users,
     title: "Construction Hiring",
     description:
-      "Hire skilled masons, electricians, plumbers, carpenters and full crews for your projects.",
-    href: "/services#workers",
+      "Review worker profiles — skills, experience and rates — then hire when you are ready.",
+    href: "/services",
   },
   {
     icon: ClipboardList,
     title: "Project Management",
     description:
-      "Track budgets, milestones, progress and payments for all your construction projects in one place.",
-    href: "/services#projects",
-  },
-];
-
-const stats = [
-  { value: "500+", label: "Projects Completed" },
-  { value: "1,200+", label: "Happy Clients" },
-  { value: "80+", label: "Skilled Workers" },
-  { value: "15+", label: "Years Experience" },
-];
-
-const testimonials = [
-  {
-    name: "James Okonkwo",
-    role: "Property Developer",
-    text: "Hama Construction made acquiring our hotel site and managing the entire build seamless. Highly recommended.",
-    rating: 5,
-  },
-  {
-    name: "Sarah Chen",
-    role: "Homeowner",
-    text: "From land payment to hiring the crew and tracking progress — everything in one platform. Excellent service.",
-    rating: 5,
-  },
-  {
-    name: "Michael Torres",
-    role: "Contractor",
-    text: "The tool rental and worker hiring features save us hours every week. Reliable and professional.",
-    rating: 5,
+      "Track budgets, milestones and progress for your construction projects in one place.",
+    href: "/services",
   },
 ];
 
@@ -97,8 +68,8 @@ export default function HomePage() {
             </h1>
             <p className="mt-6 text-lg sm:text-xl text-slate-300 leading-relaxed max-w-2xl">
               Buy or reserve houses, hotels and land. Hire tools and skilled
-              workers. Manage your construction projects from start to finish —
-              all in one place.
+              workers. Manage construction work from inquiry to completion —
+              on one platform.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
@@ -119,19 +90,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="bg-primary-600 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            {stats.map((stat) => (
-              <div key={stat.label}>
-                <div className="text-3xl sm:text-4xl font-bold">{stat.value}</div>
-                <div className="mt-1 text-primary-100 text-sm sm:text-base">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="py-20 lg:py-28 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
@@ -139,8 +97,8 @@ export default function HomePage() {
               Everything You Need to Build
             </h2>
             <p className="mt-4 text-lg text-construction-gray">
-              From land acquisition to the final nail — manage assets, tools,
-              labor and projects on a single platform.
+              From land acquisition to hiring crews — manage assets, tools,
+              labour and projects on a single platform.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -158,7 +116,7 @@ export default function HomePage() {
                 </h3>
                 <p className="mt-2 text-construction-gray leading-relaxed">{feature.description}</p>
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-accent-600 group-hover:gap-2 transition-all">
-                  Learn more <ArrowRight className="w-4 h-4" />
+                  Go to services <ArrowRight className="w-4 h-4" />
                 </span>
               </Link>
             ))}
@@ -173,7 +131,7 @@ export default function HomePage() {
               Recent Finished Projects
             </h2>
             <p className="mt-4 text-lg text-construction-gray">
-              A selection of completed builds delivered by Hama Construction.
+              Completed work published by Hama Construction. Listings appear here when added in Admin.
             </p>
           </div>
           <FinishedProjectsShowcase />
@@ -189,15 +147,15 @@ export default function HomePage() {
                 Building innovation through quality and trust.
               </p>
               <p className="mt-3 text-lg text-construction-gray">
-                We combine traditional construction expertise with modern digital tools so you can focus on building, not paperwork.
+                We combine construction expertise with a clear digital process so you can focus on building.
               </p>
               <ul className="mt-8 space-y-4">
                 {[
-                  "Secure online reservations and payments",
-                  "Verified skilled workers and quality tools",
-                  "Real-time project tracking and milestones",
-                  "Transparent pricing with no hidden fees",
-                  "Dedicated support from inquiry to handover",
+                  "Secure reservations with full or installment payment options",
+                  "Verified listings for assets, tools and workers",
+                  "Clear timelines, countdowns and payment status",
+                  "Admin review of payments and customer verification",
+                  "Support from inquiry through project delivery",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-3">
                     <CheckCircle2 className="w-5 h-5 text-accent-500 shrink-0 mt-0.5" />
@@ -213,35 +171,11 @@ export default function HomePage() {
               <div className="aspect-[4/3] bg-gradient-to-br from-primary-600 to-construction-dark rounded-2xl flex items-center justify-center shadow-2xl">
                 <div className="text-center text-white p-8">
                   <Building2 className="w-20 h-20 mx-auto mb-4 opacity-80" />
-                  <p className="text-2xl font-bold">Trusted by developers</p>
-                  <p className="mt-2 text-primary-200">across residential & commercial projects</p>
+                  <p className="text-2xl font-bold">Quality & trust</p>
+                  <p className="mt-2 text-primary-200">Residential and commercial construction services</p>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">What Our Clients Say</h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {testimonials.map((t) => (
-              <div key={t.name} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                <div className="flex gap-1 mb-4">
-                  {Array.from({ length: t.rating }).map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-accent-400 text-accent-400" />
-                  ))}
-                </div>
-                <p className="text-slate-600 leading-relaxed">&ldquo;{t.text}&rdquo;</p>
-                <div className="mt-4 pt-4 border-t border-slate-100">
-                  <p className="font-semibold text-construction-dark">{t.name}</p>
-                  <p className="text-sm text-construction-gray">{t.role}</p>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </section>
@@ -253,11 +187,11 @@ export default function HomePage() {
           </p>
           <h2 className="text-3xl sm:text-4xl font-bold">Ready to Start Your Next Project?</h2>
           <p className="mt-4 text-lg text-primary-100">
-            Create an account to browse assets, hire tools & workers, and manage projects today.
+            Register for an account to browse services, reserve assets, and manage your work with Hama Construction.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/register" className="inline-flex items-center justify-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors">
-              Create Free Account
+              Create Account
             </Link>
             <Link href="/services" className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl border border-white/20 transition-colors">
               View Services
