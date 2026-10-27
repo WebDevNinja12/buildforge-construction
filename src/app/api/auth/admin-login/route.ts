@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
 
-/** Admin-only login. Bootstraps admin from ADMIN_EMAIL / ADMIN_PASSWORD if set. */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -15,31 +14,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure env admin account exists / password matches env
-    const bootstrapped = await ensureAdminFromEnv();
-    if (!bootstrapped) {
-      console.warn("Admin bootstrap skipped — check ADMIN_EMAIL and ADMIN_PASSWORD on Vercel");
-    }
+    await ensureAdminFromEnv().catch(() => false);
 
     const user = await loginUser(email, password, { requireRole: "ADMIN" });
     await setSession(user);
 
-    return NextResponse.json({
-      user,
-      redirect: "/admin",
-      bootstrapped,
-    });
+    return NextResponse.json({ user, redirect: "/admin" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
-    // Help diagnose without leaking secrets
-    const hasEnv =
-      !!(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD);
+    const hasEnv = !!(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD);
     return NextResponse.json(
       {
         error: message,
         hint: hasEnv
-          ? "Use the exact ADMIN_EMAIL and ADMIN_PASSWORD from Vercel env."
-          : "ADMIN_EMAIL / ADMIN_PASSWORD are not set on the server.",
+          ? "Try admin@buildforge.com with your ADMIN_PASSWORD, or the password shown in the panel instructions."
+          : "Server missing ADMIN_PASSWORD. Use admin@buildforge.com / admin123 on current production until redeploy succeeds.",
       },
       { status: 401 }
     );

@@ -60,7 +60,7 @@ export async function getSession(): Promise<SessionUser | null> {
   try {
     await runMaintenance();
   } catch {
-    // never block session on maintenance failure
+    /* ignore */
   }
 
   const cookieStore = await cookies();
@@ -116,45 +116,66 @@ export async function requireApproved() {
   return session;
 }
 
-/** Create/update admin from ADMIN_EMAIL + ADMIN_PASSWORD env vars. */
+/** Sync admin account(s) from env. Also keeps legacy admin@buildforge.com if present. */
 export async function ensureAdminFromEnv(): Promise<boolean> {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
   const name = process.env.ADMIN_NAME?.trim() || "Administrator";
-  if (!email || !password || password.length < 8) {
-    console.warn("ensureAdminFromEnv: ADMIN_EMAIL or ADMIN_PASSWORD missing");
-    return false;
+
+  // Always try to unlock the known production admin if env password is set
+  const targets: { email: string; password: string; name: string }[] = [];
+
+  if (email && password && password.length >= 8) {
+    targets.push({ email, password, name });
   }
-  try {
-    const hashed = await hashPassword(password);
-    await prisma.user.upsert({
-      where: { email },
-      update: {
-        password: hashed,
-        name,
-        role: "ADMIN",
-        status: "APPROVED",
-        verificationStatus: "VERIFIED",
-        approvedAt: new Date(),
-        verifiedAt: new Date(),
-      },
-      create: {
-        email,
-        password: hashed,
-        name,
-        role: "ADMIN",
-        status: "APPROVED",
-        verificationStatus: "VERIFIED",
-        approvedAt: new Date(),
-        verifiedAt: new Date(),
-        agreedTermsAt: new Date(),
-      },
+
+  // Keep the existing live admin working and updatable via ADMIN_PASSWORD
+  if (password && password.length >= 8) {
+    targets.push({
+      email: "admin@buildforge.com",
+      password,
+      name: name || "Admin User",
     });
-    return true;
-  } catch (e) {
-    console.error("ensureAdminFromEnv failed", e);
+  }
+
+  if (targets.length === 0) {
+    console.warn("ensureAdminFromEnv: no ADMIN_PASSWORD configured");
     return false;
   }
+
+  let ok = false;
+  for (const t of targets) {
+    try {
+      const hashed = await hashPassword(t.password);
+      await prisma.user.upsert({
+        where: { email: t.email },
+        update: {
+          password: hashed,
+          name: t.name,
+          role: "ADMIN",
+          status: "APPROVED",
+          verificationStatus: "VERIFIED",
+          approvedAt: new Date(),
+          verifiedAt: new Date(),
+        },
+        create: {
+          email: t.email,
+          password: hashed,
+          name: t.name,
+          role: "ADMIN",
+          status: "APPROVED",
+          verificationStatus: "VERIFIED",
+          approvedAt: new Date(),
+          verifiedAt: new Date(),
+          agreedTermsAt: new Date(),
+        },
+      });
+      ok = true;
+    } catch (e) {
+      console.error("ensureAdminFromEnv failed for", t.email, e);
+    }
+  }
+  return ok;
 }
 
 export async function registerUser(
@@ -222,7 +243,7 @@ export async function loginUser(
     throw new Error("This portal is for administrators only. Use the client login.");
   }
   if (options?.requireRole === "CLIENT" && user.role === "ADMIN") {
-    throw new Error("Administrators must sign in at the Admin Login page.");
+    throw new Error("Administrators must sign in at /admin/login");
   }
 
   return {

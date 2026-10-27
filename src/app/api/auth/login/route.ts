@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loginUser, setSession } from "@/lib/auth";
+import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
 
-/** Client / customer login only — admins must use /api/auth/admin-login */
+/**
+ * Unified login while new admin portal rolls out.
+ * - Admins → /admin
+ * - Clients → /dashboard or /pending-approval
+ * Also refreshes admin password from env when possible.
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -15,13 +20,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const user = await loginUser(email, password, { requireRole: "CLIENT" });
+    // Refresh admin accounts from env before authenticating
+    await ensureAdminFromEnv().catch(() => false);
+
+    const user = await loginUser(email, password);
     await setSession(user);
 
-    return NextResponse.json({
-      user,
-      redirect: user.status === "PENDING_APPROVAL" ? "/pending-approval" : "/dashboard",
-    });
+    const redirect =
+      user.role === "ADMIN"
+        ? "/admin"
+        : user.status === "PENDING_APPROVAL"
+          ? "/pending-approval"
+          : "/dashboard";
+
+    return NextResponse.json({ user, redirect });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
     return NextResponse.json({ error: message }, { status: 401 });
