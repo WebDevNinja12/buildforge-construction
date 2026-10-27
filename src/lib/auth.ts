@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
+import { runMaintenance } from "./maintenance";
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "fallback-secret-change-me-in-production"
@@ -12,6 +13,7 @@ export interface SessionUser {
   email: string;
   name: string;
   role: string;
+  status?: string;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -31,6 +33,7 @@ export async function createToken(user: SessionUser): Promise<string> {
     email: user.email,
     name: user.name,
     role: user.role,
+    status: user.status || "APPROVED",
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -46,6 +49,7 @@ export async function verifyToken(token: string): Promise<SessionUser | null> {
       email: payload.email as string,
       name: payload.name as string,
       role: payload.role as string,
+      status: (payload.status as string) || "APPROVED",
     };
   } catch {
     return null;
@@ -53,10 +57,32 @@ export async function verifyToken(token: string): Promise<SessionUser | null> {
 }
 
 export async function getSession(): Promise<SessionUser | null> {
+  // Opportunistic maintenance (auto-approve + expire reservations)
+  try {
+    await runMaintenance();
+  } catch {
+    // never block session on maintenance failure
+  }
+
   const cookieStore = await cookies();
   const token = cookieStore.get("session")?.value;
   if (!token) return null;
-  return verifyToken(token);
+  const session = await verifyToken(token);
+  if (!session) return null;
+
+  // Refresh status from DB so auto-approval is reflected
+  const user = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: { id: true, email: true, name: true, role: true, status: true },
+  });
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    status: user.status,
+  };
 }
 
 export async function setSession(user: SessionUser) {
@@ -87,12 +113,26 @@ export async function requireAuth(roles?: string[]) {
   return session;
 }
 
+export async function requireApproved() {
+  const session = await getSession();
+  if (!session) throw new Error("Unauthorized");
+  if (session.role === "ADMIN") return session;
+  if (session.status !== "APPROVED") {
+    throw new Error("Account pending approval");
+  }
+  return session;
+}
+
 export async function registerUser(
   email: string,
   password: string,
   name: string,
-  phone?: string
+  phone?: string,
+  agreedTerms?: boolean
 ) {
+  if (!agreedTerms) {
+    throw new Error("You must agree to the terms and rules before registering");
+  }
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     throw new Error("Email already registered");
@@ -105,6 +145,8 @@ export async function registerUser(
       name,
       phone,
       role: "CLIENT",
+      status: "PENDING_APPROVAL",
+      agreedTermsAt: new Date(),
     },
   });
   return {
@@ -112,10 +154,12 @@ export async function registerUser(
     email: user.email,
     name: user.name,
     role: user.role,
+    status: user.status,
   };
 }
 
 export async function loginUser(email: string, password: string) {
+  await runMaintenance();
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     throw new Error("Invalid email or password");
@@ -124,10 +168,14 @@ export async function loginUser(email: string, password: string) {
   if (!valid) {
     throw new Error("Invalid email or password");
   }
+  if (user.status === "REJECTED") {
+    throw new Error("Your account was not approved. Contact support.");
+  }
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    status: user.status,
   };
 }

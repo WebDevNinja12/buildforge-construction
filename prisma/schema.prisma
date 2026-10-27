@@ -14,6 +14,10 @@ model User {
   name          String
   phone         String?
   role          String         @default("CLIENT")
+  // PENDING_APPROVAL | APPROVED | REJECTED
+  status        String         @default("PENDING_APPROVAL")
+  agreedTermsAt DateTime?
+  approvedAt    DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   reservations  Reservation[]
@@ -46,10 +50,13 @@ model Reservation {
   id          String   @id @default(cuid())
   userId      String
   assetId     String
+  // PENDING | CONFIRMED | CANCELLED | EXPIRED
   status      String   @default("PENDING")
   deposit     Float
   notes       String?
   startDate   DateTime?
+  // Must pay deposit before this time or reservation expires
+  expiresAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id])
@@ -81,6 +88,7 @@ model ToolRental {
   endDate     DateTime
   totalCost   Float
   status      String   @default("PENDING")
+  expiresAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id])
@@ -114,6 +122,7 @@ model HireRequest {
   endDate     DateTime?
   estimatedCost Float?
   status      String   @default("PENDING")
+  expiresAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id])
@@ -189,7 +198,6 @@ model ContactMessage {
   createdAt DateTime @default(now())
 }
 
-// Public showcase of completed builds (display + admin update)
 model FinishedProject {
   id          String   @id @default(cuid())
   title       String
