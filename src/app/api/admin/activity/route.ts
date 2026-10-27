@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { runMaintenance } from "@/lib/maintenance";
 
-/** Admin overview of all client activity */
 export async function GET() {
   const session = await getSession();
   if (!session || session.role !== "ADMIN") {
@@ -19,6 +18,8 @@ export async function GET() {
     payments,
     pendingUsers,
     counts,
+    expiringSoon,
+    revenue,
   ] = await Promise.all([
     prisma.reservation.findMany({
       include: { user: { select: { id: true, name: true, email: true } }, asset: true },
@@ -39,7 +40,10 @@ export async function GET() {
       take: 50,
     }),
     prisma.payment.findMany({
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        reservation: { include: { asset: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
@@ -48,12 +52,25 @@ export async function GET() {
       by: ["status"],
       where: { role: "CLIENT" },
       _count: true,
+    }).catch(() => []),
+    prisma.reservation.count({
+      where: {
+        status: "PENDING",
+        expiresAt: { lte: new Date(Date.now() + 48 * 3600 * 1000), gte: new Date() },
+      },
+    }),
+    prisma.payment.aggregate({
+      where: { status: { in: ["APPROVED", "COMPLETED"] } },
+      _sum: { amount: true },
     }),
   ]);
 
   return NextResponse.json({
     pendingApprovals: pendingUsers,
     statusCounts: counts,
+    expiringSoon,
+    revenue: revenue._sum.amount || 0,
+    pendingPayments: payments.filter((p) => p.status === "PENDING").length,
     reservations,
     rentals,
     hires,
