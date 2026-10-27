@@ -8,29 +8,29 @@ datasource db {
 }
 
 model User {
-  id                 String            @id @default(cuid())
-  email              String            @unique
+  id                 String              @id @default(cuid())
+  email              String              @unique
   password           String
   name               String
   phone              String?
-  role               String            @default("CLIENT")
-  status             String            @default("PENDING_APPROVAL")
-  verificationStatus String            @default("PENDING")
+  role               String              @default("CLIENT")
+  status             String              @default("PENDING_APPROVAL")
+  verificationStatus String              @default("PENDING")
   verificationNote   String?
   agreedTermsAt      DateTime?
   approvedAt         DateTime?
   verifiedAt         DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   reservations       Reservation[]
   toolRentals        ToolRental[]
   hireRequests       HireRequest[]
-  projects           Project[]         @relation("ClientProjects")
-  managedProjects    Project[]         @relation("ManagerProjects")
+  projects           Project[]           @relation("ClientProjects")
+  managedProjects    Project[]           @relation("ManagerProjects")
   payments           Payment[]
   documents          UserDocument[]
   notifications      Notification[]
-  adminLogs          AdminActivityLog[] @relation("AdminActor")
+  adminLogs          AdminActivityLog[]  @relation("AdminActor")
   installmentDocs    InstallmentDocument[]
   workerReviews      WorkerReview[]
 }
@@ -50,78 +50,70 @@ model UserDocument {
 }
 
 model CategoryDefault {
-  id                     String  @id @default(cuid())
-  category               String  @unique
+  id                     String   @id @default(cuid())
+  category               String   @unique
   name                   String
   defaultExpiryHours     Int
-  // HOUSE/LAND: months after deposit for full plan; null for in-period categories
   installmentPlanMonths  Int?
-  // HOTEL/TOOLS/WORKERS: % deducted on cancel after grace
-  cancelDeductionPercent Float   @default(0)
-  // hours after reservation end before cancel+refund
-  graceHours             Int     @default(24)
-  // true = House/Land style (plan continues after hold)
-  continuesAfterHold     Boolean @default(false)
+  cancelDeductionPercent Float    @default(0)
+  graceHours             Int      @default(24)
+  continuesAfterHold     Boolean  @default(false)
   installmentRulesText   String?
-  sortOrder              Int     @default(0)
-  active                 Boolean @default(true)
+  sortOrder              Int      @default(0)
+  active                 Boolean  @default(true)
   updatedAt              DateTime @updatedAt
-  requiredDocs           RequiredDocumentType[]
 }
 
 model RequiredDocumentType {
-  id         String          @id @default(cuid())
-  category   String
-  key        String
-  label      String
+  id          String   @id @default(cuid())
+  category    String
+  key         String
+  label       String
   description String?
-  required   Boolean         @default(true)
-  sortOrder  Int             @default(0)
-  active     Boolean         @default(true)
-  categoryRef CategoryDefault? @relation(fields: [category], references: [category])
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  required    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([category, key])
 }
 
 model Asset {
-  id                   String        @id @default(cuid())
-  title                String
-  description          String
-  type                 String
-  price                Float
-  location             String
-  size                 String?
-  bedrooms             Int?
-  bathrooms            Int?
-  images               String
-  status               String        @default("AVAILABLE")
-  features             String?
-  reservationHours     Int?
-  installmentCount     Int?
-  installmentPercents  String?
+  id                    String        @id @default(cuid())
+  title                 String
+  description           String
+  type                  String
+  price                 Float
+  location              String
+  size                  String?
+  bedrooms              Int?
+  bathrooms             Int?
+  images                String
+  status                String        @default("AVAILABLE")
+  features              String?
+  reservationHours      Int?
+  installmentCount      Int?
+  installmentPercents   String?
   installmentPlanMonths Int?
-  active               Boolean       @default(true)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  reservations         Reservation[]
+  active                Boolean       @default(true)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  reservations          Reservation[]
 }
 
 model Reservation {
   id               String   @id @default(cuid())
   userId           String
   assetId          String
-  // PENDING | CONFIRMED | INSTALLMENT_PLAN | PARTIALLY_PAID | FULLY_PAID | CANCELLED | EXPIRED | REFUND_PENDING | REFUNDED
   status           String   @default("PENDING")
-  paymentMethod    String   @default("FULL") // FULL | INSTALLMENT
+  paymentMethod    String   @default("FULL")
   deposit          Float
   totalAmount      Float?
   amountPaid       Float    @default(0)
   notes            String?
   startDate        DateTime?
   expiresAt        DateTime?
-  // House/Land installment plan end
   planDeadline     DateTime?
   graceEndsAt      DateTime?
   deductionPercent Float?
@@ -142,33 +134,33 @@ model Reservation {
 }
 
 model Installment {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   reservationId String
   sequence      Int
   amount        Float
   dueDate       DateTime?
-  status        String   @default("PENDING")
+  status        String      @default("PENDING")
   paidAt        DateTime?
   paymentId     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 }
 
 model InstallmentDocument {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   reservationId String
   userId        String
   docKey        String
   label         String?
   fileUrl       String
   fileName      String?
-  status        String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  status        String      @default("PENDING")
   rejectReason  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Tool {
@@ -189,21 +181,21 @@ model Tool {
 }
 
 model ToolRental {
-  id          String   @id @default(cuid())
-  userId      String
-  toolId      String
-  quantity    Int      @default(1)
-  startDate   DateTime
-  endDate     DateTime
-  totalCost   Float
-  status      String   @default("PENDING")
-  paymentMethod String @default("FULL")
-  expiresAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id])
-  tool        Tool     @relation(fields: [toolId], references: [id])
-  payments    Payment[]
+  id            String    @id @default(cuid())
+  userId        String
+  toolId        String
+  quantity      Int       @default(1)
+  startDate     DateTime
+  endDate       DateTime
+  totalCost     Float
+  status        String    @default("PENDING")
+  paymentMethod String    @default("FULL")
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id])
+  tool          Tool      @relation(fields: [toolId], references: [id])
+  payments      Payment[]
 }
 
 model Worker {
@@ -215,11 +207,11 @@ model Worker {
   available        Boolean        @default(true)
   rating           Float          @default(4.5)
   image            String?
-  gallery          String?        // JSON array of image URLs
+  gallery          String?
   bio              String?
   location         String?
-  skills           String?        // JSON array of strings
-  pastWork         String?        // JSON array of {title, description, imageUrl?}
+  skills           String?
+  pastWork         String?
   reservationHours Int?
   active           Boolean        @default(true)
   createdAt        DateTime       @default(now())
@@ -232,10 +224,10 @@ model WorkerReview {
   id        String   @id @default(cuid())
   workerId  String
   userId    String?
-  author    String   // company or client name
+  author    String
   rating    Float    @default(5)
   comment   String
-  source    String   @default("CLIENT") // CLIENT | COMPANY
+  source    String   @default("CLIENT")
   visible   Boolean  @default(true)
   createdAt DateTime @default(now())
   worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
@@ -243,7 +235,7 @@ model WorkerReview {
 }
 
 model HireRequest {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   workerId      String?
   serviceType   String
@@ -252,33 +244,33 @@ model HireRequest {
   startDate     DateTime
   endDate       DateTime?
   estimatedCost Float?
-  status        String   @default("PENDING")
-  paymentMethod String   @default("FULL")
+  status        String    @default("PENDING")
+  paymentMethod String    @default("FULL")
   expiresAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id])
-  worker        Worker?  @relation(fields: [workerId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id])
+  worker        Worker?   @relation(fields: [workerId], references: [id])
   payments      Payment[]
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   title       String
   description String
   clientId    String
   managerId   String?
-  status      String   @default("PLANNING")
+  status      String      @default("PLANNING")
   budget      Float
-  spent       Float    @default(0)
+  spent       Float       @default(0)
   startDate   DateTime?
   endDate     DateTime?
   location    String
-  progress    Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  client      User     @relation("ClientProjects", fields: [clientId], references: [id])
-  manager     User?    @relation("ManagerProjects", fields: [managerId], references: [id])
+  progress    Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  client      User        @relation("ClientProjects", fields: [clientId], references: [id])
+  manager     User?       @relation("ManagerProjects", fields: [managerId], references: [id])
   milestones  Milestone[]
   payments    Payment[]
 }
@@ -297,31 +289,31 @@ model Milestone {
 }
 
 model Payment {
-  id              String       @id @default(cuid())
-  userId          String
-  amount          Float
-  currency        String       @default("USD")
-  method          String
-  status          String       @default("PENDING")
-  type            String
-  referenceId     String?
-  stripeId        String?
-  proofUrl        String?
-  rejectReason    String?
-  installmentId   String?
-  reservationId   String?
-  toolRentalId    String?
-  hireRequestId   String?
-  projectId       String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  user            User         @relation(fields: [userId], references: [id])
-  reservation     Reservation? @relation(fields: [reservationId], references: [id])
-  toolRental      ToolRental?  @relation(fields: [toolRentalId], references: [id])
-  hireRequest     HireRequest? @relation(fields: [hireRequestId], references: [id])
-  project         Project?     @relation(fields: [projectId], references: [id])
+  id            String       @id @default(cuid())
+  userId        String
+  amount        Float
+  currency      String       @default("USD")
+  method        String
+  status        String       @default("PENDING")
+  type          String
+  referenceId   String?
+  stripeId      String?
+  proofUrl      String?
+  rejectReason  String?
+  installmentId String?
+  reservationId String?
+  toolRentalId  String?
+  hireRequestId String?
+  projectId     String?
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id])
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  toolRental    ToolRental?  @relation(fields: [toolRentalId], references: [id])
+  hireRequest   HireRequest? @relation(fields: [hireRequestId], references: [id])
+  project       Project?     @relation(fields: [projectId], references: [id])
 }
 
 model Notification {

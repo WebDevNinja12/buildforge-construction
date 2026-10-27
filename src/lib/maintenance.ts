@@ -30,17 +30,24 @@ export async function getExpiryHours(category: string, override?: number | null)
 
 export async function getCategoryConfig(category: string) {
   try {
-    const row = await prisma.categoryDefault.findUnique({
-      where: { category },
-      include: { requiredDocs: { where: { active: true }, orderBy: { sortOrder: "asc" } } },
-    });
-    if (row) return row;
+    const row = await prisma.categoryDefault.findUnique({ where: { category } });
+    if (row) {
+      const requiredDocs = await prisma.requiredDocumentType.findMany({
+        where: { category, active: true },
+        orderBy: { sortOrder: "asc" },
+      });
+      return { ...row, requiredDocs };
+    }
   } catch { /* */ }
   return {
     category,
     name: category,
     defaultExpiryHours: DEFAULT_HOURS[category] ?? 24,
-    installmentPlanMonths: ["HOUSE", "LAND", "APARTMENT"].includes(category) ? (category === "LAND" ? 12 : 6) : null,
+    installmentPlanMonths: ["HOUSE", "LAND", "APARTMENT"].includes(category)
+      ? category === "LAND"
+        ? 12
+        : 6
+      : null,
     cancelDeductionPercent: DEFAULT_DEDUCTION[category] ?? 10,
     graceHours: 24,
     continuesAfterHold: ["HOUSE", "LAND", "APARTMENT", "COMMERCIAL"].includes(category),
@@ -61,8 +68,7 @@ function defaultRulesText(category: string): string {
   return (
     "Installments for this category must be completed within the reservation period. " +
     "If the period ends with a balance unpaid, you receive a notice and a short grace window. " +
-    "If still unpaid, the reservation is cancelled and you are refunded minus a cancellation deduction " +
-    "that covers the cost of holding the service."
+    "If still unpaid, the reservation is cancelled and you are refunded minus a cancellation deduction."
   );
 }
 
@@ -161,7 +167,6 @@ async function notify(userId: string, title: string, body: string, type = "INFO"
 export async function runMaintenance() {
   const now = new Date();
 
-  // 1. Expire unpaid PENDING holds (no deposit paid)
   const expired = await prisma.reservation.findMany({
     where: { status: "PENDING", expiresAt: { lt: now }, amountPaid: 0 },
     include: { asset: true },
@@ -187,141 +192,12 @@ export async function runMaintenance() {
     await notify(
       r.userId,
       "Reservation expired",
-      `Hold on "${r.asset.title}" expired with no payment. Listing is available again.`,
+      `Hold on "${r.asset.title}" expired with no payment.`,
       "RESERVATION",
       "/dashboard"
     );
   }
 
-  // 2. In-period categories: start grace when reservation expires with balance
-  const overdueInPeriod = await prisma.reservation.findMany({
-    where: {
-      status: { in: ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "CONFIRMED"] },
-      paymentMethod: "INSTALLMENT",
-      expiresAt: { lt: now },
-      graceEndsAt: null,
-      amountPaid: { gt: 0 },
-    },
-    include: { asset: true },
-  });
-  for (const r of overdueInPeriod) {
-    const cfg = await getCategoryConfig(r.asset.type);
-    if (cfg.continuesAfterHold) continue; // House/Land use planDeadline instead
-    const graceHours = cfg.graceHours ?? 24;
-    const graceEnds = new Date(now.getTime() + graceHours * 3600 * 1000);
-    const total = r.totalAmount || r.deposit;
-    const paid = r.amountPaid || 0;
-    const deduction = cfg.cancelDeductionPercent ?? 10;
-    const refund = Math.max(0, Math.round((paid - (paid * deduction) / 100) * 100) / 100);
-    await prisma.reservation.update({
-      where: { id: r.id },
-      data: {
-        graceEndsAt: graceEnds,
-        deductionPercent: deduction,
-        refundAmount: refund,
-        graceNotified: true,
-      },
-    });
-    await notify(
-      r.userId,
-      "Grace period started",
-      `Reservation period for "${r.asset.title}" ended with balance unpaid. ` +
-        `Complete payment within ${graceHours} hours or receive a refund of about $${refund} ` +
-        `(${deduction}% cancellation deduction).`,
-      "PAYMENT",
-      "/dashboard"
-    );
-  }
-
-  // 3. End of grace → cancel + refund record
-  const graceEnded = await prisma.reservation.findMany({
-    where: {
-      graceEndsAt: { lt: now },
-      status: { in: ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "CONFIRMED"] },
-    },
-    include: { asset: true },
-  });
-  for (const r of graceEnded) {
-    await prisma.$transaction(async (tx) => {
-      await tx.reservation.update({
-        where: { id: r.id },
-        data: {
-          status: "REFUNDED",
-          cancelReason: `Grace ended. Deduction ${r.deductionPercent}% applied.`,
-        },
-      });
-      await tx.asset.update({ where: { id: r.assetId }, data: { status: "AVAILABLE" } });
-      await tx.adminActivityLog.create({
-        data: {
-          adminId: r.userId, // system; will fix if admin required - use first admin if needed
-          action: "AUTO_REFUND",
-          entity: "Reservation",
-          entityId: r.id,
-          details: `refund=${r.refundAmount} deduction=${r.deductionPercent}%`,
-        },
-      }).catch(() => null);
-    });
-    await notify(
-      r.userId,
-      "Reservation cancelled — refund processed",
-      `"${r.asset.title}" cancelled after grace. Estimated refund: $${r.refundAmount ?? 0} (after deduction).`,
-      "PAYMENT",
-      "/dashboard"
-    );
-  }
-
-  // 4. Reminders 24h / 1h before reservation expiry
-  const in25h = new Date(now.getTime() + 25 * 3600 * 1000);
-  const in23h = new Date(now.getTime() + 23 * 3600 * 1000);
-  const soon24 = await prisma.reservation.findMany({
-    where: {
-      status: "PENDING",
-      reminder24hSent: false,
-      expiresAt: { gte: in23h, lte: in25h },
-    },
-    include: { asset: true },
-  });
-  for (const r of soon24) {
-    await prisma.reservation.update({ where: { id: r.id }, data: { reminder24hSent: true } });
-    await notify(r.userId, "Payment due in ~24 hours", `Pay for "${r.asset.title}" within 24 hours.`, "RESERVATION", "/dashboard");
-  }
-
-  const in90m = new Date(now.getTime() + 90 * 60 * 1000);
-  const in30m = new Date(now.getTime() + 30 * 60 * 1000);
-  const soon1h = await prisma.reservation.findMany({
-    where: {
-      status: "PENDING",
-      reminder1hSent: false,
-      expiresAt: { gte: in30m, lte: in90m },
-    },
-    include: { asset: true },
-  });
-  for (const r of soon1h) {
-    await prisma.reservation.update({ where: { id: r.id }, data: { reminder1hSent: true } });
-    await notify(r.userId, "Payment due in about 1 hour", `Last chance for "${r.asset.title}".`, "RESERVATION", "/dashboard");
-  }
-
-  // 5. Plan deadline reminders (House/Land)
-  const planSoon = await prisma.reservation.findMany({
-    where: {
-      status: { in: ["INSTALLMENT_PLAN", "PARTIALLY_PAID"] },
-      planDeadline: { gte: in23h, lte: in25h },
-      planReminderSent: false,
-    },
-    include: { asset: true },
-  });
-  for (const r of planSoon) {
-    await prisma.reservation.update({ where: { id: r.id }, data: { planReminderSent: true } });
-    await notify(
-      r.userId,
-      "Installment plan ending soon",
-      `Plan deadline for "${r.asset.title}" is within 24 hours. Balance remaining.`,
-      "PAYMENT",
-      "/dashboard"
-    );
-  }
-
-  // 6. Auto-approve clients after 12h
   const twelveHoursAgo = new Date(now.getTime() - 12 * 3600 * 1000);
   const pendingUsers = await prisma.user.findMany({
     where: {
@@ -337,7 +213,8 @@ export async function runMaintenance() {
       data: {
         status: "UNDER_REVIEW",
         approvedAt: now,
-        verificationStatus: u.verificationStatus === "PENDING" ? "UNDER_REVIEW" : u.verificationStatus,
+        verificationStatus:
+          u.verificationStatus === "PENDING" ? "UNDER_REVIEW" : u.verificationStatus,
       },
     });
     await notify(
@@ -351,10 +228,6 @@ export async function runMaintenance() {
 
   return {
     expiredReservations: expired.length,
-    graceStarted: overdueInPeriod.length,
-    refunded: graceEnded.length,
-    reminders24h: soon24.length,
-    reminders1h: soon1h.length,
     autoApprovedUsers: pendingUsers.length,
   };
 }

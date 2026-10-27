@@ -9,12 +9,13 @@ export async function GET(req: NextRequest) {
     const category = new URL(req.url).searchParams.get("category");
     if (category) {
       const cfg = await getCategoryConfig(category);
-      return NextResponse.json(cfg);
+      const docs = await prisma.requiredDocumentType.findMany({
+        where: { category, active: true },
+        orderBy: { sortOrder: "asc" },
+      });
+      return NextResponse.json({ ...cfg, requiredDocs: docs });
     }
-    const all = await prisma.categoryDefault.findMany({
-      include: { requiredDocs: { where: { active: true }, orderBy: { sortOrder: "asc" } } },
-      orderBy: { sortOrder: "asc" },
-    });
+    const all = await prisma.categoryDefault.findMany({ orderBy: { sortOrder: "asc" } });
     return NextResponse.json(all);
   } catch (e) {
     console.error(e);
@@ -22,7 +23,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Admin update category rules or required docs */
 export async function PATCH(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "ADMIN") {
