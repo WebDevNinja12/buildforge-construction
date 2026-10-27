@@ -114,6 +114,36 @@ export default function AdminPage() {
     loadTab("activity");
   }
 
+  async function setPaymentStatus(id: string, action: "APPROVE" | "REJECT") {
+    let reason = "";
+    if (action === "REJECT") {
+      reason = prompt("Rejection reason (required):") || "";
+      if (!reason.trim()) return notify("Rejection reason is required", true);
+    } else if (!confirm("Approve this payment?")) return;
+    const res = await fetch("/api/admin/payments", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) return notify(data.error || "Update failed", true);
+    notify(data.message || "Payment updated");
+    loadTab("activity");
+  }
+
+  async function finalVerifyUser(id: string) {
+    if (!confirm("Mark this user as fully VERIFIED?")) return;
+    const res = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "FINAL_VERIFY" }),
+    });
+    const data = await res.json();
+    if (!res.ok) return notify(data.error || "Failed", true);
+    notify("User verified");
+    loadTab("users");
+  }
+
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -125,7 +155,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
-      notify("User created (password hashed, pre-approved)");
+      notify("User created");
       setUserForm({ email: "", password: "", name: "", phone: "", role: "CLIENT" });
       loadTab("users");
     } catch (err) {
@@ -146,7 +176,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
-      notify("Listing added with description and image");
+      notify("Listing added");
       setAssetForm({ title: "", description: "", type: "HOUSE", price: "", location: "", size: "", imageUrl: "" });
       loadTab("assets");
     } catch (err) {
@@ -171,12 +201,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/tools", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...toolForm,
-          dailyRate: Number(toolForm.dailyRate),
-          weeklyRate: Number(toolForm.weeklyRate),
-          quantity: Number(toolForm.quantity) || 1,
-        }),
+        body: JSON.stringify({ ...toolForm, dailyRate: Number(toolForm.dailyRate), weeklyRate: Number(toolForm.weeklyRate), quantity: Number(toolForm.quantity) || 1 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -205,11 +230,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/workers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...workerForm,
-          experience: Number(workerForm.experience),
-          dailyRate: Number(workerForm.dailyRate),
-        }),
+        body: JSON.stringify({ ...workerForm, experience: Number(workerForm.experience), dailyRate: Number(workerForm.dailyRate) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -290,16 +311,14 @@ export default function AdminPage() {
         <h1 className="text-3xl font-bold text-construction-dark flex items-center gap-2">
           <Shield className="w-8 h-8 text-primary-600" /> Admin Control
         </h1>
-        <p className="text-sm text-construction-gray mb-6">Accept or reject reservations, manage clients and services.</p>
+        <p className="text-sm text-construction-gray mb-6">Reservations, payments, verification, and services.</p>
         {message && <p className="mb-4 text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-4 py-2">{message}</p>}
         {error && <p className="mb-4 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>}
 
         <div className="flex flex-wrap gap-2 mb-8">
           {tabs.map((t) => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${
-                tab === t.id ? "bg-primary-600 text-white" : "bg-white border border-slate-200"
-              }`}>
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${tab === t.id ? "bg-primary-600 text-white" : "bg-white border border-slate-200"}`}>
               <t.icon className="w-4 h-4" />{t.label}
             </button>
           ))}
@@ -316,10 +335,10 @@ export default function AdminPage() {
                   <div className="grid sm:grid-cols-2 gap-3">
                     <input required placeholder="Name" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input required type="email" placeholder="Email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input required type="password" placeholder="Password (hashed)" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required type="password" placeholder="Password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input placeholder="Phone" value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} className="px-3 py-2 rounded-lg border" />
                   </div>
-                  <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl disabled:opacity-50">{saving ? "Saving..." : "Create user"}</button>
+                  <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">{saving ? "..." : "Create user"}</button>
                 </form>
                 <div className="bg-white rounded-2xl border overflow-hidden">
                   <div className="px-5 py-3 border-b font-semibold">Customers ({users.length})</div>
@@ -328,17 +347,22 @@ export default function AdminPage() {
                       <li key={u.id} className="px-5 py-3 flex justify-between gap-3">
                         <div>
                           <p className="font-medium">{u.name}{" "}
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              u.status === "APPROVED" ? "bg-green-100 text-green-700" :
-                              u.status === "REJECTED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                            }`}>{u.status || "PENDING"}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${u.status === "APPROVED" || u.status === "VERIFIED" ? "bg-green-100 text-green-700" : u.status === "REJECTED" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{u.status}</span>{" "}
+                            <span className="text-xs text-slate-500">{u.verificationStatus}</span>
                           </p>
                           <p className="text-sm text-slate-500">{u.email}</p>
                         </div>
                         {u.role !== "ADMIN" && (
-                          <div className="flex gap-1">
-                            {u.status !== "APPROVED" && <button type="button" onClick={() => setUserStatus(u.id, "APPROVED")} className="text-green-600 p-1"><Check className="w-4 h-4" /></button>}
-                            {u.status !== "REJECTED" && <button type="button" onClick={() => setUserStatus(u.id, "REJECTED")} className="text-amber-600 p-1"><X className="w-4 h-4" /></button>}
+                          <div className="flex gap-1 items-center">
+                            {u.status !== "APPROVED" && u.status !== "VERIFIED" && (
+                              <button type="button" onClick={() => setUserStatus(u.id, "APPROVED")} className="text-green-600 p-1" title="Approve"><Check className="w-4 h-4" /></button>
+                            )}
+                            {u.verificationStatus !== "VERIFIED" && (
+                              <button type="button" onClick={() => finalVerifyUser(u.id)} className="text-primary-600 text-xs font-bold px-1" title="Final verify">V</button>
+                            )}
+                            {u.status !== "REJECTED" && (
+                              <button type="button" onClick={() => setUserStatus(u.id, "REJECTED")} className="text-amber-600 p-1" title="Reject"><X className="w-4 h-4" /></button>
+                            )}
                             <button type="button" onClick={() => deleteUser(u.id)} className="text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         )}
@@ -351,85 +375,51 @@ export default function AdminPage() {
 
             {tab === "activity" && activity && (
               <div className="space-y-6">
-                <div className="grid sm:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-xl border p-4">
-                    <p className="text-2xl font-bold text-amber-600">{activity.pendingApprovals ?? 0}</p>
-                    <p className="text-sm text-slate-500">Pending client approvals</p>
-                  </div>
-                  <div className="bg-white rounded-xl border p-4">
-                    <p className="text-2xl font-bold">{(activity.reservations || []).filter((r: any) => r.status === "PENDING").length}</p>
-                    <p className="text-sm text-slate-500">Pending reservations</p>
-                  </div>
-                  <div className="bg-white rounded-xl border p-4">
-                    <p className="text-2xl font-bold">{activity.payments?.length ?? 0}</p>
-                    <p className="text-sm text-slate-500">Recent payments</p>
-                  </div>
+                <div className="grid sm:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-xl border p-4"><p className="text-2xl font-bold text-amber-600">{activity.pendingApprovals ?? 0}</p><p className="text-sm text-slate-500">Pending users</p></div>
+                  <div className="bg-white rounded-xl border p-4"><p className="text-2xl font-bold">{(activity.reservations || []).filter((r: any) => r.status === "PENDING").length}</p><p className="text-sm text-slate-500">Pending reservations</p></div>
+                  <div className="bg-white rounded-xl border p-4"><p className="text-2xl font-bold">{activity.pendingPayments ?? 0}</p><p className="text-sm text-slate-500">Pending payments</p></div>
+                  <div className="bg-white rounded-xl border p-4"><p className="text-2xl font-bold">${Number(activity.revenue || 0).toLocaleString()}</p><p className="text-sm text-slate-500">Revenue</p></div>
                 </div>
 
                 <div className="bg-white rounded-2xl border overflow-hidden">
-                  <div className="px-5 py-3 border-b font-semibold flex items-center justify-between">
-                    <span>Reservations — Accept or Reject</span>
-                    <span className="text-xs font-normal text-slate-500">Green = accept · Red = reject</span>
-                  </div>
-                  <ul className="divide-y max-h-[28rem] overflow-y-auto">
-                    {(activity.reservations || []).length === 0 ? (
-                      <li className="px-5 py-6 text-sm text-slate-500 text-center">No reservations yet</li>
-                    ) : (
-                      (activity.reservations || []).map((r: any) => (
-                        <li key={r.id} className="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium text-construction-dark">
-                              {r.asset?.title || "Asset"}{" "}
-                              <span className={`text-xs px-2 py-0.5 rounded ${
-                                r.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
-                                r.status === "CANCELLED" || r.status === "EXPIRED" ? "bg-red-100 text-red-700" :
-                                "bg-amber-100 text-amber-700"
-                              }`}>{r.status}</span>
-                            </p>
-                            <p className="text-sm text-slate-500">
-                              {r.user?.name} ({r.user?.email}) · Deposit ${Number(r.deposit || 0).toLocaleString()}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {r.asset?.location} · {r.asset?.type}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {r.status === "PENDING" && (
-                              <button type="button" onClick={() => setReservationStatus(r.id, "ACCEPT")}
-                                className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
-                                <Check className="w-3.5 h-3.5" /> Accept
-                              </button>
-                            )}
-                            {(r.status === "PENDING" || r.status === "CONFIRMED") && (
-                              <button type="button" onClick={() => setReservationStatus(r.id, "REJECT")}
-                                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
-                                <X className="w-3.5 h-3.5" /> Reject
-                              </button>
-                            )}
-                            {r.status !== "PENDING" && r.status !== "CONFIRMED" && (
-                              <span className="text-xs text-slate-400">No action</span>
-                            )}
-                          </div>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </div>
-
-                <div className="bg-white rounded-2xl border overflow-hidden">
-                  <div className="px-5 py-3 border-b font-semibold">Tool rentals</div>
-                  <ul className="divide-y max-h-48 overflow-y-auto">
-                    {(activity.rentals || []).map((r: any) => (
-                      <li key={r.id} className="px-5 py-2 text-sm">{r.user?.name} · {r.tool?.name} · {r.status}</li>
+                  <div className="px-5 py-3 border-b font-semibold">Reservations — Accept / Reject</div>
+                  <ul className="divide-y max-h-72 overflow-y-auto">
+                    {(activity.reservations || []).map((r: any) => (
+                      <li key={r.id} className="px-5 py-3 flex justify-between gap-3 items-center">
+                        <div>
+                          <p className="font-medium text-sm">{r.asset?.title} <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">{r.status}</span></p>
+                          <p className="text-xs text-slate-500">{r.user?.name} · ${Number(r.deposit || 0).toLocaleString()}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          {r.status === "PENDING" && (
+                            <button type="button" onClick={() => setReservationStatus(r.id, "ACCEPT")} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg font-semibold">Accept</button>
+                          )}
+                          {(r.status === "PENDING" || r.status === "CONFIRMED") && (
+                            <button type="button" onClick={() => setReservationStatus(r.id, "REJECT")} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-semibold">Reject</button>
+                          )}
+                        </div>
+                      </li>
                     ))}
                   </ul>
                 </div>
 
                 <div className="bg-white rounded-2xl border overflow-hidden">
-                  <div className="px-5 py-3 border-b font-semibold">Hire requests</div>
-                  <ul className="divide-y max-h-48 overflow-y-auto">
-                    {(activity.hires || []).map((h: any) => (
-                      <li key={h.id} className="px-5 py-2 text-sm">{h.user?.name} · {(h.description || "").slice(0, 50)} · {h.status}</li>
+                  <div className="px-5 py-3 border-b font-semibold">Payments — Approve / Reject</div>
+                  <ul className="divide-y max-h-72 overflow-y-auto">
+                    {(activity.payments || []).map((p: any) => (
+                      <li key={p.id} className="px-5 py-3 flex justify-between gap-3 items-center">
+                        <div>
+                          <p className="font-medium text-sm">{p.user?.name} · {p.type} · ${Number(p.amount).toLocaleString()}</p>
+                          <p className="text-xs text-slate-500">{p.status}{p.rejectReason ? ` · ${p.rejectReason}` : ""}</p>
+                        </div>
+                        {p.status === "PENDING" && (
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setPaymentStatus(p.id, "APPROVE")} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg font-semibold">Approve</button>
+                            <button type="button" onClick={() => setPaymentStatus(p.id, "REJECT")} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-semibold">Reject</button>
+                          </div>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -439,7 +429,7 @@ export default function AdminPage() {
             {tab === "assets" && (
               <div className="space-y-6">
                 <form onSubmit={createAsset} className="bg-white rounded-2xl border p-6 space-y-3">
-                  <h2 className="font-semibold">Add asset / land (image + description)</h2>
+                  <h2 className="font-semibold">Add asset (image + description)</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
                     <input required placeholder="Title *" value={assetForm.title} onChange={(e) => setAssetForm({ ...assetForm, title: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input required placeholder="Location *" value={assetForm.location} onChange={(e) => setAssetForm({ ...assetForm, location: e.target.value })} className="px-3 py-2 rounded-lg border" />
@@ -447,26 +437,17 @@ export default function AdminPage() {
                       <option value="HOUSE">House</option><option value="HOTEL">Hotel</option><option value="APARTMENT">Apartment</option><option value="LAND">Land</option><option value="COMMERCIAL">Commercial</option>
                     </select>
                     <input required type="number" placeholder="Price *" value={assetForm.price} onChange={(e) => setAssetForm({ ...assetForm, price: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input placeholder="Size" value={assetForm.size} onChange={(e) => setAssetForm({ ...assetForm, size: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input type="url" placeholder="Image URL (https://...)" value={assetForm.imageUrl} onChange={(e) => setAssetForm({ ...assetForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input type="url" placeholder="Image URL" value={assetForm.imageUrl} onChange={(e) => setAssetForm({ ...assetForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border sm:col-span-2" />
                   </div>
-                  {assetForm.imageUrl ? <img src={assetForm.imageUrl} alt="Preview" className="h-28 rounded-lg object-cover border" /> : null}
-                  <textarea required rows={4} placeholder="Full description for clients *" value={assetForm.description} onChange={(e) => setAssetForm({ ...assetForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">{saving ? "..." : "Add listing"}</button>
+                  <textarea required rows={3} placeholder="Description *" value={assetForm.description} onChange={(e) => setAssetForm({ ...assetForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
+                  <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">Add listing</button>
                 </form>
-                <ul className="space-y-2">{assets.map((a) => {
-                  let img = "";
-                  try { img = JSON.parse(a.images || "[]")[0] || ""; } catch {}
-                  return (
-                    <li key={a.id} className="bg-white border rounded-xl px-4 py-3 flex gap-3 justify-between">
-                      <div className="flex gap-3 min-w-0">
-                        {img ? <img src={img} alt="" className="w-14 h-14 rounded-lg object-cover" /> : <div className="w-14 h-14 bg-slate-100 rounded-lg" />}
-                        <div><p className="font-medium">{a.title}</p><p className="text-sm text-slate-500">{a.location}</p></div>
-                      </div>
-                      <button type="button" onClick={() => deleteAsset(a.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
-                    </li>
-                  );
-                })}</ul>
+                <ul className="space-y-2">{assets.map((a) => (
+                  <li key={a.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
+                    <div><p className="font-medium">{a.title}</p><p className="text-sm text-slate-500">{a.location} · {a.status}</p></div>
+                    <button type="button" onClick={() => deleteAsset(a.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
+                  </li>
+                ))}</ul>
               </div>
             )}
 
@@ -475,18 +456,17 @@ export default function AdminPage() {
                 <form onSubmit={createTool} className="bg-white rounded-2xl border p-6 space-y-3">
                   <h2 className="font-semibold">Add tool</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <input required placeholder="Name *" value={toolForm.name} onChange={(e) => setToolForm({ ...toolForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input required type="number" placeholder="Daily rate *" value={toolForm.dailyRate} onChange={(e) => setToolForm({ ...toolForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input required type="number" placeholder="Weekly rate *" value={toolForm.weeklyRate} onChange={(e) => setToolForm({ ...toolForm, weeklyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input type="number" placeholder="Qty" value={toolForm.quantity} onChange={(e) => setToolForm({ ...toolForm, quantity: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input type="url" placeholder="Image URL" value={toolForm.imageUrl} onChange={(e) => setToolForm({ ...toolForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border sm:col-span-2" />
+                    <input required placeholder="Name" value={toolForm.name} onChange={(e) => setToolForm({ ...toolForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required type="number" placeholder="Daily rate" value={toolForm.dailyRate} onChange={(e) => setToolForm({ ...toolForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required type="number" placeholder="Weekly rate" value={toolForm.weeklyRate} onChange={(e) => setToolForm({ ...toolForm, weeklyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input type="url" placeholder="Image URL" value={toolForm.imageUrl} onChange={(e) => setToolForm({ ...toolForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border" />
                   </div>
-                  <textarea required rows={3} placeholder="Description *" value={toolForm.description} onChange={(e) => setToolForm({ ...toolForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
+                  <textarea required rows={2} placeholder="Description" value={toolForm.description} onChange={(e) => setToolForm({ ...toolForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">Add tool</button>
                 </form>
                 <ul className="space-y-2">{tools.map((t) => (
                   <li key={t.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{t.name}</p></div>
+                    <p className="font-medium">{t.name}</p>
                     <button type="button" onClick={() => deleteTool(t.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
@@ -498,20 +478,16 @@ export default function AdminPage() {
                 <form onSubmit={createWorker} className="bg-white rounded-2xl border p-6 space-y-3">
                   <h2 className="font-semibold">Add worker</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <input required placeholder="Name *" value={workerForm.name} onChange={(e) => setWorkerForm({ ...workerForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <select value={workerForm.specialty} onChange={(e) => setWorkerForm({ ...workerForm, specialty: e.target.value })} className="px-3 py-2 rounded-lg border">
-                      <option value="MASON">Mason</option><option value="ELECTRICIAN">Electrician</option><option value="PLUMBER">Plumber</option><option value="CARPENTER">Carpenter</option><option value="SUPERVISOR">Supervisor</option>
-                    </select>
-                    <input required type="number" placeholder="Experience years *" value={workerForm.experience} onChange={(e) => setWorkerForm({ ...workerForm, experience: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input required type="number" placeholder="Daily rate *" value={workerForm.dailyRate} onChange={(e) => setWorkerForm({ ...workerForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input type="url" placeholder="Photo URL" value={workerForm.imageUrl} onChange={(e) => setWorkerForm({ ...workerForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border sm:col-span-2" />
+                    <input required placeholder="Name" value={workerForm.name} onChange={(e) => setWorkerForm({ ...workerForm, name: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required type="number" placeholder="Daily rate" value={workerForm.dailyRate} onChange={(e) => setWorkerForm({ ...workerForm, dailyRate: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required type="number" placeholder="Experience years" value={workerForm.experience} onChange={(e) => setWorkerForm({ ...workerForm, experience: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input type="url" placeholder="Photo URL" value={workerForm.imageUrl} onChange={(e) => setWorkerForm({ ...workerForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border" />
                   </div>
-                  <textarea rows={3} placeholder="Bio" value={workerForm.bio} onChange={(e) => setWorkerForm({ ...workerForm, bio: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">Add worker</button>
                 </form>
                 <ul className="space-y-2">{workers.map((w) => (
                   <li key={w.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{w.name}</p></div>
+                    <p className="font-medium">{w.name}</p>
                     <button type="button" onClick={() => deleteWorker(w.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
@@ -523,17 +499,17 @@ export default function AdminPage() {
                 <form onSubmit={createFinished} className="bg-white rounded-2xl border p-6 space-y-3">
                   <h2 className="font-semibold">Add finished project</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <input required placeholder="Title *" value={fpForm.title} onChange={(e) => setFpForm({ ...fpForm, title: e.target.value })} className="px-3 py-2 rounded-lg border" />
-                    <input required placeholder="Location *" value={fpForm.location} onChange={(e) => setFpForm({ ...fpForm, location: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required placeholder="Title" value={fpForm.title} onChange={(e) => setFpForm({ ...fpForm, title: e.target.value })} className="px-3 py-2 rounded-lg border" />
+                    <input required placeholder="Location" value={fpForm.location} onChange={(e) => setFpForm({ ...fpForm, location: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input required type="date" value={fpForm.completedAt} onChange={(e) => setFpForm({ ...fpForm, completedAt: e.target.value })} className="px-3 py-2 rounded-lg border" />
                     <input type="url" placeholder="Image URL" value={fpForm.imageUrl} onChange={(e) => setFpForm({ ...fpForm, imageUrl: e.target.value })} className="px-3 py-2 rounded-lg border" />
                   </div>
-                  <textarea required rows={3} placeholder="Description *" value={fpForm.description} onChange={(e) => setFpForm({ ...fpForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
+                  <textarea required rows={2} placeholder="Description" value={fpForm.description} onChange={(e) => setFpForm({ ...fpForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                   <button type="submit" disabled={saving} className="bg-accent-500 text-white font-semibold px-4 py-2 rounded-xl">Publish</button>
                 </form>
                 <ul className="space-y-2">{finished.map((p) => (
                   <li key={p.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between">
-                    <div><p className="font-medium">{p.title}</p></div>
+                    <p className="font-medium">{p.title}</p>
                     <button type="button" onClick={() => deleteFinished(p.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}</ul>
