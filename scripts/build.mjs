@@ -19,12 +19,14 @@ function pickUrl() {
 
 const neon = pickUrl();
 if (neon) {
+  process.env.construction_storage_PRISMA_DATABASE_URL = neon;
   process.env.DATABASE_URL = neon;
-  console.log("[build] Using Neon/Postgres URL for prisma");
+  console.log("[build] Using Neon postgres URL");
 } else {
-  process.env.DATABASE_URL =
+  // prisma generate needs the env var named in schema to exist
+  process.env.construction_storage_PRISMA_DATABASE_URL =
     "postgresql://build:build@127.0.0.1:5432/build?schema=public";
-  console.warn("[build] No postgres URL — placeholder for generate only");
+  console.warn("[build] No neon URL — placeholder for generate only");
 }
 
 function run(cmd, args) {
@@ -44,10 +46,10 @@ if (neon) {
   if (push.status !== 0) {
     console.warn("[build] prisma db push failed — continuing");
   } else {
-    console.log("[build] Database schema pushed");
+    console.log("[build] Database schema pushed (tables created/updated)");
   }
 } else {
-  console.warn("[build] Skipping db push (no real DATABASE_URL)");
+  console.warn("[build] Skipping db push (no real URL)");
 }
 
 run("npx", ["next", "build"]);
