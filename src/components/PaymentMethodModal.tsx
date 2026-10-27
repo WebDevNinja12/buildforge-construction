@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X, Loader2, FileText, CreditCard, CalendarClock } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { parseFrequencies } from "@/lib/schedule";
 
 interface CategoryConfig {
   category: string;
@@ -12,6 +13,7 @@ interface CategoryConfig {
   installmentPlanMonths?: number | null;
   cancelDeductionPercent?: number;
   graceHours?: number;
+  allowedFrequencies?: string;
   requiredDocs?: { key: string; label: string; required: boolean; description?: string | null }[];
 }
 
@@ -23,6 +25,7 @@ interface Props {
   category: string;
   onConfirm: (payload: {
     paymentMethod: "FULL" | "INSTALLMENT";
+    paymentFrequency?: string;
     documents: { key: string; label: string; fileUrl: string; fileName?: string }[];
   }) => Promise<void>;
 }
@@ -31,6 +34,7 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
   const [method, setMethod] = useState<"FULL" | "INSTALLMENT" | null>(null);
   const [cfg, setCfg] = useState<CategoryConfig | null>(null);
   const [agreed, setAgreed] = useState(false);
+  const [frequency, setFrequency] = useState("MONTHLY");
   const [docs, setDocs] = useState<Record<string, { fileUrl: string; fileName: string }>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,20 +47,23 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
     setError("");
     fetch(`/api/categories?category=${encodeURIComponent(category)}`)
       .then((r) => r.json())
-      .then(setCfg)
+      .then((data) => {
+        setCfg(data);
+        const freqs = parseFrequencies(data.allowedFrequencies);
+        setFrequency(freqs[0] || "MONTHLY");
+      })
       .catch(() => setCfg(null));
   }, [open, category]);
 
   if (!open) return null;
 
+  const freqs = parseFrequencies(cfg?.allowedFrequencies);
   const requiredList = cfg?.requiredDocs?.filter((d) => d.required) || [];
   const allDocsUploaded =
-    requiredList.length === 0 ||
-    requiredList.every((d) => docs[d.key]?.fileUrl);
+    requiredList.length === 0 || requiredList.every((d) => docs[d.key]?.fileUrl);
 
   async function handleFile(key: string, file: File | null) {
     if (!file) return;
-    // Store as data URL for demo (replace with S3/Cloudinary in production)
     const reader = new FileReader();
     reader.onload = () => {
       setDocs((prev) => ({
@@ -91,7 +98,11 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
               fileName: v.fileName,
             }))
           : [];
-      await onConfirm({ paymentMethod: method, documents });
+      await onConfirm({
+        paymentMethod: method,
+        paymentFrequency: method === "INSTALLMENT" ? frequency : undefined,
+        documents,
+      });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -121,31 +132,21 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
 
           {!method && (
             <div className="grid gap-3">
-              <button
-                type="button"
-                onClick={() => setMethod("FULL")}
-                className="text-left border-2 border-slate-200 hover:border-primary-500 rounded-xl p-4 transition-colors"
-              >
+              <button type="button" onClick={() => setMethod("FULL")} className="text-left border-2 border-slate-200 hover:border-primary-500 rounded-xl p-4">
                 <div className="flex items-center gap-3">
                   <CreditCard className="w-6 h-6 text-primary-600" />
                   <div>
                     <p className="font-semibold">Full payment</p>
-                    <p className="text-sm text-slate-500">Pay once. Marked fully paid after admin approval.</p>
+                    <p className="text-sm text-slate-500">Pay once after admin approval.</p>
                   </div>
                 </div>
               </button>
-              <button
-                type="button"
-                onClick={() => setMethod("INSTALLMENT")}
-                className="text-left border-2 border-slate-200 hover:border-accent-500 rounded-xl p-4 transition-colors"
-              >
+              <button type="button" onClick={() => setMethod("INSTALLMENT")} className="text-left border-2 border-slate-200 hover:border-accent-500 rounded-xl p-4">
                 <div className="flex items-center gap-3">
                   <CalendarClock className="w-6 h-6 text-accent-600" />
                   <div>
                     <p className="font-semibold">Installment payment</p>
-                    <p className="text-sm text-slate-500">
-                      Deposit {formatCurrency(deposit)} now; schedule for the balance.
-                    </p>
+                    <p className="text-sm text-slate-500">Deposit {formatCurrency(deposit)}; choose frequency for the rest.</p>
                   </div>
                 </div>
               </button>
@@ -154,30 +155,30 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
 
           {method === "FULL" && (
             <div className="space-y-3">
-              <p className="text-sm text-slate-600">
-                You will pay the full amount ({formatCurrency(price)}). After admin approves the payment, the reservation is marked fully paid.
-              </p>
-              <button type="button" onClick={() => setMethod(null)} className="text-sm text-primary-600">
-                ← Change method
-              </button>
+              <p className="text-sm text-slate-600">Full amount {formatCurrency(price)} after admin approves payment.</p>
+              <button type="button" onClick={() => setMethod(null)} className="text-sm text-primary-600">← Change method</button>
             </div>
           )}
 
           {method === "INSTALLMENT" && (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
-                <p className="font-semibold flex items-center gap-2 mb-2">
-                  <FileText className="w-4 h-4" /> Installment rules — {cfg?.name || category}
-                </p>
-                <p className="whitespace-pre-wrap">{cfg?.installmentRulesText || "Loading rules…"}</p>
-                {cfg?.continuesAfterHold && cfg.installmentPlanMonths && (
-                  <p className="mt-2 font-medium">Plan duration: up to {cfg.installmentPlanMonths} months after first deposit.</p>
-                )}
-                {!cfg?.continuesAfterHold && (
-                  <p className="mt-2 font-medium">
-                    Must finish within the reservation period. Late balance: grace {cfg?.graceHours ?? 24}h, then refund minus {cfg?.cancelDeductionPercent ?? 10}%.
-                  </p>
-                )}
+                <p className="font-semibold flex items-center gap-2 mb-2"><FileText className="w-4 h-4" /> Rules — {cfg?.name || category}</p>
+                <p className="whitespace-pre-wrap">{cfg?.installmentRulesText || "Loading…"}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Payment frequency</label>
+                <select
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                >
+                  {freqs.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">Schedule is generated automatically from this frequency and the plan deadline.</p>
               </div>
 
               <label className="flex items-start gap-2 cursor-pointer">
@@ -191,24 +192,14 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
                   {requiredList.map((d) => (
                     <div key={d.key} className="border rounded-lg p-3">
                       <p className="text-sm font-medium">{d.label}</p>
-                      {d.description && <p className="text-xs text-slate-500">{d.description}</p>}
-                      <input
-                        type="file"
-                        accept="image/*,.pdf"
-                        className="mt-2 text-sm w-full"
-                        onChange={(e) => handleFile(d.key, e.target.files?.[0] || null)}
-                      />
-                      {docs[d.key] && (
-                        <p className="text-xs text-green-700 mt-1">Uploaded: {docs[d.key].fileName}</p>
-                      )}
+                      <input type="file" accept="image/*,.pdf" className="mt-2 text-sm w-full" onChange={(e) => handleFile(d.key, e.target.files?.[0] || null)} />
+                      {docs[d.key] && <p className="text-xs text-green-700 mt-1">Uploaded: {docs[d.key].fileName}</p>}
                     </div>
                   ))}
                 </div>
               )}
 
-              <button type="button" onClick={() => setMethod(null)} className="text-sm text-primary-600">
-                ← Change method
-              </button>
+              <button type="button" onClick={() => setMethod(null)} className="text-sm text-primary-600">← Change method</button>
             </div>
           )}
 
@@ -222,7 +213,7 @@ export function PaymentMethodModal({ open, onClose, title, price, category, onCo
               className="w-full bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Confirm {method === "FULL" ? "full payment" : "installment"} reservation
+              Confirm {method === "FULL" ? "full payment" : `${frequency.toLowerCase()} installment`}
             </button>
           )}
         </div>
