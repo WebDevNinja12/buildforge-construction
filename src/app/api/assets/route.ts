@@ -32,8 +32,13 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     if (!body.title || !body.description || !body.type || body.price == null || !body.location) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json({ error: "Missing required fields (title, description, type, price, location)" }, { status: 400 });
     }
+
+    // Support imageUrl or images array
+    let images: string[] = [];
+    if (Array.isArray(body.images)) images = body.images.filter(Boolean);
+    else if (body.imageUrl) images = [body.imageUrl];
 
     const asset = await prisma.asset.create({
       data: {
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest) {
         size: body.size || null,
         bedrooms: body.bedrooms != null ? Number(body.bedrooms) : null,
         bathrooms: body.bathrooms != null ? Number(body.bathrooms) : null,
-        images: JSON.stringify(body.images || []),
+        images: JSON.stringify(images),
         features: JSON.stringify(body.features || []),
         status: body.status || "AVAILABLE",
       },

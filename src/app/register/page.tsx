@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { HardHat, UserPlus, FileText, CheckCircle2 } from "lucide-react";
+import { HardHat, UserPlus, FileText, CheckCircle2, Eye, EyeOff } from "lucide-react";
 
 const RULES_SUMMARY = [
   "Admin must approve new accounts; auto-approval after 12 hours if not reviewed.",
@@ -17,6 +17,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<"rules" | "form">("rules");
   const [agreed, setAgreed] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -149,13 +151,29 @@ export default function RegisterPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Password *</label>
-            <input type="password" required minLength={6} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+            <div className="relative">
+              <input type={showPassword ? "text" : "password"} required minLength={6} value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label={showPassword ? "Hide password" : "Show password"}>
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirm Password *</label>
-            <input type="password" required value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+            <div className="relative">
+              <input type={showConfirm ? "text" : "password"} required value={form.confirm}
+                onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+                className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label={showConfirm ? "Hide password" : "Show password"}>
+                {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
 
           <button type="submit" disabled={loading}

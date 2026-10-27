@@ -20,9 +20,9 @@ export async function POST(req: NextRequest) {
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
   try {
     const body = await req.json();
-    const { name, description, category, dailyRate, weeklyRate, quantity } = body;
+    const { name, description, category, dailyRate, weeklyRate, quantity, imageUrl, image } = body;
     if (!name || !description || !category || dailyRate == null || weeklyRate == null) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json({ error: "Missing required fields including description" }, { status: 400 });
     }
     const qty = Number(quantity) || 1;
     const tool = await prisma.tool.create({
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
         weeklyRate: Number(weeklyRate),
         quantity: qty,
         available: qty,
+        image: imageUrl || image || null,
       },
     });
     return NextResponse.json(tool, { status: 201 });
