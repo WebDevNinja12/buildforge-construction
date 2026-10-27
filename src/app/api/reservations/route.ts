@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession, requireApproved } from "@/lib/auth";
 import { getExpiryHours, getCategoryConfig, runMaintenance } from "@/lib/maintenance";
+import { buildSchedule, parseFrequencies, type Frequency } from "@/lib/schedule";
 
 export async function GET() {
   try {
@@ -17,6 +18,7 @@ export async function GET() {
         user: { select: { id: true, name: true, email: true } },
         installments: { orderBy: { sequence: "asc" } },
         installmentDocs: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 10 },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -49,6 +51,7 @@ export async function POST(req: NextRequest) {
       paymentMethod = "FULL",
       documents = [],
       rulesAgreed,
+      paymentFrequency,
     } = body;
 
     if (!assetId) return NextResponse.json({ error: "Asset ID required" }, { status: 400 });
@@ -65,19 +68,20 @@ export async function POST(req: NextRequest) {
     }
 
     const cfg = await getCategoryConfig(asset.type);
+    const allowed = parseFrequencies(
+      asset.allowedFrequencies || (cfg as any).allowedFrequencies || '["MONTHLY"]'
+    );
+    let frequency: Frequency | null = null;
     if (paymentMethod === "INSTALLMENT") {
+      frequency = (paymentFrequency || allowed[0] || "MONTHLY") as Frequency;
+      if (!allowed.includes(frequency)) {
+        return NextResponse.json(
+          { error: `Frequency not allowed. Choose: ${allowed.join(", ")}` },
+          { status: 400 }
+        );
+      }
       if (!rulesAgreed && !body.rulesAgreedAt) {
         return NextResponse.json({ error: "You must agree to installment rules" }, { status: 400 });
-      }
-      const required = (cfg.requiredDocs || []).filter((d: any) => d.required);
-      for (const d of required) {
-        const uploaded = (documents as any[]).find((x) => x.key === d.key && x.fileUrl);
-        if (!uploaded) {
-          return NextResponse.json(
-            { error: `Missing required document: ${d.label || d.key}` },
-            { status: 400 }
-          );
-        }
       }
     }
 
@@ -87,10 +91,14 @@ export async function POST(req: NextRequest) {
     const depositAmount = paymentMethod === "FULL" ? totalAmount : totalAmount * 0.1;
 
     let planDeadline: Date | null = null;
-    if (paymentMethod === "INSTALLMENT" && cfg.continuesAfterHold) {
-      const months = asset.installmentPlanMonths || cfg.installmentPlanMonths || 6;
-      planDeadline = new Date();
-      planDeadline.setMonth(planDeadline.getMonth() + months);
+    if (paymentMethod === "INSTALLMENT") {
+      if (cfg.continuesAfterHold) {
+        const months = asset.installmentPlanMonths || cfg.installmentPlanMonths || 6;
+        planDeadline = new Date();
+        planDeadline.setMonth(planDeadline.getMonth() + months);
+      } else {
+        planDeadline = expiresAt;
+      }
     }
 
     const reservation = await prisma.$transaction(async (tx) => {
@@ -106,6 +114,7 @@ export async function POST(req: NextRequest) {
           notes: notes || null,
           status: "PENDING",
           paymentMethod,
+          paymentFrequency: frequency,
           expiresAt,
           planDeadline,
           rulesAgreedAt: paymentMethod === "INSTALLMENT" ? new Date() : null,
@@ -114,42 +123,24 @@ export async function POST(req: NextRequest) {
         include: { asset: true },
       });
 
-      // Installment schedule
-      if (paymentMethod === "INSTALLMENT") {
-        let count = asset.installmentCount || 4;
-        let percents: number[] = [];
-        try {
-          percents = JSON.parse(asset.installmentPercents || "[]");
-        } catch {
-          percents = [];
-        }
-        if (percents.length !== count) {
-          // first is deposit 10%, rest equal on balance
-          percents = [10];
-          const rest = (90 / (count - 1));
-          for (let i = 1; i < count; i++) percents.push(rest);
-        }
-        for (let i = 0; i < count; i++) {
-          const amount = Math.round((totalAmount * (percents[i] / 100)) * 100) / 100;
-          let due: Date;
-          if (cfg.continuesAfterHold && planDeadline) {
-            due = new Date();
-            due.setDate(due.getDate() + Math.round(((i + 1) / count) * (monthsDays(cfg.installmentPlanMonths || 6))));
-          } else {
-            // within reservation period
-            due = new Date(Date.now() + ((i + 1) / count) * hours * 3600 * 1000);
-          }
+      if (paymentMethod === "INSTALLMENT" && frequency && planDeadline) {
+        const schedule = buildSchedule({
+          totalAmount,
+          amountAlreadyPaid: 0,
+          frequency,
+          planDeadline,
+        });
+        for (const row of schedule) {
           await tx.installment.create({
             data: {
               reservationId: res.id,
-              sequence: i + 1,
-              amount,
-              dueDate: due,
+              sequence: row.sequence,
+              amount: row.amount,
+              dueDate: row.dueDate,
               status: "PENDING",
             },
           });
         }
-
         for (const doc of documents as any[]) {
           if (!doc.fileUrl) continue;
           await tx.installmentDocument.create({
@@ -187,8 +178,8 @@ export async function POST(req: NextRequest) {
         title: "Reservation created",
         body:
           paymentMethod === "FULL"
-            ? `Full-payment hold on "${asset.title}" for ${hours} hours.`
-            : `Installment hold on "${asset.title}". Pay first deposit within ${hours} hours.`,
+            ? `Full-payment hold on "${asset.title}".`
+            : `Installment plan (${frequency}) started for "${asset.title}".`,
         type: "RESERVATION",
         link: "/dashboard",
       },
@@ -200,7 +191,7 @@ export async function POST(req: NextRequest) {
         message:
           paymentMethod === "FULL"
             ? `Full payment hold for ${hours} hours.`
-            : `Installment started. Deposit due within ${hours} hours.`,
+            : `Installment (${frequency}) created. Deposit due within ${hours} hours.`,
         expiryHours: hours,
       },
       { status: 201 }
@@ -209,8 +200,4 @@ export async function POST(req: NextRequest) {
     console.error(error);
     return NextResponse.json({ error: "Reservation failed" }, { status: 500 });
   }
-}
-
-function monthsDays(m: number) {
-  return m * 30;
 }
