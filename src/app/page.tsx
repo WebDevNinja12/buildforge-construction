@@ -11,6 +11,10 @@ import {
 } from "lucide-react";
 import FinishedProjectsShowcase from "@/components/FinishedProjectsShowcase";
 
+/** Your uploaded home banner (repo root). Served via raw GitHub until placed under /public. */
+const HERO_BANNER =
+  "https://raw.githubusercontent.com/WebDevNinja12/buildforge-construction/main/construction%20(8).png";
+
 const features = [
   {
     icon: Building2,
@@ -52,21 +56,30 @@ const features = [
 export default function HomePage() {
   return (
     <div className="bg-white">
-      <section className="relative bg-gradient-to-br from-construction-dark via-slate-800 to-primary-900 text-white overflow-hidden">
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
+        {/* Banner background image */}
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: `url('${HERO_BANNER}')` }}
+          aria-hidden
+        />
+        {/* Dark overlay for readable text */}
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/75 to-primary-900/60" />
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32 w-full">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-accent-500/20 text-accent-300 text-sm font-medium px-3 py-1 rounded-full mb-6">
+            <div className="inline-flex items-center gap-2 bg-accent-500/25 text-accent-200 text-sm font-medium px-3 py-1 rounded-full mb-6 border border-accent-500/30">
               <Home className="w-4 h-4" />
               Hama Construction
             </div>
             <p className="text-accent-400 font-medium tracking-wide uppercase text-sm sm:text-base mb-4">
               Building innovation through quality and trust
             </p>
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight drop-shadow-sm">
               Build Smarter.{" "}
               <span className="text-accent-400">Manage Everything.</span>
             </h1>
-            <p className="mt-6 text-lg sm:text-xl text-slate-300 leading-relaxed max-w-2xl">
+            <p className="mt-6 text-lg sm:text-xl text-slate-200 leading-relaxed max-w-2xl">
               Buy or reserve houses, hotels and land. Hire tools and skilled
               workers. Manage construction work from inquiry to completion —
               on one platform.
@@ -81,7 +94,7 @@ export default function HomePage() {
               </Link>
               <Link
                 href="/projects"
-                className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors border border-white/20"
+                className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors border border-white/20 backdrop-blur-sm"
               >
                 Finished Projects
               </Link>
@@ -167,14 +180,13 @@ export default function HomePage() {
                 About our company <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
-            <div className="relative">
-              <div className="aspect-[4/3] bg-gradient-to-br from-primary-600 to-construction-dark rounded-2xl flex items-center justify-center shadow-2xl">
-                <div className="text-center text-white p-8">
-                  <Building2 className="w-20 h-20 mx-auto mb-4 opacity-80" />
-                  <p className="text-2xl font-bold">Quality & trust</p>
-                  <p className="mt-2 text-primary-200">Residential and commercial construction services</p>
-                </div>
-              </div>
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl aspect-[4/3]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={HERO_BANNER}
+                alt="Hama Construction project site"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
             </div>
           </div>
         </div>
