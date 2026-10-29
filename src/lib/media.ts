@@ -1,4 +1,4 @@
-/** Shared media rules for images & videos (Vercel Blob). */
+/** Shared media rules — images & videos live ONLY on Vercel Blob (never cookies or localStorage). */
 
 export const IMAGE_TYPES = [
   "image/jpeg",
@@ -36,8 +36,7 @@ export function maxBytesFor(type: string) {
 /**
  * Vercel names Blob env vars from the store name:
  * - default → BLOB_READ_WRITE_TOKEN
- * - store "construction" → construction_READ_WRITE_TOKEN + construction_STORE_ID
- * - store "construction-house" → construction_house_READ_WRITE_TOKEN
+ * - store "construction" → construction_READ_WRITE_TOKEN
  */
 export function getBlobToken(): string | undefined {
   const candidates = [
@@ -79,20 +78,25 @@ export function blobStatus() {
           ? "construction_READ_WRITE_TOKEN"
           : process.env.construction_house_READ_WRITE_TOKEN
             ? "construction_house_READ_WRITE_TOKEN"
-            : "detected"
+            : "other"
       : null,
     note: token
-      ? "Blob uploads enabled"
-      : storeId
-        ? `Store linked (${storeId}) but READ_WRITE_TOKEN missing. In Vercel Storage open the store and reconnect so construction_READ_WRITE_TOKEN (or BLOB_READ_WRITE_TOKEN) is injected, then redeploy.`
-        : "No Blob store linked. Create/connect store construction-house (or construction) in Vercel Storage.",
+      ? "Blob uploads enabled — files stored on Vercel Blob, only public URLs saved in the database"
+      : "Blob not connected",
   };
 }
 
-export function mediaFolder(kind: "image" | "video" | "document", scope: string) {
-  const safe = scope.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+export function mediaFolder(
+  kind: "image" | "video" | "document",
+  scope: string
+) {
+  const safe = scope.replace(/[^a-z0-9_-]/gi, "_").slice(0, 40) || "general";
   return `hama/${kind}/${safe}`;
 }
 
-export const PLACEHOLDER_IMAGE =
-  "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&h=500&fit=crop";
+/** DB should store only Blob HTTPS URLs, never base64 data URIs */
+export function isBlobOrHttpsUrl(url: string) {
+  if (!url || typeof url !== "string") return false;
+  if (url.startsWith("data:")) return false;
+  return url.startsWith("https://") || url.startsWith("http://");
+}

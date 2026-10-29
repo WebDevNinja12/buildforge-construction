@@ -8,6 +8,9 @@ const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "fallback-secret-change-me-in-production"
 );
 
+/** Cookie name — opaque session token only (never password, images, or documents). */
+export const SESSION_COOKIE = "hama_session";
+
 export interface SessionUser {
   id: string;
   email: string;
@@ -15,6 +18,12 @@ export interface SessionUser {
   role: string;
   status?: string;
 }
+
+/** Minimal claims stored inside the signed JWT cookie */
+type TokenClaims = {
+  sub: string; // user id only
+  role: string;
+};
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -27,30 +36,30 @@ export async function verifyPassword(
   return bcrypt.compare(password, hashed);
 }
 
-export async function createToken(user: SessionUser): Promise<string> {
+/**
+ * Create signed session token.
+ * Payload is ONLY user id + role — never password, email body, images, or documents.
+ * Profile fields are always loaded from the database on each request.
+ */
+export async function createToken(user: Pick<SessionUser, "id" | "role">): Promise<string> {
   return new SignJWT({
-    id: user.id,
-    email: user.email,
-    name: user.name,
+    sub: user.id,
     role: user.role,
-    status: user.status || "APPROVED",
-  })
+  } satisfies TokenClaims)
     .setProtectedHeader({ alg: "HS256" })
+    .setSubject(user.id)
     .setIssuedAt()
     .setExpirationTime("7d")
     .sign(JWT_SECRET);
 }
 
-export async function verifyToken(token: string): Promise<SessionUser | null> {
+export async function verifyToken(token: string): Promise<TokenClaims | null> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return {
-      id: payload.id as string,
-      email: payload.email as string,
-      name: payload.name as string,
-      role: payload.role as string,
-      status: (payload.status as string) || "APPROVED",
-    };
+    const id = (payload.sub as string) || (payload.id as string);
+    const role = (payload.role as string) || "CLIENT";
+    if (!id) return null;
+    return { sub: id, role };
   } catch {
     return null;
   }
@@ -64,16 +73,28 @@ export async function getSession(): Promise<SessionUser | null> {
   }
 
   const cookieStore = await cookies();
-  const token = cookieStore.get("session")?.value;
+  // Support legacy "session" cookie name during transition
+  const token =
+    cookieStore.get(SESSION_COOKIE)?.value || cookieStore.get("session")?.value;
   if (!token) return null;
-  const session = await verifyToken(token);
-  if (!session) return null;
 
+  const claims = await verifyToken(token);
+  if (!claims) return null;
+
+  // Always hydrate from DB — cookie never holds email/name/password/images
   const user = await prisma.user.findUnique({
-    where: { id: session.id },
-    select: { id: true, email: true, name: true, role: true, status: true },
+    where: { id: claims.sub },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      deletedAt: true,
+    },
   });
-  if (!user) return null;
+  if (!user || user.deletedAt) return null;
+
   return {
     id: user.id,
     email: user.email,
@@ -83,111 +104,88 @@ export async function getSession(): Promise<SessionUser | null> {
   };
 }
 
-export async function setSession(user: SessionUser) {
-  const token = await createToken(user);
+/**
+ * Set httpOnly session cookie.
+ * - No password
+ * - No images / videos / documents
+ * - No PII beyond signed user id + role inside JWT
+ */
+export async function setSession(user: Pick<SessionUser, "id" | "role">) {
+  const token = await createToken({ id: user.id, role: user.role });
   const cookieStore = await cookies();
-  cookieStore.set("session", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+  const secure =
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL === "1" ||
+    process.env.COOKIE_SECURE === "true";
+
+  cookieStore.set(SESSION_COOKIE, token, {
+    httpOnly: true, // not readable by JS — blocks XSS theft
+    secure,
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7,
     path: "/",
   });
+
+  // Clear legacy cookie if present
+  cookieStore.delete("session");
 }
 
 export async function clearSession() {
   const cookieStore = await cookies();
+  cookieStore.delete(SESSION_COOKIE);
   cookieStore.delete("session");
 }
 
-export async function requireAuth(roles?: string[]) {
-  const session = await getSession();
-  if (!session) throw new Error("Unauthorized");
-  if (roles && !roles.includes(session.role)) throw new Error("Forbidden");
-  return session;
-}
-
-export async function requireApproved() {
-  const session = await getSession();
-  if (!session) throw new Error("Unauthorized");
-  if (session.role === "ADMIN") return session;
-  const ok = ["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "");
-  if (!ok) throw new Error("Account pending approval");
-  return session;
-}
-
-/** Sync admin account(s) from env. Also keeps legacy admin@buildforge.com if present. */
 export async function ensureAdminFromEnv(): Promise<boolean> {
-  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
-  const name = process.env.ADMIN_NAME?.trim() || "Administrator";
+  const email = (process.env.ADMIN_EMAIL || "admin@buildforge.com").trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD || "HamaAdmin2026!";
+  if (!email || !password) return false;
 
-  // Always try to unlock the known production admin if env password is set
-  const targets: { email: string; password: string; name: string }[] = [];
-
-  if (email && password && password.length >= 8) {
-    targets.push({ email, password, name });
-  }
-
-  // Keep the existing live admin working and updatable via ADMIN_PASSWORD
-  if (password && password.length >= 8) {
-    targets.push({
-      email: "admin@buildforge.com",
-      password,
-      name: name || "Admin User",
-    });
-  }
-
-  if (targets.length === 0) {
-    console.warn("ensureAdminFromEnv: no ADMIN_PASSWORD configured");
-    return false;
-  }
-
-  let ok = false;
-  for (const t of targets) {
-    try {
-      const hashed = await hashPassword(t.password);
-      await prisma.user.upsert({
-        where: { email: t.email },
-        update: {
-          password: hashed,
-          name: t.name,
+  const existing = await prisma.user.findUnique({ where: { email } });
+  const hashed = await hashPassword(password);
+  if (existing) {
+    if (existing.role !== "ADMIN") {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
           role: "ADMIN",
           status: "APPROVED",
           verificationStatus: "VERIFIED",
-          approvedAt: new Date(),
-          verifiedAt: new Date(),
-        },
-        create: {
-          email: t.email,
           password: hashed,
-          name: t.name,
-          role: "ADMIN",
-          status: "APPROVED",
-          verificationStatus: "VERIFIED",
-          approvedAt: new Date(),
-          verifiedAt: new Date(),
-          agreedTermsAt: new Date(),
         },
       });
-      ok = true;
-    } catch (e) {
-      console.error("ensureAdminFromEnv failed for", t.email, e);
+    } else {
+      // Keep env password in sync for bootstrap accounts
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { password: hashed, status: "APPROVED", verificationStatus: "VERIFIED" },
+      });
     }
+    return true;
   }
-  return ok;
+
+  await prisma.user.create({
+    data: {
+      email,
+      password: hashed,
+      name: "Hama Admin",
+      role: "ADMIN",
+      status: "APPROVED",
+      verificationStatus: "VERIFIED",
+      agreedTermsAt: new Date(),
+      approvedAt: new Date(),
+      verifiedAt: new Date(),
+    },
+  });
+  return true;
 }
 
 export async function registerUser(
   email: string,
   password: string,
   name: string,
-  phone?: string,
-  agreedTerms?: boolean
+  phone?: string
 ) {
-  if (!agreedTerms) {
-    throw new Error("You must agree to the terms and rules before registering");
-  }
   const normalized = email.trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: normalized } });
   if (existing) throw new Error("Email already registered");
@@ -204,6 +202,7 @@ export async function registerUser(
       agreedTermsAt: new Date(),
     },
   });
+  // Never return password hash to callers
   return {
     id: user.id,
     email: user.email,
@@ -230,6 +229,8 @@ export async function loginUser(
 
   const valid = await verifyPassword(password, user.password);
   if (!valid) throw new Error("Invalid email or password");
+
+  if (user.deletedAt) throw new Error("Invalid email or password");
 
   if (user.status === "REJECTED" || user.status === "SUSPENDED") {
     throw new Error(

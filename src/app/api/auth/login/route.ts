@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
 
-/**
- * Unified login while new admin portal rolls out.
- * - Admins → /admin
- * - Clients → /dashboard or /pending-approval
- * Also refreshes admin password from env when possible.
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -20,11 +14,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Refresh admin accounts from env before authenticating
     await ensureAdminFromEnv().catch(() => false);
 
     const user = await loginUser(email, password);
-    await setSession(user);
+    // Cookie: signed session id only — password never stored in cookie
+    await setSession({ id: user.id, role: user.role });
 
     const redirect =
       user.role === "ADMIN"
@@ -33,7 +27,17 @@ export async function POST(req: NextRequest) {
           ? "/pending-approval"
           : "/dashboard";
 
-    return NextResponse.json({ user, redirect });
+    // Response body is not a cookie; still strip anything sensitive
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.status,
+      },
+      redirect,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
     return NextResponse.json({ error: message }, { status: 401 });

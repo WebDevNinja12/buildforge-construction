@@ -17,20 +17,20 @@ export async function POST(req: NextRequest) {
     await ensureAdminFromEnv().catch(() => false);
 
     const user = await loginUser(email, password, { requireRole: "ADMIN" });
-    await setSession(user);
+    await setSession({ id: user.id, role: user.role });
 
-    return NextResponse.json({ user, redirect: "/admin" });
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        status: user.status,
+      },
+      redirect: "/admin",
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
-    const hasEnv = !!(process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD);
-    return NextResponse.json(
-      {
-        error: message,
-        hint: hasEnv
-          ? "Try admin@buildforge.com with your ADMIN_PASSWORD, or the password shown in the panel instructions."
-          : "Server missing ADMIN_PASSWORD. Use admin@buildforge.com / admin123 on current production until redeploy succeeds.",
-      },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: message }, { status: 401 });
   }
 }
