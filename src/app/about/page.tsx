@@ -9,6 +9,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+/** Uploaded About page banner (repo root) */
+const ABOUT_BANNER =
+  "https://raw.githubusercontent.com/WebDevNinja12/buildforge-construction/main/%23civilengineering%20%23civil%20%23engineering.jpeg";
+
 const values = [
   {
     icon: Target,
@@ -57,16 +61,25 @@ const team = [
 export default function AboutPage() {
   return (
     <div className="bg-white">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="relative text-white overflow-hidden min-h-[240px] sm:min-h-[320px] flex items-center">
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: `url('${ABOUT_BANNER}')` }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/75 to-primary-900/55" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 w-full">
           <div className="max-w-3xl">
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight drop-shadow-sm">
               About Hama Construction
             </h1>
-            <p className="mt-6 text-lg text-slate-300 leading-relaxed">
+            <p className="mt-6 text-lg text-slate-200 leading-relaxed">
               We are a construction and property platform dedicated to making
               asset acquisition, tool rental, labor hiring, and project
               management simple, transparent, and accessible.
+            </p>
+            <p className="mt-3 text-accent-300 font-medium italic">
+              Building innovation through quality and trust.
             </p>
           </div>
         </div>
@@ -98,14 +111,19 @@ export default function AboutPage() {
                 </p>
               </div>
             </div>
-            <div className="bg-gradient-to-br from-primary-600 to-construction-dark rounded-2xl p-10 text-white flex flex-col items-center justify-center min-h-[320px]">
-              <Building2 className="w-16 h-16 mb-4 opacity-90" />
-              <p className="text-4xl font-bold">15+</p>
-              <p className="text-primary-200 mt-1">Years of combined experience</p>
-              <p className="mt-6 text-center text-primary-100 max-w-xs">
-                Serving residential, commercial and industrial clients with
-                reliable delivery.
-              </p>
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl min-h-[320px]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={ABOUT_BANNER}
+                alt="Hama Construction — civil engineering"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-construction-dark/80 to-transparent flex items-end p-8">
+                <div className="text-white">
+                  <p className="text-4xl font-bold">15+</p>
+                  <p className="text-primary-100 mt-1">Years of combined experience</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
