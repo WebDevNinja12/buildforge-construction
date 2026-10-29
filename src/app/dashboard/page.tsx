@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { runMaintenance } from "@/lib/maintenance";
 import { DashboardPlans } from "@/components/DashboardPlans";
-import { ClientHistoryActions } from "@/components/HistoryActions";
+import { ClientHistoryActions, AdminExportButtons } from "@/components/HistoryActions";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import {
   Building2, Wrench, Users, ClipboardList, CreditCard,
@@ -59,23 +59,20 @@ export default async function DashboardPage() {
                 <ClientHistoryActions />
               </div>
             )}
+            {session.role === "ADMIN" && (
+              <div className="mt-3">
+                <AdminExportButtons />
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap gap-3">
             {session.role === "ADMIN" && (
-              <>
-                <Link
-                  href="/api/admin/export?type=overview"
-                  className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold px-5 py-2.5 rounded-xl"
-                >
-                  Download overview PDF
-                </Link>
-                <Link
-                  href="/admin"
-                  className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl"
-                >
-                  <Shield className="w-4 h-4" /> Admin Control
-                </Link>
-              </>
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl"
+              >
+                <Shield className="w-4 h-4" /> Admin Control
+              </Link>
             )}
             <Link
               href="/services"
