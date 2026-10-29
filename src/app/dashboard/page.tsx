@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -7,9 +6,9 @@ import { runMaintenance } from "@/lib/maintenance";
 import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientHistoryActions, AdminExportButtons } from "@/components/HistoryActions";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
+import { DashboardNav } from "@/components/DashboardNav";
 import {
-  Building2, Wrench, Users, ClipboardList, CreditCard,
-  ArrowRight, Shield, BadgeCheck,
+  Building2, Wrench, Users, ClipboardList, CreditCard, BadgeCheck,
 } from "lucide-react";
 
 export default async function DashboardPage() {
@@ -50,37 +49,16 @@ export default async function DashboardPage() {
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
-            <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
-            {session.role !== "ADMIN" && (
-              <div className="mt-3">
-                <ClientHistoryActions />
-              </div>
-            )}
-            {session.role === "ADMIN" && (
-              <div className="mt-3">
-                <AdminExportButtons />
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {session.role === "ADMIN" && (
-              <Link
-                href="/admin"
-                className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl"
-              >
-                <Shield className="w-4 h-4" /> Admin Control
-              </Link>
-            )}
-            <Link
-              href="/services"
-              className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-5 py-2.5 rounded-xl"
-            >
-              Browse Services <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
+          <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
+        </div>
+
+        <DashboardNav role={session.role} />
+
+        <div className="mb-6 flex flex-wrap gap-3">
+          {session.role !== "ADMIN" && <ClientHistoryActions />}
+          {session.role === "ADMIN" && <AdminExportButtons />}
         </div>
 
         <div
