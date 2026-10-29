@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { runMaintenance } from "@/lib/maintenance";
 import { DashboardPlans } from "@/components/DashboardPlans";
+import { ClientHistoryActions } from "@/components/HistoryActions";
 import {
   Building2, Wrench, Users, ClipboardList, CreditCard,
   ArrowRight, Shield, BadgeCheck,
@@ -24,13 +25,38 @@ export default async function DashboardPage() {
     select: { status: true, verificationStatus: true, verificationNote: true },
   });
 
+  const cleared = await prisma.siteSetting
+    .findUnique({ where: { key: `history_cleared_at_${session.id}` } })
+    .catch(() => null);
+  const clearedAt = cleared?.value ? new Date(cleared.value) : null;
+
+  const terminal = ["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"];
+
+  const paymentWhere: any = { userId: session.id };
+  if (clearedAt) {
+    paymentWhere.OR = [
+      { createdAt: { gt: clearedAt } },
+      { status: { in: ["PENDING", "APPROVED"] } },
+    ];
+  }
+
   const [reservations, rentals, hires, projects, payments, notifications] = await Promise.all([
     prisma.reservation.count({ where: { userId: session.id } }),
     prisma.toolRental.count({ where: { userId: session.id } }),
     prisma.hireRequest.count({ where: { userId: session.id } }),
     prisma.project.count({ where: { OR: [{ clientId: session.id }, { managerId: session.id }] } }),
-    prisma.payment.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 15 }),
-    prisma.notification.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 8 }).catch(() => [] as any[]),
+    prisma.payment.findMany({
+      where: paymentWhere,
+      orderBy: { createdAt: "desc" },
+      take: 15,
+    }),
+    prisma.notification
+      .findMany({
+        where: { userId: session.id },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      })
+      .catch(() => [] as any[]),
   ]);
 
   const vStatus = user?.verificationStatus || "PENDING";
@@ -42,26 +68,51 @@ export default async function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
             <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
+            {session.role !== "ADMIN" && (
+              <div className="mt-3">
+                <ClientHistoryActions />
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap gap-3">
             {session.role === "ADMIN" && (
-              <Link href="/admin" className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl">
-                <Shield className="w-4 h-4" /> Admin Control
-              </Link>
+              <>
+                <Link
+                  href="/api/admin/export?type=overview"
+                  className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold px-5 py-2.5 rounded-xl"
+                >
+                  Download overview PDF
+                </Link>
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white font-semibold px-5 py-2.5 rounded-xl"
+                >
+                  <Shield className="w-4 h-4" /> Admin Control
+                </Link>
+              </>
             )}
-            <Link href="/services" className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-5 py-2.5 rounded-xl">
+            <Link
+              href="/services"
+              className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-5 py-2.5 rounded-xl"
+            >
               Browse Services <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         </div>
 
-        <div className={`mb-8 rounded-xl border px-5 py-4 flex gap-3 ${
-          vStatus === "VERIFIED" ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"
-        }`}>
-          <BadgeCheck className={`w-6 h-6 shrink-0 ${vStatus === "VERIFIED" ? "text-green-600" : "text-amber-600"}`} />
+        <div
+          className={`mb-8 rounded-xl border px-5 py-4 flex gap-3 ${
+            vStatus === "VERIFIED" ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"
+          }`}
+        >
+          <BadgeCheck
+            className={`w-6 h-6 shrink-0 ${vStatus === "VERIFIED" ? "text-green-600" : "text-amber-600"}`}
+          />
           <div>
             <p className="font-semibold">Verification: {vStatus.replace(/_/g, " ")}</p>
-            <p className="text-sm text-slate-600">{vStatus === "VERIFIED" ? "Fully verified." : "Under review or pending documents."}</p>
+            <p className="text-sm text-slate-600">
+              {vStatus === "VERIFIED" ? "Fully verified." : "Under review or pending documents."}
+            </p>
           </div>
         </div>
 
@@ -73,7 +124,9 @@ export default async function DashboardPage() {
             { label: "Projects", value: projects, icon: ClipboardList, color: "bg-purple-100 text-purple-600" },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl p-5 border shadow-sm">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}><s.icon className="w-5 h-5" /></div>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
+                <s.icon className="w-5 h-5" />
+              </div>
               <p className="mt-3 text-2xl font-bold">{s.value}</p>
               <p className="text-sm text-construction-gray">{s.label}</p>
             </div>
@@ -82,7 +135,9 @@ export default async function DashboardPage() {
 
         <section className="mb-10">
           <h2 className="text-xl font-bold text-construction-dark mb-4">Your plans & reservations</h2>
-          <p className="text-sm text-slate-500 mb-4">Pay installments, pay remaining balance, or cancel with fee preview.</p>
+          <p className="text-sm text-slate-500 mb-4">
+            Reserve on Services, then choose payment here. Download a PDF of your full history anytime.
+          </p>
           <DashboardPlans />
         </section>
 
@@ -122,7 +177,11 @@ export default async function DashboardPage() {
                 </thead>
                 <tbody className="divide-y">
                   {payments.length === 0 ? (
-                    <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-500">No payments yet.</td></tr>
+                    <tr>
+                      <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                        No payments yet.
+                      </td>
+                    </tr>
                   ) : (
                     payments.map((pay) => (
                       <tr key={pay.id}>
