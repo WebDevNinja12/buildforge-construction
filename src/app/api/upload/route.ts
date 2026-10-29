@@ -4,32 +4,30 @@ import { getSession } from "@/lib/auth";
 import {
   ALLOWED_MEDIA_TYPES,
   blobConfigured,
+  getBlobToken,
   isImageType,
   isVideoType,
   maxBytesFor,
   mediaFolder,
+  blobStatus,
 } from "@/lib/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * POST multipart/form-data
- * fields: file (required), folder? (optional scope e.g. services|documents|workers|banner)
- *
- * Requires login. Admin can upload any folder; clients only documents/proof.
- */
 export async function POST(req: NextRequest) {
   try {
-    if (!blobConfigured()) {
+    const token = getBlobToken();
+    if (!token) {
       return NextResponse.json(
         {
-          error: "Vercel Blob is not connected",
+          error: "Vercel Blob is not fully connected",
+          status: blobStatus(),
           setup: [
-            "Open Vercel → Project → Storage → Create Blob store",
+            "Vercel → Storage → open store named construction (or create construction-house)",
             "Connect store to project buildforge-construction",
-            "Ensure env BLOB_READ_WRITE_TOKEN is set for Production",
-            "Redeploy after connecting",
+            "Confirm env construction_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN exists",
+            "Redeploy the project",
           ],
         },
         { status: 503 }
@@ -63,13 +61,12 @@ export async function POST(req: NextRequest) {
     if (file.size > max) {
       return NextResponse.json(
         {
-          error: `File too large (${Math.round(file.size / 1024 / 1024)}MB). Max ${Math.round(max / 1024 / 1024)}MB for this type.`,
+          error: `File too large (${Math.round(file.size / 1024 / 1024)}MB). Max ${Math.round(max / 1024 / 1024)}MB.`,
         },
         { status: 400 }
       );
     }
 
-    // Clients may only upload proofs/documents; admin unrestricted
     const kind = isVideoType(type) ? "video" : isImageType(type) ? "image" : "document";
     let scope = folderRaw;
     if (session.role !== "ADMIN") {
@@ -85,7 +82,7 @@ export async function POST(req: NextRequest) {
       access: "public",
       contentType: type,
       addRandomSuffix: true,
-      token: process.env.BLOB_READ_WRITE_TOKEN || process.env.blob_READ_WRITE_TOKEN,
+      token,
     });
 
     return NextResponse.json({
@@ -105,21 +102,19 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** DELETE ?url=https://...blob.vercel-storage.com/...  (admin only) */
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getSession();
     if (!session || session.role !== "ADMIN") {
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
-    if (!blobConfigured()) {
-      return NextResponse.json({ error: "Blob not configured" }, { status: 503 });
+    const token = getBlobToken();
+    if (!token) {
+      return NextResponse.json({ error: "Blob not configured", status: blobStatus() }, { status: 503 });
     }
     const url = new URL(req.url).searchParams.get("url");
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
-    await del(url, {
-      token: process.env.BLOB_READ_WRITE_TOKEN || process.env.blob_READ_WRITE_TOKEN,
-    });
+    await del(url, { token });
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error(e);
