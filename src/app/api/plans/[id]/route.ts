@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { cancelPercentForPlan, buildSchedule, type Frequency } from "@/lib/schedule";
+import { cancelPercentForPlan, buildSchedule, parseFrequencies, type Frequency } from "@/lib/schedule";
 import { getCategoryConfig } from "@/lib/maintenance";
 
 async function loadPlan(id: string) {
@@ -45,19 +45,11 @@ export async function GET(
       planDeadline: plan.planDeadline,
       frequency: plan.paymentFrequency,
       overdue: next?.dueDate ? new Date(next.dueDate) < new Date() : false,
+      needsPaymentMethod: plan.paymentMethod === "UNSET",
     },
   });
 }
 
-/**
- * POST actions:
- * - PAY_INSTALLMENT { amount?, proofUrl? }
- * - PAY_REMAINING { proofUrl? }
- * - EXTRA_PAYMENT { amount, proofUrl? }
- * - CANCEL_QUOTE — returns deduction math
- * - CANCEL_CONFIRM { reason? }
- * - SET_FREQUENCY { frequency } (regenerate remaining schedule)
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -74,10 +66,121 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const total = plan.totalAmount || plan.deposit;
+  const total = plan.totalAmount || plan.asset.price;
   const paid = plan.amountPaid || 0;
   const balance = Math.max(0, total - paid);
   const cfg = await getCategoryConfig(plan.asset.type);
+
+  /** Choose payment after reserve */
+  if (action === "SET_PAYMENT_METHOD") {
+    const method = body.paymentMethod;
+    if (method !== "FULL" && method !== "INSTALLMENT") {
+      return NextResponse.json({ error: "Choose FULL or INSTALLMENT" }, { status: 400 });
+    }
+    if (plan.paymentMethod !== "UNSET" && plan.paymentMethod !== "PENDING") {
+      return NextResponse.json({ error: "Payment method already set" }, { status: 400 });
+    }
+
+    if (method === "FULL") {
+      await prisma.reservation.update({
+        where: { id },
+        data: {
+          paymentMethod: "FULL",
+          deposit: total,
+          totalAmount: total,
+        },
+      });
+      await prisma.payment.create({
+        data: {
+          userId: plan.userId,
+          amount: total,
+          type: "FULL",
+          method: "PENDING",
+          status: "PENDING",
+          reservationId: id,
+          referenceId: id,
+        },
+      });
+      await prisma.notification.create({
+        data: {
+          userId: plan.userId,
+          title: "Full payment selected",
+          body: `Pay ${total} for "${plan.asset.title}" — upload proof or wait for admin instructions on Dashboard.`,
+          type: "PAYMENT",
+          link: "/dashboard",
+        },
+      });
+      return NextResponse.json({ ok: true, paymentMethod: "FULL", message: "Full payment selected. Complete payment below." });
+    }
+
+    // INSTALLMENT
+    if (!body.rulesAgreed) {
+      return NextResponse.json({ error: "Agree to installment rules" }, { status: 400 });
+    }
+    const allowed = parseFrequencies(
+      plan.asset.allowedFrequencies || (cfg as any).allowedFrequencies || '["MONTHLY"]'
+    );
+    const frequency = (body.paymentFrequency || allowed[0] || "MONTHLY") as Frequency;
+    let planDeadline: Date;
+    if (cfg.continuesAfterHold) {
+      const months = plan.asset.installmentPlanMonths || cfg.installmentPlanMonths || 6;
+      planDeadline = new Date();
+      planDeadline.setMonth(planDeadline.getMonth() + months);
+    } else {
+      planDeadline = plan.expiresAt || new Date(Date.now() + 7 * 24 * 3600 * 1000);
+    }
+    const deposit = Math.round(total * 0.1 * 100) / 100;
+    const schedule = buildSchedule({
+      totalAmount: total,
+      amountAlreadyPaid: 0,
+      frequency,
+      planDeadline,
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.reservation.update({
+        where: { id },
+        data: {
+          paymentMethod: "INSTALLMENT",
+          paymentFrequency: frequency,
+          deposit,
+          totalAmount: total,
+          planDeadline,
+          rulesAgreedAt: new Date(),
+        },
+      });
+      await tx.installment.deleteMany({ where: { reservationId: id } });
+      for (const row of schedule) {
+        await tx.installment.create({
+          data: {
+            reservationId: id,
+            sequence: row.sequence,
+            amount: row.amount,
+            dueDate: row.dueDate,
+            status: "PENDING",
+          },
+        });
+      }
+      await tx.payment.create({
+        data: {
+          userId: plan.userId,
+          amount: deposit,
+          type: "DEPOSIT",
+          method: "PENDING",
+          status: "PENDING",
+          reservationId: id,
+          referenceId: id,
+        },
+      });
+    });
+
+    return NextResponse.json({
+      ok: true,
+      paymentMethod: "INSTALLMENT",
+      frequency,
+      message: "Installment plan created. Pay the deposit from Dashboard.",
+    });
+  }
 
   if (action === "CANCEL_QUOTE") {
     const pct = cancelPercentForPlan({
@@ -139,38 +242,22 @@ export async function POST(
       return r;
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: plan.userId,
-        title: "Plan cancelled",
-        body: `Reservation cancelled. Estimated refund $${refund} after ${pct}% deduction (pending admin processing).`,
-        type: "PAYMENT",
-        link: "/dashboard",
-      },
-    });
-
     return NextResponse.json({
       ...updated,
       refundAmount: refund,
-      deductionPercent: pct,
-      message: "Cancellation submitted. Admin will process the refund.",
+      message: "Cancellation submitted.",
     });
   }
 
   if (action === "PAY_REMAINING" || action === "EXTRA_PAYMENT" || action === "PAY_INSTALLMENT") {
     let amount =
-      action === "PAY_REMAINING"
-        ? balance
-        : Number(body.amount || 0);
+      action === "PAY_REMAINING" ? balance : Number(body.amount || 0);
     if (action === "PAY_INSTALLMENT" && !amount) {
       const next = plan.installments.find((i) => i.status === "PENDING");
-      amount = next?.amount || 0;
+      amount = next?.amount || plan.deposit || 0;
     }
     if (!(amount > 0)) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
-    }
-    if (amount > balance + 0.01) {
-      return NextResponse.json({ error: "Amount exceeds remaining balance" }, { status: 400 });
     }
 
     const type =
@@ -194,16 +281,6 @@ export async function POST(
       },
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: plan.userId,
-        title: "Payment submitted",
-        body: `${type.replace(/_/g, " ")} of $${amount} is pending admin approval.`,
-        type: "PAYMENT",
-        link: "/dashboard",
-      },
-    });
-
     return NextResponse.json({
       payment,
       message: "Payment submitted for admin approval",
@@ -213,23 +290,16 @@ export async function POST(
   if (action === "SET_FREQUENCY") {
     const frequency = body.frequency as Frequency;
     if (!frequency) return NextResponse.json({ error: "frequency required" }, { status: 400 });
-
     const deadline =
-      plan.planDeadline ||
-      plan.expiresAt ||
-      new Date(Date.now() + 180 * 24 * 3600 * 1000);
-
+      plan.planDeadline || plan.expiresAt || new Date(Date.now() + 180 * 24 * 3600 * 1000);
     const schedule = buildSchedule({
       totalAmount: total,
       amountAlreadyPaid: paid,
       frequency,
       planDeadline: new Date(deadline),
     });
-
     await prisma.$transaction(async (tx) => {
-      await tx.installment.deleteMany({
-        where: { reservationId: id, status: "PENDING" },
-      });
+      await tx.installment.deleteMany({ where: { reservationId: id, status: "PENDING" } });
       const paidCount = await tx.installment.count({
         where: { reservationId: id, status: "PAID" },
       });
@@ -249,13 +319,7 @@ export async function POST(
         data: { paymentFrequency: frequency },
       });
     });
-
-    return NextResponse.json({
-      ok: true,
-      frequency,
-      scheduleCount: schedule.length,
-      message: "Schedule regenerated",
-    });
+    return NextResponse.json({ ok: true, frequency, message: "Schedule regenerated" });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

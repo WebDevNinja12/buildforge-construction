@@ -10,11 +10,14 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [cancelQuote, setCancelQuote] = useState<any>(null);
+  const [frequency, setFrequency] = useState("MONTHLY");
+  const [rulesOk, setRulesOk] = useState(false);
 
-  const total = plan.totalAmount || plan.deposit;
+  const total = plan.totalAmount || plan.deposit || plan.asset?.price || 0;
   const paid = plan.amountPaid || 0;
   const balance = Math.max(0, total - paid);
   const next = (plan.installments || []).find((i: any) => i.status === "PENDING");
+  const needsMethod = plan.paymentMethod === "UNSET" || plan.paymentMethod === "PENDING";
   const active = ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "PENDING", "CONFIRMED"].includes(plan.status);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
@@ -28,9 +31,8 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
-      if (action === "CANCEL_QUOTE") {
-        setCancelQuote(data);
-      } else {
+      if (action === "CANCEL_QUOTE") setCancelQuote(data);
+      else {
         setMsg(data.message || "Done");
         setCancelQuote(null);
         onUpdated?.();
@@ -51,7 +53,7 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100">{plan.status}</span>
         </div>
         <p className="text-sm text-slate-500">
-          {plan.paymentMethod}
+          {needsMethod ? "Payment not chosen yet" : plan.paymentMethod}
           {plan.paymentFrequency ? ` · ${plan.paymentFrequency}` : ""}
         </p>
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -69,39 +71,64 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           </div>
           <div>
             <p className="text-slate-400 text-xs">Next due</p>
-            <p className="font-medium">
-              {next ? formatCurrency(next.amount) : "—"}
-            </p>
+            <p className="font-medium">{next ? formatCurrency(next.amount) : "—"}</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {next?.dueDate && (
-            <Countdown expiresAt={next.dueDate} status={plan.status} label="Next payment in" />
-          )}
-          {plan.planDeadline && (
-            <Countdown expiresAt={plan.planDeadline} status={plan.status} label="Plan ends in" />
-          )}
-          {plan.expiresAt && plan.status === "PENDING" && (
-            <Countdown expiresAt={plan.expiresAt} status={plan.status} label="Hold expires in" />
-          )}
-        </div>
 
-        {active && balance > 0 && (
-          <div className="flex flex-wrap gap-2 pt-2">
+        {plan.expiresAt && (
+          <Countdown expiresAt={plan.expiresAt} status={plan.status} label="Hold expires in" />
+        )}
+
+        {needsMethod && active && (
+          <div className="border border-primary-100 bg-primary-50/50 rounded-xl p-3 space-y-2">
+            <p className="text-sm font-semibold text-primary-900">Choose payment method</p>
             <button
               type="button"
               disabled={!!busy}
-              onClick={() => act("PAY_INSTALLMENT")}
-              className="text-xs font-semibold bg-primary-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+              onClick={() => act("SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
+              className="w-full text-sm font-semibold bg-primary-600 text-white py-2 rounded-lg"
             >
+              Full payment
+            </button>
+            <div className="border-t pt-2 space-y-2">
+              <p className="text-xs text-slate-600">Or installment</p>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value)}
+                className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              >
+                {["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"].map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+              <label className="flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={rulesOk} onChange={(e) => setRulesOk(e.target.checked)} className="mt-0.5" />
+                I agree to installment rules for this category
+              </label>
+              <button
+                type="button"
+                disabled={!!busy || !rulesOk}
+                onClick={() =>
+                  act("SET_PAYMENT_METHOD", {
+                    paymentMethod: "INSTALLMENT",
+                    paymentFrequency: frequency,
+                    rulesAgreed: true,
+                  })
+                }
+                className="w-full text-sm font-semibold bg-accent-500 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                Start installment plan
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!needsMethod && active && balance > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button type="button" disabled={!!busy} onClick={() => act("PAY_INSTALLMENT")} className="text-xs font-semibold bg-primary-600 text-white px-3 py-1.5 rounded-lg">
               {busy === "PAY_INSTALLMENT" ? <Loader2 className="w-3 h-3 animate-spin" /> : "Pay Now"}
             </button>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => act("PAY_REMAINING")}
-              className="text-xs font-semibold bg-accent-500 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
-            >
+            <button type="button" disabled={!!busy} onClick={() => act("PAY_REMAINING")} className="text-xs font-semibold bg-accent-500 text-white px-3 py-1.5 rounded-lg">
               Pay Remaining Balance
             </button>
             <button
@@ -115,13 +142,8 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
             >
               Extra payment
             </button>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => act("CANCEL_QUOTE")}
-              className="text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg"
-            >
-              Cancel plan
+            <button type="button" disabled={!!busy} onClick={() => act("CANCEL_QUOTE")} className="text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg">
+              Cancel
             </button>
           </div>
         )}
@@ -129,21 +151,10 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
         {cancelQuote && (
           <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm space-y-2">
             <p>{cancelQuote.message}</p>
-            <p className="text-xs text-slate-600">
-              Deduction {cancelQuote.cancellationPercent}% · Refund {formatCurrency(cancelQuote.refundAmount)}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg"
-                onClick={() => act("CANCEL_CONFIRM", { reason: "Client confirmed cancellation" })}
-              >
-                Confirm cancel
-              </button>
-              <button type="button" className="text-xs border px-3 py-1.5 rounded-lg" onClick={() => setCancelQuote(null)}>
-                Keep plan
-              </button>
-            </div>
+            <button type="button" className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg" onClick={() => act("CANCEL_CONFIRM", { reason: "Client confirmed" })}>
+              Confirm cancel
+            </button>
+            <button type="button" className="text-xs border px-3 py-1.5 rounded-lg ml-2" onClick={() => setCancelQuote(null)}>Keep</button>
           </div>
         )}
 
