@@ -3,12 +3,12 @@ import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
 import { runMaintenance } from "./maintenance";
+import { assertRegistrationAllowed } from "./registration-cooldown";
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "fallback-secret-change-me-in-production"
 );
 
-/** Cookie name — opaque session token only (never password, images, or documents). */
 export const SESSION_COOKIE = "hama_session";
 
 export interface SessionUser {
@@ -19,9 +19,8 @@ export interface SessionUser {
   status?: string;
 }
 
-/** Minimal claims stored inside the signed JWT cookie */
 type TokenClaims = {
-  sub: string; // user id only
+  sub: string;
   role: string;
 };
 
@@ -36,11 +35,6 @@ export async function verifyPassword(
   return bcrypt.compare(password, hashed);
 }
 
-/**
- * Create signed session token.
- * Payload is ONLY user id + role — never password, email body, images, or documents.
- * Profile fields are always loaded from the database on each request.
- */
 export async function createToken(user: Pick<SessionUser, "id" | "role">): Promise<string> {
   return new SignJWT({
     sub: user.id,
@@ -73,7 +67,6 @@ export async function getSession(): Promise<SessionUser | null> {
   }
 
   const cookieStore = await cookies();
-  // Support legacy "session" cookie name during transition
   const token =
     cookieStore.get(SESSION_COOKIE)?.value || cookieStore.get("session")?.value;
   if (!token) return null;
@@ -81,7 +74,6 @@ export async function getSession(): Promise<SessionUser | null> {
   const claims = await verifyToken(token);
   if (!claims) return null;
 
-  // Always hydrate from DB — cookie never holds email/name/password/images
   const user = await prisma.user.findUnique({
     where: { id: claims.sub },
     select: {
@@ -104,12 +96,6 @@ export async function getSession(): Promise<SessionUser | null> {
   };
 }
 
-/**
- * Set httpOnly session cookie.
- * - No password
- * - No images / videos / documents
- * - No PII beyond signed user id + role inside JWT
- */
 export async function setSession(user: Pick<SessionUser, "id" | "role">) {
   const token = await createToken({ id: user.id, role: user.role });
   const cookieStore = await cookies();
@@ -119,14 +105,13 @@ export async function setSession(user: Pick<SessionUser, "id" | "role">) {
     process.env.COOKIE_SECURE === "true";
 
   cookieStore.set(SESSION_COOKIE, token, {
-    httpOnly: true, // not readable by JS — blocks XSS theft
+    httpOnly: true,
     secure,
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7,
     path: "/",
   });
 
-  // Clear legacy cookie if present
   cookieStore.delete("session");
 }
 
@@ -155,7 +140,6 @@ export async function ensureAdminFromEnv(): Promise<boolean> {
         },
       });
     } else {
-      // Keep env password in sync for bootstrap accounts
       await prisma.user.update({
         where: { id: existing.id },
         data: { password: hashed, status: "APPROVED", verificationStatus: "VERIFIED" },
@@ -184,25 +168,37 @@ export async function registerUser(
   email: string,
   password: string,
   name: string,
-  phone?: string
+  phone?: string,
+  _agreedTerms?: boolean
 ) {
   const normalized = email.trim().toLowerCase();
+
+  // 72h block after admin deletion of same email/phone
+  await assertRegistrationAllowed(normalized, phone);
+
   const existing = await prisma.user.findUnique({ where: { email: normalized } });
-  if (existing) throw new Error("Email already registered");
+  if (existing) {
+    if (existing.deletedAt) {
+      // Should not normally exist if hard-deleted; treat as blocked until wipe
+      throw new Error("This email cannot be used right now. Contact support if this persists.");
+    }
+    throw new Error("Email already registered");
+  }
+
   const hashed = await hashPassword(password);
   const user = await prisma.user.create({
     data: {
       email: normalized,
       password: hashed,
       name,
-      phone,
+      phone: phone || null,
       role: "CLIENT",
       status: "PENDING_APPROVAL",
       verificationStatus: "UNDER_REVIEW",
       agreedTermsAt: new Date(),
     },
   });
-  // Never return password hash to callers
+
   return {
     id: user.id,
     email: user.email,

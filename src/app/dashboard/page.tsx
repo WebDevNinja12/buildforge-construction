@@ -7,6 +7,7 @@ import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientHistoryActions, AdminExportButtons } from "@/components/HistoryActions";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { DashboardNav } from "@/components/DashboardNav";
+import { LogoutButton, LogoutIconButton } from "@/components/LogoutButton";
 import {
   Building2, Wrench, Users, ClipboardList, CreditCard, BadgeCheck,
 } from "lucide-react";
@@ -49,9 +50,15 @@ export default async function DashboardPage() {
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
-          <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
+            <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <LogoutIconButton />
+            <LogoutButton />
+          </div>
         </div>
 
         <DashboardNav role={session.role} />
