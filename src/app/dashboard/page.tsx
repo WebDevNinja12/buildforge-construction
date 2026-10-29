@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { runMaintenance } from "@/lib/maintenance";
 import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientHistoryActions } from "@/components/HistoryActions";
+import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import {
   Building2, Wrench, Users, ClipboardList, CreditCard,
   ArrowRight, Shield, BadgeCheck,
@@ -25,28 +26,13 @@ export default async function DashboardPage() {
     select: { status: true, verificationStatus: true, verificationNote: true },
   });
 
-  const cleared = await prisma.siteSetting
-    .findUnique({ where: { key: `history_cleared_at_${session.id}` } })
-    .catch(() => null);
-  const clearedAt = cleared?.value ? new Date(cleared.value) : null;
-
-  const terminal = ["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"];
-
-  const paymentWhere: any = { userId: session.id };
-  if (clearedAt) {
-    paymentWhere.OR = [
-      { createdAt: { gt: clearedAt } },
-      { status: { in: ["PENDING", "APPROVED"] } },
-    ];
-  }
-
   const [reservations, rentals, hires, projects, payments, notifications] = await Promise.all([
     prisma.reservation.count({ where: { userId: session.id } }),
     prisma.toolRental.count({ where: { userId: session.id } }),
     prisma.hireRequest.count({ where: { userId: session.id } }),
     prisma.project.count({ where: { OR: [{ clientId: session.id }, { managerId: session.id }] } }),
     prisma.payment.findMany({
-      where: paymentWhere,
+      where: { userId: session.id },
       orderBy: { createdAt: "desc" },
       take: 15,
     }),
@@ -121,7 +107,7 @@ export default async function DashboardPage() {
             { label: "Reservations", value: reservations, icon: Building2, color: "bg-primary-100 text-primary-600" },
             { label: "Tool Rentals", value: rentals, icon: Wrench, color: "bg-orange-100 text-orange-600" },
             { label: "Hire Requests", value: hires, icon: Users, color: "bg-green-100 text-green-600" },
-            { label: "Projects", value: projects, icon: ClipboardList, color: "bg-purple-100 text-purple-600" },
+            { label: "Project deals", value: projects, icon: ClipboardList, color: "bg-purple-100 text-purple-600" },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl p-5 border shadow-sm">
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
@@ -135,11 +121,18 @@ export default async function DashboardPage() {
 
         <section className="mb-10">
           <h2 className="text-xl font-bold text-construction-dark mb-4">Your plans & reservations</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Reserve on Services, then choose payment here. Download a PDF of your full history anytime.
-          </p>
           <DashboardPlans />
         </section>
+
+        {session.role !== "ADMIN" && (
+          <section className="mb-10">
+            <h2 className="text-xl font-bold text-construction-dark mb-2">Construction project deals</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Open a deal for your build. Admin reviews it. If accepted, Hama contacts you using your profile details.
+            </p>
+            <ClientProjectDeal />
+          </section>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-8">
           <section className="bg-white rounded-2xl border shadow-sm overflow-hidden">
