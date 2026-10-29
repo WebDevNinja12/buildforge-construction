@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Building2, MapPin, Wrench, Users, ClipboardList,
-  CheckCircle2, Loader2, DollarSign, Star,
+  CheckCircle2, Loader2, DollarSign, Star, X, Eye, Calendar,
 } from "lucide-react";
-import { formatCurrency, WORKER_SPECIALTIES } from "@/lib/utils";
-import { PaymentMethodModal } from "@/components/PaymentMethodModal";
+import { formatCurrency } from "@/lib/utils";
+import { parseImages, mainImage, PLACEHOLDER_IMAGE } from "@/lib/schedule";
 
 type Tab = "assets" | "land" | "tools" | "workers" | "projects";
 
@@ -15,16 +15,17 @@ interface Asset {
   id: string; title: string; description: string; type: string;
   price: number; location: string; size: string | null;
   bedrooms: number | null; bathrooms: number | null; status: string;
-  images?: string;
+  images?: string; mainImageIndex?: number; features?: string | null;
 }
 interface Tool {
   id: string; name: string; description: string; category: string;
-  dailyRate: number; weeklyRate: number; available: number; image?: string | null;
+  dailyRate: number; weeklyRate: number; available: number;
+  image?: string | null; images?: string | null;
 }
 interface Worker {
   id: string; name: string; specialty: string; experience: number;
   dailyRate: number; rating: number; bio: string | null;
-  image?: string | null; location?: string | null;
+  image?: string | null; location?: string | null; skills?: string | null;
 }
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -35,6 +36,17 @@ const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "projects", label: "Project Mgmt", icon: ClipboardList },
 ];
 
+function assetCover(a: Asset) {
+  const imgs = parseImages(a.images);
+  return mainImage(imgs, a.mainImageIndex || 0) || PLACEHOLDER_IMAGE;
+}
+
+function toolCover(t: Tool) {
+  if (t.image) return t.image;
+  const imgs = parseImages(t.images);
+  return imgs[0] || PLACEHOLDER_IMAGE;
+}
+
 export default function ServicesPage() {
   const [activeTab, setActiveTab] = useState<Tab>("assets");
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -43,143 +55,167 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [rentalForm, setRentalForm] = useState({ toolId: "", startDate: "", endDate: "", quantity: 1 });
-  const [hireForm, setHireForm] = useState({
-    workerId: "", serviceType: "LABOR", description: "", location: "", startDate: "", endDate: "",
+
+  // Preview panels
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [previewTool, setPreviewTool] = useState<Tool | null>(null);
+  const [previewWorker, setPreviewWorker] = useState<Worker | null>(null);
+
+  // Tool rental after preview
+  const [toolDates, setToolDates] = useState({ startDate: "", endDate: "", quantity: 1 });
+  // Worker hire after preview
+  const [hireExtra, setHireExtra] = useState({
+    description: "", location: "", startDate: "", endDate: "",
   });
+
   const [projectForm, setProjectForm] = useState({
     title: "", description: "", budget: "", location: "", startDate: "", endDate: "",
   });
-  const [payModal, setPayModal] = useState<{
-    assetId: string; title: string; price: number; category: string;
-  } | null>(null);
 
   useEffect(() => {
-    // deep link ?tab=workers&hire=id
     if (typeof window !== "undefined") {
-      const q = new URLSearchParams(window.location.search);
-      const t = q.get("tab") as Tab | null;
-      if (t && tabs.some((x) => x.id === t)) setActiveTab(t);
-      const hire = q.get("hire");
-      if (hire) setHireForm((f) => ({ ...f, workerId: hire }));
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab") as Tab | null;
+      if (tab && tabs.some((t) => t.id === tab)) setActiveTab(tab);
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [activeTab]);
-
-  async function loadData() {
-    setLoading(true);
-    setMessage(null);
-    try {
-      if (activeTab === "assets" || activeTab === "land") {
-        const res = await fetch("/api/assets");
-        if (res.ok) setAssets(await res.json());
-      } else if (activeTab === "tools") {
-        const res = await fetch("/api/tools");
-        if (res.ok) setTools(await res.json());
-      } else if (activeTab === "workers") {
-        const res = await fetch("/api/workers");
-        if (res.ok) setWorkers(await res.json());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setMessage(null);
+      try {
+        if (activeTab === "assets" || activeTab === "land") {
+          const res = await fetch("/api/assets");
+          const data = await res.json();
+          if (!cancelled) {
+            const list = Array.isArray(data) ? data : [];
+            setAssets(
+              activeTab === "land"
+                ? list.filter((a: Asset) => a.type === "LAND")
+                : list.filter((a: Asset) => a.type !== "LAND")
+            );
+          }
+        } else if (activeTab === "tools") {
+          const res = await fetch("/api/tools");
+          const data = await res.json();
+          if (!cancelled) setTools(Array.isArray(data) ? data : []);
+        } else if (activeTab === "workers") {
+          const res = await fetch("/api/workers");
+          const data = await res.json();
+          if (!cancelled) setWorkers(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (!cancelled) setMessage({ type: "error", text: "Failed to load listings" });
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch {
-      setMessage({ type: "error", text: "Failed to load data" });
-    } finally {
-      setLoading(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
 
-  function openReserve(asset: Asset) {
-    setPayModal({
-      assetId: asset.id,
-      title: asset.title,
-      price: asset.price,
-      category: asset.type,
-    });
-  }
-
-  async function confirmReserve(payload: {
-    paymentMethod: "FULL" | "INSTALLMENT";
-    documents: { key: string; label: string; fileUrl: string; fileName?: string }[];
-  }) {
-    if (!payModal) return;
-    setActionLoading(payModal.assetId);
+  async function reserveAsset(asset: Asset) {
+    setActionLoading(asset.id);
     setMessage(null);
     try {
       const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assetId: payModal.assetId,
-          confirmed: true,
-          paymentMethod: payload.paymentMethod,
-          documents: payload.documents,
-          rulesAgreed: payload.paymentMethod === "INSTALLMENT",
-        }),
+        body: JSON.stringify({ assetId: asset.id, confirmed: true }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Reservation failed");
-      setMessage({ type: "success", text: data.message || "Reservation submitted!" });
-      loadData();
-    } catch (err) {
-      throw err;
+      if (!res.ok) throw new Error(data.error || "Reserve failed");
+      setPreviewAsset(null);
+      setMessage({
+        type: "success",
+        text: data.message || "Reserved. Open Dashboard to choose payment and pay.",
+      });
+      // refresh list
+      setAssets((prev) => prev.filter((a) => a.id !== asset.id));
+    } catch (e) {
+      setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed" });
     } finally {
       setActionLoading(null);
     }
   }
 
-  async function handleRent(e: React.FormEvent) {
-    e.preventDefault();
-    const tool = tools.find((t) => t.id === rentalForm.toolId);
-    if (!tool) return;
-    const ok = window.confirm(
-      "Confirm tool rental\n\nTool: " + tool.name + "\n" + tool.description +
-      "\nQty: " + rentalForm.quantity + "\nFrom " + rentalForm.startDate + " to " + rentalForm.endDate
-    );
-    if (!ok) return;
-    setActionLoading("rent");
+  async function reserveTool(tool: Tool) {
+    if (!toolDates.startDate || !toolDates.endDate) {
+      setMessage({ type: "error", text: "Choose start and end dates" });
+      return;
+    }
+    setActionLoading(tool.id);
     setMessage(null);
     try {
       const res = await fetch("/api/tools", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rentalForm, confirmed: true }),
+        body: JSON.stringify({
+          toolId: tool.id,
+          startDate: toolDates.startDate,
+          endDate: toolDates.endDate,
+          quantity: toolDates.quantity || 1,
+          confirmed: true,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Rental failed");
-      setMessage({ type: "success", text: data.message || "Rental booked: " + formatCurrency(data.totalCost) });
-      setRentalForm({ toolId: "", startDate: "", endDate: "", quantity: 1 });
-      loadData();
-    } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Rental failed" });
+      if (!res.ok) throw new Error(data.error || "Reserve failed");
+      setPreviewTool(null);
+      setToolDates({ startDate: "", endDate: "", quantity: 1 });
+      setMessage({
+        type: "success",
+        text: data.message || "Tool reserved. Pay from Dashboard.",
+      });
+      setTools((prev) =>
+        prev
+          .map((t) =>
+            t.id === tool.id ? { ...t, available: Math.max(0, t.available - (toolDates.quantity || 1)) } : t
+          )
+          .filter((t) => t.available > 0)
+      );
+    } catch (e) {
+      setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed" });
     } finally {
       setActionLoading(null);
     }
   }
 
-  async function handleHire(e: React.FormEvent) {
-    e.preventDefault();
-    const w = workers.find((x) => x.id === hireForm.workerId);
-    const ok = window.confirm(
-      "Confirm hire request\n\nWorker: " + (w?.name || "Open request") +
-      "\nService: " + hireForm.serviceType + "\nLocation: " + hireForm.location +
-      "\nStart: " + hireForm.startDate + "\n\n" + hireForm.description
-    );
-    if (!ok) return;
-    setActionLoading("hire");
+  async function reserveWorker(worker: Worker) {
+    if (!hireExtra.description || !hireExtra.location || !hireExtra.startDate) {
+      setMessage({ type: "error", text: "Fill job description, location and start date" });
+      return;
+    }
+    setActionLoading(worker.id);
     setMessage(null);
     try {
       const res = await fetch("/api/workers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...hireForm, confirmed: true }),
+        body: JSON.stringify({
+          workerId: worker.id,
+          serviceType: worker.specialty || "LABOR",
+          description: hireExtra.description,
+          location: hireExtra.location,
+          startDate: hireExtra.startDate,
+          endDate: hireExtra.endDate || null,
+          estimatedCost: worker.dailyRate,
+          confirmed: true,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Hire request failed");
-      setMessage({ type: "success", text: "Hire request submitted!" });
-      setHireForm({ workerId: "", serviceType: "LABOR", description: "", location: "", startDate: "", endDate: "" });
-      loadData();
-    } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Hire request failed" });
+      if (!res.ok) throw new Error(data.error || "Reserve failed");
+      setPreviewWorker(null);
+      setHireExtra({ description: "", location: "", startDate: "", endDate: "" });
+      setMessage({
+        type: "success",
+        text: data.message || "Worker reserved. Pay from Dashboard.",
+      });
+      setWorkers((prev) => prev.filter((w) => w.id !== worker.id));
+    } catch (e) {
+      setMessage({ type: "error", text: e instanceof Error ? e.message : "Failed" });
     } finally {
       setActionLoading(null);
     }
@@ -188,185 +224,200 @@ export default function ServicesPage() {
   async function handleProject(e: React.FormEvent) {
     e.preventDefault();
     setActionLoading("project");
-    setMessage(null);
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(projectForm),
+        body: JSON.stringify({
+          ...projectForm,
+          budget: Number(projectForm.budget),
+          confirmed: true,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create project");
-      setMessage({ type: "success", text: "Project created! View it in your dashboard." });
+      if (!res.ok) throw new Error(data.error || "Failed");
+      setMessage({ type: "success", text: "Project created. Manage it from Dashboard." });
       setProjectForm({ title: "", description: "", budget: "", location: "", startDate: "", endDate: "" });
     } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to create project" });
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed" });
     } finally {
       setActionLoading(null);
     }
   }
 
-  const filteredAssets =
-    activeTab === "land"
-      ? assets.filter((a) => a.type === "LAND")
-      : assets.filter((a) => a.type !== "LAND");
-
   return (
-    <div className="bg-white min-h-screen">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-16">
+    <div className="bg-slate-50 min-h-screen">
+      <div className="bg-construction-dark text-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Our Services</h1>
-          <p className="mt-4 text-lg text-slate-300 max-w-2xl">
-            Choose full payment or installment. Review worker profiles before you hire. Unpaid holds expire automatically.
+          <h1 className="text-3xl sm:text-4xl font-bold">Services</h1>
+          <p className="mt-2 text-slate-300 max-w-2xl">
+            Preview full details, then <strong className="text-accent-400">reserve</strong>.
+            Choose payment and pay later from your <Link href="/dashboard" className="underline text-accent-300">Dashboard</Link>.
           </p>
-        </div>
-      </section>
-
-      <div className="sticky top-16 z-40 bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex overflow-x-auto gap-1 py-2">
-            {tabs.map((tab) => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap ${
-                  activeTab === tab.id ? "bg-primary-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}>
-                <tab.icon className="w-4 h-4" />{tab.label}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-wrap gap-2 mb-8">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                activeTab === t.id
+                  ? "bg-primary-600 text-white"
+                  : "bg-white text-slate-600 border border-slate-200 hover:border-primary-300"
+              }`}
+            >
+              <t.icon className="w-4 h-4" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {message && (
-          <div className={`mb-6 px-4 py-3 rounded-lg flex items-center gap-2 ${
-            message.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"
-          }`}>
-            {message.type === "success" && <CheckCircle2 className="w-5 h-5" />}
-            {message.text}
+          <div
+            className={`mb-6 rounded-xl px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-center gap-2 ${
+              message.type === "success"
+                ? "bg-green-50 text-green-800 border border-green-200"
+                : "bg-red-50 text-red-800 border border-red-200"
+            }`}
+          >
+            <span className="flex-1">{message.text}</span>
             {message.type === "success" && (
-              <Link href="/dashboard" className="ml-auto text-sm font-medium underline">Dashboard</Link>
+              <Link href="/dashboard" className="font-semibold underline shrink-0">
+                Go to Dashboard →
+              </Link>
             )}
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary-600" /></div>
+          <div className="flex justify-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+          </div>
         ) : (
           <>
             {(activeTab === "assets" || activeTab === "land") && (
-              <div>
-                <h2 className="text-2xl font-bold text-construction-dark mb-2">
-                  {activeTab === "land" ? "Land for Sale" : "Properties for Sale & Reservation"}
-                </h2>
-                <p className="text-construction-gray mb-8">Select full payment or installment when you reserve.</p>
-                {filteredAssets.length === 0 ? (
-                  <div className="text-center py-16 bg-slate-50 rounded-2xl border"><Building2 className="w-12 h-12 text-slate-400 mx-auto" /><p className="mt-4 text-construction-gray">No listings available.</p></div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {assets.length === 0 ? (
+                  <p className="text-slate-500 col-span-full">No listings available right now.</p>
                 ) : (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredAssets.map((asset) => (
-                      <div key={asset.id} className="bg-white rounded-2xl border overflow-hidden shadow-sm">
-                        <div className="h-40 bg-gradient-to-br from-primary-600 to-construction-dark flex items-center justify-center">
-                          <Building2 className="w-12 h-12 text-white/70" />
-                        </div>
-                        <div className="p-5">
-                          <div className="flex justify-between gap-2">
-                            <h3 className="font-semibold">{asset.title}</h3>
-                            <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">{asset.type}</span>
-                          </div>
-                          <p className="mt-1 text-sm text-construction-gray line-clamp-3">{asset.description}</p>
-                          <div className="mt-3 text-sm text-slate-500 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{asset.location}</div>
-                          <div className="mt-4 flex items-center justify-between">
-                            <span className="text-lg font-bold text-accent-600">{formatCurrency(asset.price)}</span>
-                            <button onClick={() => openReserve(asset)} disabled={!!actionLoading}
-                              className="text-sm font-medium bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg">
-                              {actionLoading === asset.id ? "..." : "Reserve"}
-                            </button>
-                          </div>
-                        </div>
+                  assets.map((a) => (
+                    <div key={a.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={assetCover(a)} alt={a.title} className="w-full h-44 object-cover" />
+                      <div className="p-4">
+                        <p className="text-xs font-medium text-primary-600 uppercase">{a.type}</p>
+                        <h3 className="font-semibold text-construction-dark mt-1">{a.title}</h3>
+                        <p className="text-sm text-slate-500 line-clamp-2 mt-1">{a.description}</p>
+                        <p className="text-accent-600 font-bold mt-2">{formatCurrency(a.price)}</p>
+                        <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> {a.location}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewAsset(a)}
+                          className="mt-4 w-full inline-flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2.5 rounded-xl"
+                        >
+                          <Eye className="w-4 h-4" /> Preview & reserve
+                        </button>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))
                 )}
               </div>
             )}
 
             {activeTab === "tools" && (
-              <div className="grid lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
-                  {tools.map((tool) => (
-                    <div key={tool.id} onClick={() => setRentalForm({ ...rentalForm, toolId: tool.id })}
-                      className={`p-4 rounded-xl border cursor-pointer ${rentalForm.toolId === tool.id ? "border-primary-500 bg-primary-50" : "border-slate-200"}`}>
-                      <h3 className="font-semibold">{tool.name}</h3>
-                      <p className="text-sm text-construction-gray mt-1">{tool.description}</p>
-                      <p className="text-sm mt-2"><DollarSign className="w-3.5 h-3.5 inline" />{formatCurrency(tool.dailyRate)}/day · {tool.available} available</p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {tools.length === 0 ? (
+                  <p className="text-slate-500 col-span-full">No tools available.</p>
+                ) : (
+                  tools.map((tool) => (
+                    <div
+                      key={tool.id}
+                      className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:border-primary-300 transition-colors"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={toolCover(tool)} alt={tool.name} className="w-full h-40 object-cover bg-slate-100" />
+                      <div className="p-4">
+                        <p className="text-xs text-slate-500">{tool.category}</p>
+                        <h3 className="font-semibold">{tool.name}</h3>
+                        <p className="text-sm text-slate-500 line-clamp-2 mt-1">{tool.description}</p>
+                        <p className="text-sm mt-2 font-medium">
+                          <DollarSign className="w-3.5 h-3.5 inline" />
+                          {formatCurrency(tool.dailyRate)}/day · {formatCurrency(tool.weeklyRate)}/week
+                        </p>
+                        <p className="text-xs text-slate-400">{tool.available} available</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewTool(tool);
+                            setToolDates({ startDate: "", endDate: "", quantity: 1 });
+                          }}
+                          className="mt-3 w-full inline-flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-2.5 rounded-xl"
+                        >
+                          <Eye className="w-4 h-4" /> Preview & reserve
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
-                <form onSubmit={handleRent} className="bg-slate-50 rounded-2xl p-6 border h-fit space-y-3">
-                  <h3 className="font-semibold">Book rental</h3>
-                  <p className="text-sm text-slate-500">{rentalForm.toolId ? tools.find((t) => t.id === rentalForm.toolId)?.name : "Select a tool"}</p>
-                  <input type="number" min={1} value={rentalForm.quantity} onChange={(e) => setRentalForm({ ...rentalForm, quantity: Number(e.target.value) })} className="w-full px-3 py-2 rounded-lg border" placeholder="Qty" />
-                  <input type="date" required value={rentalForm.startDate} onChange={(e) => setRentalForm({ ...rentalForm, startDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <input type="date" required value={rentalForm.endDate} onChange={(e) => setRentalForm({ ...rentalForm, endDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <button type="submit" disabled={!rentalForm.toolId || actionLoading === "rent"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl disabled:opacity-50">Confirm rental</button>
-                </form>
+                  ))
+                )}
               </div>
             )}
 
             {activeTab === "workers" && (
-              <div className="grid lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
-                  {workers.map((w) => (
-                    <div key={w.id} className={`rounded-xl border overflow-hidden ${
-                      hireForm.workerId === w.id ? "border-primary-500 ring-2 ring-primary-200" : "border-slate-200"
-                    }`}>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {workers.length === 0 ? (
+                  <p className="text-slate-500 col-span-full">No workers available.</p>
+                ) : (
+                  workers.map((w) => (
+                    <div key={w.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={w.image || PLACEHOLDER_IMAGE}
+                        alt={w.name}
+                        className="w-full h-40 object-cover bg-slate-100"
+                      />
                       <div className="p-4">
-                        <div className="flex gap-3">
-                          <div className="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
-                            {w.image ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={w.image} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <Users className="w-6 h-6 text-slate-400" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className="font-semibold">{w.name}</h3>
-                            <p className="text-sm text-primary-600">
-                              {WORKER_SPECIALTIES.find((s) => s.value === w.specialty)?.label || w.specialty}
-                            </p>
-                            <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                              <Star className="w-3 h-3 text-amber-500" />{w.rating} · {w.experience} yrs
-                              {w.location ? ` · ${w.location}` : ""}
-                            </p>
-                          </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-semibold">{w.name}</h3>
+                          <span className="text-xs flex items-center gap-0.5 text-amber-600">
+                            <Star className="w-3.5 h-3.5 fill-amber-500" /> {w.rating}
+                          </span>
                         </div>
-                        <p className="text-sm font-semibold text-accent-600 mt-3">{formatCurrency(w.dailyRate)}/day</p>
-                        {w.bio && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{w.bio}</p>}
+                        <p className="text-sm text-primary-600">{w.specialty}</p>
+                        <p className="text-xs text-slate-500 mt-1">{w.experience} yrs · {formatCurrency(w.dailyRate)}/day</p>
+                        <p className="text-sm text-slate-500 line-clamp-2 mt-2">{w.bio || "Professional crew member."}</p>
                         <div className="mt-3 flex gap-2">
-                          <Link href={`/workers/${w.id}`} className="text-xs font-medium text-primary-600 hover:underline">
-                            Full profile
-                          </Link>
-                          <button type="button" onClick={() => setHireForm({ ...hireForm, workerId: w.id })}
-                            className="text-xs font-medium bg-primary-600 text-white px-3 py-1 rounded-lg ml-auto">
-                            Select
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewWorker(w);
+                              setHireExtra({
+                                description: `Hire ${w.name} (${w.specialty})`,
+                                location: w.location || "",
+                                startDate: "",
+                                endDate: "",
+                              });
+                            }}
+                            className="flex-1 bg-primary-600 text-white text-sm font-semibold py-2 rounded-xl"
+                          >
+                            Preview & reserve
                           </button>
+                          <Link
+                            href={`/workers/${w.id}`}
+                            className="px-3 py-2 border rounded-xl text-sm text-primary-700"
+                          >
+                            Profile
+                          </Link>
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <form onSubmit={handleHire} className="bg-slate-50 rounded-2xl p-6 border h-fit space-y-3">
-                  <h3 className="font-semibold">Hire request</h3>
-                  <p className="text-sm text-slate-500">
-                    {hireForm.workerId ? workers.find((x) => x.id === hireForm.workerId)?.name : "Select a worker or open request"}
-                  </p>
-                  <textarea required rows={3} placeholder="Job description" value={hireForm.description} onChange={(e) => setHireForm({ ...hireForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <input required placeholder="Location" value={hireForm.location} onChange={(e) => setHireForm({ ...hireForm, location: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <input type="date" required value={hireForm.startDate} onChange={(e) => setHireForm({ ...hireForm, startDate: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                  <button type="submit" disabled={actionLoading === "hire"} className="w-full bg-accent-500 text-white font-semibold py-2.5 rounded-xl">Confirm hire</button>
-                </form>
+                  ))
+                )}
               </div>
             )}
 
@@ -377,21 +428,156 @@ export default function ServicesPage() {
                 <textarea required rows={3} placeholder="Description" value={projectForm.description} onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                 <input required placeholder="Location" value={projectForm.location} onChange={(e) => setProjectForm({ ...projectForm, location: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
                 <input required type="number" placeholder="Budget" value={projectForm.budget} onChange={(e) => setProjectForm({ ...projectForm, budget: e.target.value })} className="w-full px-3 py-2 rounded-lg border" />
-                <button type="submit" disabled={actionLoading === "project"} className="bg-accent-500 text-white font-semibold px-5 py-2.5 rounded-xl">Create project</button>
+                <button type="submit" disabled={actionLoading === "project"} className="bg-accent-500 text-white font-semibold px-5 py-2.5 rounded-xl">
+                  Create project
+                </button>
               </form>
             )}
           </>
         )}
       </div>
 
-      <PaymentMethodModal
-        open={!!payModal}
-        onClose={() => setPayModal(null)}
-        title={payModal?.title || ""}
-        price={payModal?.price || 0}
-        category={payModal?.category || "HOUSE"}
-        onConfirm={confirmReserve}
-      />
+      {/* Asset preview */}
+      {previewAsset && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto shadow-xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={assetCover(previewAsset)} alt="" className="w-full h-52 object-cover" />
+            <div className="p-5 space-y-3">
+              <div className="flex justify-between items-start gap-2">
+                <div>
+                  <p className="text-xs text-primary-600 font-medium">{previewAsset.type}</p>
+                  <h2 className="text-xl font-bold">{previewAsset.title}</h2>
+                </div>
+                <button type="button" onClick={() => setPreviewAsset(null)} className="p-1 text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-accent-600 font-bold text-lg">{formatCurrency(previewAsset.price)}</p>
+              <p className="text-sm text-slate-600 whitespace-pre-wrap">{previewAsset.description}</p>
+              <ul className="text-sm text-slate-500 space-y-1">
+                <li className="flex gap-2"><MapPin className="w-4 h-4" /> {previewAsset.location}</li>
+                {previewAsset.size && <li>Size: {previewAsset.size}</li>}
+                {previewAsset.bedrooms != null && <li>Bedrooms: {previewAsset.bedrooms}</li>}
+                {previewAsset.bathrooms != null && <li>Bathrooms: {previewAsset.bathrooms}</li>}
+              </ul>
+              <p className="text-xs bg-amber-50 border border-amber-100 text-amber-900 rounded-lg px-3 py-2">
+                Reserving holds this listing. You will choose full or installment payment and pay from your Dashboard.
+              </p>
+              <button
+                type="button"
+                disabled={!!actionLoading}
+                onClick={() => reserveAsset(previewAsset)}
+                className="w-full bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
+              >
+                {actionLoading === previewAsset.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                Confirm reservation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tool preview */}
+      {previewTool && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto shadow-xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={toolCover(previewTool)} alt="" className="w-full h-52 object-cover" />
+            <div className="p-5 space-y-3">
+              <div className="flex justify-between">
+                <h2 className="text-xl font-bold">{previewTool.name}</h2>
+                <button type="button" onClick={() => setPreviewTool(null)}><X className="w-5 h-5 text-slate-400" /></button>
+              </div>
+              <p className="text-sm text-slate-500">{previewTool.category}</p>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{previewTool.description}</p>
+              <p className="font-semibold">
+                {formatCurrency(previewTool.dailyRate)}/day · {formatCurrency(previewTool.weeklyRate)}/week
+              </p>
+              <p className="text-xs text-slate-500">{previewTool.available} units available</p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-sm">
+                  <span className="text-slate-500 flex items-center gap-1 mb-1"><Calendar className="w-3.5 h-3.5" /> Start</span>
+                  <input type="date" required value={toolDates.startDate} onChange={(e) => setToolDates({ ...toolDates, startDate: e.target.value })} className="w-full border rounded-lg px-2 py-2" />
+                </label>
+                <label className="text-sm">
+                  <span className="text-slate-500 mb-1 block">End</span>
+                  <input type="date" required value={toolDates.endDate} onChange={(e) => setToolDates({ ...toolDates, endDate: e.target.value })} className="w-full border rounded-lg px-2 py-2" />
+                </label>
+              </div>
+              <label className="text-sm block">
+                Quantity
+                <input type="number" min={1} max={previewTool.available} value={toolDates.quantity} onChange={(e) => setToolDates({ ...toolDates, quantity: Number(e.target.value) || 1 })} className="w-full border rounded-lg px-2 py-2 mt-1" />
+              </label>
+              <p className="text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                Reserve first. Complete payment from your Dashboard before the hold expires.
+              </p>
+              <button
+                type="button"
+                disabled={!!actionLoading}
+                onClick={() => reserveTool(previewTool)}
+                className="w-full bg-accent-500 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
+              >
+                {actionLoading === previewTool.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Confirm tool reservation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Worker preview */}
+      {previewWorker && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto shadow-xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={previewWorker.image || PLACEHOLDER_IMAGE} alt="" className="w-full h-52 object-cover" />
+            <div className="p-5 space-y-3">
+              <div className="flex justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">{previewWorker.name}</h2>
+                  <p className="text-primary-600 text-sm">{previewWorker.specialty}</p>
+                </div>
+                <button type="button" onClick={() => setPreviewWorker(null)}><X className="w-5 h-5 text-slate-400" /></button>
+              </div>
+              <p className="text-sm text-slate-600">{previewWorker.bio || "Experienced construction professional."}</p>
+              <p className="text-sm">{previewWorker.experience} years experience · {formatCurrency(previewWorker.dailyRate)}/day · ★ {previewWorker.rating}</p>
+              {previewWorker.location && <p className="text-xs text-slate-500">Based in {previewWorker.location}</p>}
+              <textarea
+                rows={2}
+                placeholder="Job description"
+                value={hireExtra.description}
+                onChange={(e) => setHireExtra({ ...hireExtra, description: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                placeholder="Work location"
+                value={hireExtra.location}
+                onChange={(e) => setHireExtra({ ...hireExtra, location: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={hireExtra.startDate} onChange={(e) => setHireExtra({ ...hireExtra, startDate: e.target.value })} className="border rounded-lg px-2 py-2 text-sm" />
+                <input type="date" value={hireExtra.endDate} onChange={(e) => setHireExtra({ ...hireExtra, endDate: e.target.value })} className="border rounded-lg px-2 py-2 text-sm" placeholder="End (optional)" />
+              </div>
+              <p className="text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                This holds the worker. Pay from Dashboard after reserving.
+              </p>
+              <button
+                type="button"
+                disabled={!!actionLoading}
+                onClick={() => reserveWorker(previewWorker)}
+                className="w-full bg-accent-500 text-white font-semibold py-3 rounded-xl"
+              >
+                {actionLoading === previewWorker.id ? "Reserving…" : "Confirm hire reservation"}
+              </button>
+              <Link href={`/workers/${previewWorker.id}`} className="block text-center text-sm text-primary-600">
+                View full profile
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
