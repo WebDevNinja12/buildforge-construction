@@ -53,6 +53,9 @@ export default function Navbar({ user }: NavbarProps) {
           <div className="hidden md:flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-3">
+                <Link href="/profile" className="text-sm text-slate-300 hover:text-white">
+                  Profile
+                </Link>
                 <Link href="/dashboard" className="flex items-center gap-2 text-sm text-slate-300 hover:text-white">
                   <User className="w-4 h-4" />
                   {user.name}
@@ -102,29 +105,25 @@ export default function Navbar({ user }: NavbarProps) {
                 {link.label}
               </Link>
             ))}
-            <div className="pt-3 border-t border-slate-700 mt-2">
-              {user ? (
-                <>
-                  <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
-                    Dashboard ({user.name})
-                  </Link>
-                  <form action="/api/auth/logout" method="POST">
-                    <button type="submit" className="w-full text-left px-4 py-2.5 text-sm text-accent-400">
-                      Logout
-                    </button>
-                  </form>
-                </>
-              ) : (
-                <>
-                  <Link href="/login" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
-                    Login
-                  </Link>
-                  <Link href="/register" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm font-medium text-accent-400">
-                    Get Started
-                  </Link>
-                </>
-              )}
-            </div>
+            {user ? (
+              <>
+                <Link href="/profile" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
+                  Profile / photo
+                </Link>
+                <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
+                  Dashboard ({user.name})
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link href="/login" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
+                  Login
+                </Link>
+                <Link href="/register" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-accent-400">
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}
