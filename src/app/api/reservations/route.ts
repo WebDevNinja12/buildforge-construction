@@ -29,6 +29,10 @@ export async function GET() {
   }
 }
 
+/**
+ * Reserve first (no payment method required).
+ * Payment method is chosen later on the dashboard.
+ */
 export async function POST(req: NextRequest) {
   try {
     await runMaintenance();
@@ -48,7 +52,8 @@ export async function POST(req: NextRequest) {
       assetId,
       notes,
       confirmed,
-      paymentMethod = "FULL",
+      // Optional — if omitted, client chooses on dashboard
+      paymentMethod,
       documents = [],
       rulesAgreed,
       paymentFrequency,
@@ -56,10 +61,7 @@ export async function POST(req: NextRequest) {
 
     if (!assetId) return NextResponse.json({ error: "Asset ID required" }, { status: 400 });
     if (!confirmed) {
-      return NextResponse.json({ error: "Please confirm booking details" }, { status: 400 });
-    }
-    if (!["FULL", "INSTALLMENT"].includes(paymentMethod)) {
-      return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
+      return NextResponse.json({ error: "Please confirm after reviewing details" }, { status: 400 });
     }
 
     const asset = await prisma.asset.findUnique({ where: { id: assetId } });
@@ -68,30 +70,29 @@ export async function POST(req: NextRequest) {
     }
 
     const cfg = await getCategoryConfig(asset.type);
-    const allowed = parseFrequencies(
-      asset.allowedFrequencies || (cfg as any).allowedFrequencies || '["MONTHLY"]'
-    );
-    let frequency: Frequency | null = null;
-    if (paymentMethod === "INSTALLMENT") {
-      frequency = (paymentFrequency || allowed[0] || "MONTHLY") as Frequency;
-      if (!allowed.includes(frequency)) {
-        return NextResponse.json(
-          { error: `Frequency not allowed. Choose: ${allowed.join(", ")}` },
-          { status: 400 }
-        );
-      }
-      if (!rulesAgreed && !body.rulesAgreedAt) {
-        return NextResponse.json({ error: "You must agree to installment rules" }, { status: 400 });
-      }
-    }
-
     const hours = await getExpiryHours(asset.type, asset.reservationHours);
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
     const totalAmount = asset.price;
-    const depositAmount = paymentMethod === "FULL" ? totalAmount : totalAmount * 0.1;
 
+    // Reserve-only path
+    const method =
+      paymentMethod === "FULL" || paymentMethod === "INSTALLMENT"
+        ? paymentMethod
+        : "UNSET";
+
+    let frequency: Frequency | null = null;
     let planDeadline: Date | null = null;
-    if (paymentMethod === "INSTALLMENT") {
+    let depositAmount = 0;
+
+    if (method === "INSTALLMENT") {
+      const allowed = parseFrequencies(
+        asset.allowedFrequencies || (cfg as any).allowedFrequencies || '["MONTHLY"]'
+      );
+      frequency = (paymentFrequency || allowed[0] || "MONTHLY") as Frequency;
+      if (!rulesAgreed) {
+        return NextResponse.json({ error: "Agree to installment rules" }, { status: 400 });
+      }
+      depositAmount = totalAmount * 0.1;
       if (cfg.continuesAfterHold) {
         const months = asset.installmentPlanMonths || cfg.installmentPlanMonths || 6;
         planDeadline = new Date();
@@ -99,6 +100,8 @@ export async function POST(req: NextRequest) {
       } else {
         planDeadline = expiresAt;
       }
+    } else if (method === "FULL") {
+      depositAmount = totalAmount;
     }
 
     const reservation = await prisma.$transaction(async (tx) => {
@@ -113,17 +116,17 @@ export async function POST(req: NextRequest) {
           amountPaid: 0,
           notes: notes || null,
           status: "PENDING",
-          paymentMethod,
+          paymentMethod: method,
           paymentFrequency: frequency,
           expiresAt,
           planDeadline,
-          rulesAgreedAt: paymentMethod === "INSTALLMENT" ? new Date() : null,
+          rulesAgreedAt: method === "INSTALLMENT" ? new Date() : null,
           deductionPercent: cfg.cancelDeductionPercent ?? null,
         },
         include: { asset: true },
       });
 
-      if (paymentMethod === "INSTALLMENT" && frequency && planDeadline) {
+      if (method === "INSTALLMENT" && frequency && planDeadline) {
         const schedule = buildSchedule({
           totalAmount,
           amountAlreadyPaid: 0,
@@ -160,26 +163,14 @@ export async function POST(req: NextRequest) {
       return res;
     });
 
-    await prisma.payment.create({
-      data: {
-        userId: session.id,
-        amount: depositAmount,
-        type: paymentMethod === "FULL" ? "FULL" : "DEPOSIT",
-        method: "PENDING",
-        status: "PENDING",
-        reservationId: reservation.id,
-        referenceId: reservation.id,
-      },
-    });
-
     await prisma.notification.create({
       data: {
         userId: session.id,
         title: "Reservation created",
         body:
-          paymentMethod === "FULL"
-            ? `Full-payment hold on "${asset.title}".`
-            : `Installment plan (${frequency}) started for "${asset.title}".`,
+          method === "UNSET"
+            ? `"${asset.title}" is reserved. Open your dashboard to choose payment (full or installment) before the hold expires.`
+            : `Reservation for "${asset.title}" created (${method}).`,
         type: "RESERVATION",
         link: "/dashboard",
       },
@@ -189,10 +180,11 @@ export async function POST(req: NextRequest) {
       {
         ...reservation,
         message:
-          paymentMethod === "FULL"
-            ? `Full payment hold for ${hours} hours.`
-            : `Installment (${frequency}) created. Deposit due within ${hours} hours.`,
+          method === "UNSET"
+            ? `Reserved for ${hours} hours. Go to Dashboard to choose payment and complete payment.`
+            : `Reservation created. Complete payment from Dashboard.`,
         expiryHours: hours,
+        nextStep: "/dashboard",
       },
       { status: 201 }
     );

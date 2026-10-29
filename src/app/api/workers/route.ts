@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/** Hire request = reserve first; pay on dashboard */
 export async function POST(req: NextRequest) {
   try {
     await runMaintenance().catch(() => null);
@@ -59,20 +60,19 @@ export async function POST(req: NextRequest) {
       );
     }
     if (!confirmed) {
-      return NextResponse.json(
-        { error: "Please confirm the hire details before submitting" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Confirm after reviewing worker details" }, { status: 400 });
     }
 
     const hours = await getExpiryHours("WORKERS", null);
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
+    let workerDaily: number | null = null;
     if (workerId) {
       const worker = await prisma.worker.findUnique({ where: { id: workerId } });
       if (!worker || !worker.available || !worker.active) {
         return NextResponse.json({ error: "Worker not available" }, { status: 400 });
       }
+      workerDaily = worker.dailyRate;
     }
 
     const hire = await prisma.$transaction(async (tx) => {
@@ -91,37 +91,35 @@ export async function POST(req: NextRequest) {
           location,
           startDate: new Date(startDate),
           endDate: endDate ? new Date(endDate) : null,
-          estimatedCost: estimatedCost || null,
+          estimatedCost: estimatedCost ?? workerDaily ?? null,
           status: "PENDING",
+          paymentMethod: "UNSET",
           expiresAt,
         },
         include: { worker: true },
       });
     });
 
-    if (estimatedCost) {
-      await prisma.payment.create({
-        data: {
-          userId: session.id,
-          amount: estimatedCost,
-          type: "HIRE",
-          method: "PENDING",
-          status: "PENDING",
-          hireRequestId: hire.id,
-          referenceId: hire.id,
-        },
-      });
-    }
+    await prisma.notification.create({
+      data: {
+        userId: session.id,
+        title: "Hire request reserved",
+        body: `Hire hold created. Open Dashboard to complete payment within ${hours} hours.`,
+        type: "RESERVATION",
+        link: "/dashboard",
+      },
+    });
 
     return NextResponse.json(
       {
         ...hire,
-        message: "Hire request submitted.",
+        message: `Reserved. Pay from Dashboard within ${hours} hours.`,
+        nextStep: "/dashboard",
       },
       { status: 201 }
     );
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: "Hire request failed" }, { status: 500 });
+    return NextResponse.json({ error: "Hire failed" }, { status: 500 });
   }
 }
