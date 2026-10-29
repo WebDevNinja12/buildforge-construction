@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { runMaintenance } from "@/lib/maintenance";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -8,30 +9,81 @@ async function requireAdmin() {
   return session;
 }
 
-/** List activity log */
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
+  await runMaintenance().catch(() => null);
+
   const limit = Math.min(Number(new URL(req.url).searchParams.get("limit") || 100), 500);
 
-  const logs = await prisma.adminActivityLog.findMany({
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: {
-      admin: { select: { id: true, name: true, email: true } },
-    },
-  });
+  const [
+    logs,
+    reservations,
+    rentals,
+    hires,
+    payments,
+    pendingUsers,
+    expiringSoon,
+    revenue,
+  ] = await Promise.all([
+    prisma.adminActivityLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { admin: { select: { id: true, name: true, email: true } } },
+    }),
+    prisma.reservation.findMany({
+      include: { user: { select: { id: true, name: true, email: true } }, asset: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.toolRental.findMany({
+      include: { user: { select: { id: true, name: true, email: true } }, tool: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.hireRequest.findMany({
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        worker: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.payment.findMany({
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        reservation: { include: { asset: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    prisma.user.count({ where: { status: "PENDING_APPROVAL", role: "CLIENT" } }),
+    prisma.reservation.count({
+      where: {
+        status: "PENDING",
+        expiresAt: { lte: new Date(Date.now() + 48 * 3600 * 1000), gte: new Date() },
+      },
+    }),
+    prisma.payment.aggregate({
+      where: { status: { in: ["APPROVED", "COMPLETED"] } },
+      _sum: { amount: true },
+    }),
+  ]);
 
-  return NextResponse.json({ logs, count: logs.length });
+  return NextResponse.json({
+    logs,
+    pendingApprovals: pendingUsers,
+    expiringSoon,
+    revenue: revenue._sum.amount || 0,
+    pendingPayments: payments.filter((p) => p.status === "PENDING").length,
+    reservations,
+    rentals,
+    hires,
+    payments,
+  });
 }
 
-/**
- * Clear history
- * DELETE ?all=1  → delete entire activity log
- * DELETE ?before=YYYY-MM-DD → delete entries older than date
- * DELETE ?id=xxx → delete one entry
- */
 export async function DELETE(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
@@ -43,16 +95,7 @@ export async function DELETE(req: NextRequest) {
 
   try {
     if (id) {
-      await prisma.adminActivityLog.delete({ where: { id } });
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: admin.id,
-          action: "CLEAR_LOG_ENTRY",
-          entity: "AdminActivityLog",
-          entityId: id,
-          details: "Deleted single activity log entry",
-        },
-      });
+      await prisma.adminActivityLog.delete({ where: { id } }).catch(() => null);
       return NextResponse.json({ ok: true, deleted: 1 });
     }
 
@@ -77,7 +120,6 @@ export async function DELETE(req: NextRequest) {
 
     if (all) {
       const result = await prisma.adminActivityLog.deleteMany({});
-      // Record that history was wiped (new single entry)
       await prisma.adminActivityLog.create({
         data: {
           adminId: admin.id,
@@ -86,7 +128,11 @@ export async function DELETE(req: NextRequest) {
           details: JSON.stringify({ deleted: result.count, at: new Date().toISOString() }),
         },
       });
-      return NextResponse.json({ ok: true, deleted: result.count, message: "Activity history cleared" });
+      return NextResponse.json({
+        ok: true,
+        deleted: result.count,
+        message: "Activity history cleared",
+      });
     }
 
     return NextResponse.json(
