@@ -3,16 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, X, HardHat, User, LogOut } from "lucide-react";
+import { Menu, X, HardHat, LogIn, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavbarProps {
   user?: { name: string; role: string } | null;
 }
 
+/** Public nav only — Profile, Admin, Register live on Dashboard after login */
 const navLinks = [
   { href: "/", label: "Home" },
-  { href: "/about", label: "About Us" },
+  { href: "/about", label: "About" },
   { href: "/projects", label: "Projects" },
   { href: "/services", label: "Services" },
   { href: "/contact", label: "Contact" },
@@ -34,6 +35,7 @@ export default function Navbar({ user }: NavbarProps) {
               Hama <span className="text-accent-500">Construction</span>
             </span>
           </Link>
+
           <nav className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
               <Link
@@ -50,34 +52,32 @@ export default function Navbar({ user }: NavbarProps) {
               </Link>
             ))}
           </nav>
-          <div className="hidden md:flex items-center gap-3">
+
+          {/* Login / Logout icon only */}
+          <div className="hidden md:flex items-center">
             {user ? (
-              <div className="flex items-center gap-3">
-                <Link href="/profile" className="text-sm text-slate-300 hover:text-white">
-                  Profile
-                </Link>
-                <Link href="/dashboard" className="flex items-center gap-2 text-sm text-slate-300 hover:text-white">
-                  <User className="w-4 h-4" />
-                  {user.name}
-                </Link>
-                <form action="/api/auth/logout" method="POST">
-                  <button type="submit" className="flex items-center gap-1 text-sm text-slate-400 hover:text-accent-400">
-                    <LogOut className="w-4 h-4" />
-                    Logout
-                  </button>
-                </form>
-              </div>
+              <form action="/api/auth/logout" method="POST">
+                <button
+                  type="submit"
+                  title="Logout"
+                  aria-label="Logout"
+                  className="p-2.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </form>
             ) : (
-              <>
-                <Link href="/login" className="text-sm font-medium text-slate-300 hover:text-white px-3 py-1.5">
-                  Login
-                </Link>
-                <Link href="/register" className="text-sm font-medium bg-accent-500 hover:bg-accent-600 text-white px-4 py-2 rounded-lg transition-colors">
-                  Get Started
-                </Link>
-              </>
+              <Link
+                href="/login"
+                title="Login"
+                aria-label="Login"
+                className="p-2.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+              >
+                <LogIn className="w-5 h-5" />
+              </Link>
             )}
           </div>
+
           <button
             className="md:hidden text-slate-300 hover:text-white p-2"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -87,6 +87,7 @@ export default function Navbar({ user }: NavbarProps) {
           </button>
         </div>
       </div>
+
       {mobileOpen && (
         <div className="md:hidden bg-construction-dark border-t border-slate-700">
           <div className="px-4 py-3 space-y-1">
@@ -106,23 +107,22 @@ export default function Navbar({ user }: NavbarProps) {
               </Link>
             ))}
             {user ? (
-              <>
-                <Link href="/profile" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
-                  Profile / photo
-                </Link>
-                <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
-                  Dashboard ({user.name})
-                </Link>
-              </>
+              <form action="/api/auth/logout" method="POST" className="px-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+                >
+                  <LogOut className="w-4 h-4" /> Logout
+                </button>
+              </form>
             ) : (
-              <>
-                <Link href="/login" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-slate-300">
-                  Login
-                </Link>
-                <Link href="/register" onClick={() => setMobileOpen(false)} className="block px-4 py-2.5 text-sm text-accent-400">
-                  Get Started
-                </Link>
-              </>
+              <Link
+                href="/login"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+              >
+                <LogIn className="w-4 h-4" /> Login
+              </Link>
             )}
           </div>
         </div>
