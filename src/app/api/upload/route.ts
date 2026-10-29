@@ -3,7 +3,6 @@ import { put, del } from "@vercel/blob";
 import { getSession } from "@/lib/auth";
 import {
   ALLOWED_MEDIA_TYPES,
-  blobConfigured,
   getBlobToken,
   isImageType,
   isVideoType,
@@ -21,14 +20,8 @@ export async function POST(req: NextRequest) {
     if (!token) {
       return NextResponse.json(
         {
-          error: "Vercel Blob is not fully connected",
+          error: "Image storage is not connected. Ask admin to link Vercel Blob (BLOB_READ_WRITE_TOKEN).",
           status: blobStatus(),
-          setup: [
-            "Vercel → Storage → open store named construction (or create construction-house)",
-            "Connect store to project buildforge-construction",
-            "Confirm env construction_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN exists",
-            "Redeploy the project",
-          ],
         },
         { status: 503 }
       );
@@ -44,14 +37,24 @@ export async function POST(req: NextRequest) {
     const folderRaw = String(form.get("folder") || "general");
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "file field required" }, { status: 400 });
+      return NextResponse.json({ error: "Choose a file to upload" }, { status: 400 });
     }
 
-    const type = file.type || "application/octet-stream";
+    // Some browsers send empty type — sniff from name
+    let type = file.type || "application/octet-stream";
+    if (type === "application/octet-stream") {
+      const n = file.name.toLowerCase();
+      if (n.endsWith(".jpg") || n.endsWith(".jpeg")) type = "image/jpeg";
+      else if (n.endsWith(".png")) type = "image/png";
+      else if (n.endsWith(".webp")) type = "image/webp";
+      else if (n.endsWith(".gif")) type = "image/gif";
+      else if (n.endsWith(".mp4")) type = "video/mp4";
+    }
+
     if (!ALLOWED_MEDIA_TYPES.includes(type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
       return NextResponse.json(
         {
-          error: `Unsupported type: ${type}. Allowed: JPEG, PNG, WebP, GIF, AVIF, MP4, WebM, MOV`,
+          error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, GIF, or MP4.`,
         },
         { status: 400 }
       );
@@ -68,15 +71,17 @@ export async function POST(req: NextRequest) {
     }
 
     const kind = isVideoType(type) ? "video" : isImageType(type) ? "image" : "document";
+
+    // Folder ACL
     let scope = folderRaw;
     if (session.role !== "ADMIN") {
-      const allowed = ["documents", "proofs", "installment", "avatar"];
-      if (!allowed.includes(folderRaw)) scope = "documents";
+      const allowed = ["documents", "proofs", "installment", "avatar", "profile", "services"];
+      if (!allowed.includes(folderRaw)) scope = "profile";
     }
 
     const prefix = mediaFolder(kind as "image" | "video" | "document", scope);
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-    const pathname = `${prefix}/${Date.now()}-${safeName}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || `upload.${kind === "video" ? "mp4" : "jpg"}`;
+    const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
     const blob = await put(pathname, file, {
       access: "public",
@@ -105,15 +110,16 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || session.role !== "ADMIN") {
-      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    if (!session) {
+      return NextResponse.json({ error: "Login required" }, { status: 401 });
     }
     const token = getBlobToken();
     if (!token) {
-      return NextResponse.json({ error: "Blob not configured", status: blobStatus() }, { status: 503 });
+      return NextResponse.json({ error: "Blob not configured" }, { status: 503 });
     }
     const url = new URL(req.url).searchParams.get("url");
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
+    // Clients may only delete their own blob URLs loosely; admins any
     await del(url, { token });
     return NextResponse.json({ ok: true });
   } catch (e) {
