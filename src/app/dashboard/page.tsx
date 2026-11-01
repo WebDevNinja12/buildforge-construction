@@ -9,6 +9,7 @@ import { ClientHistoryActions } from "@/components/HistoryActions";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientShell } from "@/components/ClientShell";
 import { ClientDocumentsList } from "@/components/ClientDocumentsList";
+import { ClientContracts } from "@/components/ClientContracts";
 import {
   Building2,
   Wrench,
@@ -70,7 +71,6 @@ export default async function DashboardPage() {
 
   return (
     <ClientShell name={session.name}>
-      {/* Hero */}
       <div className="mb-6 rounded-2xl bg-construction-dark text-white p-5 sm:p-6 shadow-md">
         <p className="text-xs uppercase tracking-wider text-slate-300">Client dashboard</p>
         <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {session.name.split(" ")[0]}</h1>
@@ -93,7 +93,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Verification */}
       <div
         className={`mb-6 rounded-2xl border px-4 sm:px-5 py-4 flex gap-3 ${
           verified ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"
@@ -118,7 +117,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-8">
         {[
           {
@@ -164,8 +162,7 @@ export default async function DashboardPage() {
         <ClientHistoryActions />
       </div>
       <p className="text-sm text-slate-500 mb-4">
-        Reserve first on Services, then choose full or installment payment here. Countdowns and pay buttons
-        appear on each active card.
+        Reserve first on Services, then choose full or installment payment here.
       </p>
       <div id="reservations" className="scroll-mt-24 mb-10">
         <DashboardPlans />
@@ -174,6 +171,11 @@ export default async function DashboardPage() {
       <section id="documents" className="mb-10 scroll-mt-24">
         <h2 className="text-lg font-bold text-construction-dark mb-3">My documents</h2>
         <ClientDocumentsList />
+      </section>
+
+      <section id="contracts" className="mb-10 scroll-mt-24">
+        <h2 className="text-lg font-bold text-construction-dark mb-3">My contracts</h2>
+        <ClientContracts />
       </section>
 
       <section className="mb-10">
@@ -188,21 +190,25 @@ export default async function DashboardPage() {
             <p className="p-6 text-sm text-slate-500 text-center">No payments yet.</p>
           ) : (
             <>
-              {/* Mobile */}
               <ul className="md:hidden divide-y">
                 {payments.map((p) => (
                   <li key={p.id} className="px-4 py-3 flex justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold">{formatCurrency(p.amount)}</p>
-                      <p className="text-[11px] text-slate-500">{p.type} · {formatDate(p.createdAt)}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {p.type} · {formatDate(p.createdAt)}
+                      </p>
                     </div>
-                    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${statusBadgeClass(p.status)}`}>
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${
+                        statusBadgeClass(p.status)
+                      }`}
+                    >
                       {p.status}
                     </span>
                   </li>
                 ))}
               </ul>
-              {/* Desktop */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs text-slate-500">
