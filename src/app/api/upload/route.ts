@@ -33,9 +33,12 @@ function sniffImageType(file: File, current: string): string {
   return type;
 }
 
-/** Private Blob URLs need our proxy to display in <img> */
-function publicProxyUrl(blobUrl: string) {
-  return `/api/media?u=${encodeURIComponent(blobUrl)}`;
+function toDisplayUrl(blobUrl: string) {
+  // Private blob hosts need the proxy so <img> works in the browser
+  if (blobUrl.includes(".private.blob.vercel-storage.com")) {
+    return `/api/media?u=${encodeURIComponent(blobUrl)}`;
+  }
+  return blobUrl;
 }
 
 export async function POST(req: NextRequest) {
@@ -44,8 +47,7 @@ export async function POST(req: NextRequest) {
     if (!token) {
       return NextResponse.json(
         {
-          error:
-            "Image storage token is missing. Connect Vercel Blob store and set BLOB_READ_WRITE_TOKEN.",
+          error: "Image storage token is missing. Set BLOB_READ_WRITE_TOKEN on Vercel.",
           status: blobStatus(),
         },
         { status: 503 }
@@ -110,53 +112,56 @@ export async function POST(req: NextRequest) {
         .slice(0, 80) || "photo.jpg";
     const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
-    try {
-      // Store is private — must use access: "private"
-      const blob = await put(pathname, file, {
-        access: "private",
-        contentType,
-        addRandomSuffix: true,
-        token,
-      });
+    const attempts: Array<"public" | "private"> = ["public", "private"];
+    let lastErr: Error | null = null;
 
-      // Return proxy URL so browsers can display without Blob auth
-      const displayUrl = publicProxyUrl(blob.url);
+    for (const access of attempts) {
+      try {
+        const blob = await put(pathname, file, {
+          access,
+          contentType,
+          addRandomSuffix: true,
+          token,
+        });
 
-      return NextResponse.json({
-        url: displayUrl,
-        blobUrl: blob.url,
-        pathname: blob.pathname,
-        contentType,
-        size: file.size,
-        kind,
-        private: true,
-      });
-    } catch (blobErr) {
-      const msg = blobErr instanceof Error ? blobErr.message : String(blobErr);
-      console.error("blob put", msg);
-      if (/access denied|invalid token|unauthorized|forbidden/i.test(msg)) {
-        return NextResponse.json(
-          {
-            error:
-              "Blob token is invalid. Update BLOB_READ_WRITE_TOKEN from Vercel Storage → construction store.",
-            detail: msg,
-            status: blobStatus(),
-          },
-          { status: 403 }
-        );
+        return NextResponse.json({
+          url: toDisplayUrl(blob.url),
+          blobUrl: blob.url,
+          pathname: blob.pathname,
+          contentType,
+          size: file.size,
+          kind,
+          access,
+        });
+      } catch (e) {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+        const msg = lastErr.message;
+        // try other access mode
+        if (
+          /private store|public access|must be "public"|must be "private"|access must/i.test(msg)
+        ) {
+          continue;
+        }
+        if (/access denied|invalid token|unauthorized|forbidden/i.test(msg)) {
+          return NextResponse.json(
+            {
+              error: "Blob token is invalid. Update BLOB_READ_WRITE_TOKEN from Vercel Storage.",
+              detail: msg,
+              status: blobStatus(),
+            },
+            { status: 403 }
+          );
+        }
+        throw lastErr;
       }
-      if (/private store|public access/i.test(msg)) {
-        return NextResponse.json(
-          {
-            error:
-              "Blob store is private. App was updated to use private uploads — redeploy if you still see this.",
-            detail: msg,
-          },
-          { status: 400 }
-        );
-      }
-      throw blobErr;
     }
+
+    return NextResponse.json(
+      {
+        error: lastErr?.message || "Upload failed (public and private access both rejected)",
+      },
+      { status: 400 }
+    );
   } catch (e) {
     console.error("upload", e);
     return NextResponse.json(
@@ -177,8 +182,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Blob not configured" }, { status: 503 });
     }
     let url = new URL(req.url).searchParams.get("url") || "";
-    // unwrap proxy URLs
-    if (url.includes("/api/media?u=")) {
+    if (url.includes("/api/media")) {
       try {
         const u = new URL(url, "https://x");
         url = u.searchParams.get("u") || url;
