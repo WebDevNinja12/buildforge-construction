@@ -1,13 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSession, verifyToken, SESSION_COOKIE } from "@/lib/auth";
 import { getExpiryHours } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function resolveSession(req: NextRequest) {
+  // 1) Standard cookie session
+  const fromCookie = await getSession();
+  if (fromCookie) return fromCookie;
+
+  // 2) Authorization: Bearer <jwt>
+  const auth = req.headers.get("authorization") || "";
+  const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+
+  // 3) Cookie header manually (some edge cases miss cookies() on POST)
+  const cookieHeader = req.headers.get("cookie") || "";
+  const match =
+    cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`)) ||
+    cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
+  const rawCookie = match?.[1] ? decodeURIComponent(match[1]) : "";
+
+  const token = bearer || rawCookie;
+  if (!token) return null;
+
+  const claims = await verifyToken(token);
+  if (!claims?.sub) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: claims.sub },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      deletedAt: true,
+    },
+  });
+  if (!user || user.deletedAt) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    status: user.status,
+  };
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await resolveSession(req);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const where = session.role === "ADMIN" ? {} : { userId: session.id };
@@ -32,7 +75,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await resolveSession(req);
     if (!session) {
       return NextResponse.json({ error: "Please login to reserve" }, { status: 401 });
     }
@@ -82,15 +125,7 @@ export async function POST(req: NextRequest) {
     try {
       hours = await getExpiryHours(asset.type, asset.reservationHours);
     } catch {
-      const defaults: Record<string, number> = {
-        HOUSE: 336,
-        BUILDING: 336,
-        HOTEL: 168,
-        LAND: 120,
-        APARTMENT: 168,
-        COMMERCIAL: 168,
-      };
-      hours = asset.reservationHours || defaults[asset.type] || 48;
+      hours = asset.reservationHours || 48;
     }
 
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
