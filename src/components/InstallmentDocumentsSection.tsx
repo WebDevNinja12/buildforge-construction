@@ -5,13 +5,12 @@ import {
   Upload,
   FileText,
   CheckCircle2,
-  XCircle,
   Loader2,
   Download,
   Camera,
-  Trash2,
   AlertCircle,
 } from "lucide-react";
+import { SignaturePad } from "@/components/SignaturePad";
 
 type ReqDef = {
   id: string;
@@ -54,7 +53,7 @@ export function InstallmentDocumentsSection({
   onOverallChange?: (overall: string, canPayDeposit: boolean) => void;
 }) {
   const [clientType, setClientType] = useState(clientTypeProp);
-  const [defs, setDefs] = useState<DocDef[]>([]);
+  const [defs, setDefs] = useState<ReqDef[]>([]);
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [overall, setOverall] = useState("INCOMPLETE");
   const [loading, setLoading] = useState(true);
@@ -65,6 +64,7 @@ export function InstallmentDocumentsSection({
     Record<string, { name: string; phone: string; address: string; relationship: string }>
   >({});
   const [kin, setKin] = useState({ name: "", phone: "", address: "", relationship: "" });
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
 
   const byType = useMemo(() => {
     const m = new Map<string, DocRow>();
@@ -90,6 +90,15 @@ export function InstallmentDocumentsSection({
         setDocs(docData.documents || []);
         setOverall(docData.overall || "INCOMPLETE");
       }
+      try {
+        const sigRes = await fetch("/api/signature", { credentials: "include" });
+        if (sigRes.ok) {
+          const sig = await sigRes.json();
+          setSignatureUrl(sig.signatureUrl || null);
+        }
+      } catch {
+        /* */
+      }
     } finally {
       setLoading(false);
     }
@@ -101,20 +110,11 @@ export function InstallmentDocumentsSection({
 
   useEffect(() => {
     const requiredDefs = defs.filter((d) => d.required);
-    const uploadedRequired = requiredDefs.filter((d) => {
-      const row = byType.get(d.key);
-      if (!row) return false;
-      if (row.status === "REJECTED") return false;
-      if (d.inputType === "TEXT") return !!(row.textValue || textDraft[d.key]);
-      if (d.inputType === "FORM" || d.inputType === "GUARANTOR")
-        return !!(row.metaJson || row.fileUrl);
-      return !!row.fileUrl;
-    }).length;
     const allApproved =
       requiredDefs.length > 0 &&
       requiredDefs.every((d) => byType.get(d.key)?.status === "APPROVED");
     onOverallChange?.(overall, allApproved);
-  }, [defs, byType, overall, textDraft, onOverallChange]);
+  }, [defs, byType, overall, onOverallChange]);
 
   const requiredTotal = defs.filter((d) => d.required).length;
   const requiredDone = defs.filter((d) => {
@@ -328,12 +328,24 @@ export function InstallmentDocumentsSection({
           <option value="INDIVIDUAL">Individual</option>
           <option value="COMPANY">Company</option>
         </select>
+      </div>
+
+      <SignaturePad existingUrl={signatureUrl} onSaved={(url) => setSignatureUrl(url)} />
+
+      <div className="flex flex-wrap items-center gap-2">
         <a
-          href="/api/installment-docs/agreement"
-          className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-primary-700 underline"
+          href={`/api/installment-docs/agreement?reservationId=${encodeURIComponent(reservationId)}`}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-900 text-white px-3 py-2 rounded-lg"
         >
-          <Download className="w-3.5 h-3.5" /> Agreement template
+          <Download className="w-3.5 h-3.5" />
+          Download agreement PDF
+          {signatureUrl ? " (with your signature)" : ""}
         </a>
+        {!signatureUrl && (
+          <span className="text-[11px] text-amber-700">
+            Save a signature above so it is stamped on the PDF automatically.
+          </span>
+        )}
       </div>
 
       <div>
@@ -444,7 +456,14 @@ export function InstallmentDocumentsSection({
                       <input
                         key={f}
                         placeholder={f === "name" ? "Full name" : f}
-                        value={(guarantor[def.key] || { name: "", phone: "", address: "", relationship: "" })[f]}
+                        value={
+                          (guarantor[def.key] || {
+                            name: "",
+                            phone: "",
+                            address: "",
+                            relationship: "",
+                          })[f]
+                        }
                         onChange={(e) =>
                           setGuarantor((g) => ({
                             ...g,
