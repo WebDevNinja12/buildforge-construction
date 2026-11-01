@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put, del } from "@vercel/blob";
+import { del } from "@vercel/blob";
 import { getSession } from "@/lib/auth";
 import {
   ALLOWED_MEDIA_TYPES,
@@ -34,11 +34,52 @@ function sniffImageType(file: File, current: string): string {
 }
 
 function toDisplayUrl(blobUrl: string) {
-  // Private blob hosts need the proxy so <img> works in the browser
   if (blobUrl.includes(".private.blob.vercel-storage.com")) {
     return `/api/media?u=${encodeURIComponent(blobUrl)}`;
   }
   return blobUrl;
+}
+
+/**
+ * Direct Blob REST upload — works with private stores (SDK 0.27 only allows public).
+ */
+async function blobPut(
+  pathname: string,
+  body: ArrayBuffer,
+  contentType: string,
+  token: string,
+  access: "public" | "private"
+) {
+  const url = `https://blob.vercel-storage.com/${pathname.replace(/^\/+/, "")}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "x-api-version": "7",
+      "x-content-type": contentType,
+      "x-vercel-blob-access": access,
+      "Content-Type": contentType,
+    },
+    body,
+  });
+  const text = await res.text();
+  let data: any = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) {
+    const msg =
+      data?.error?.message || data?.error || data?.message || text || `Blob HTTP ${res.status}`;
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return data as {
+    url: string;
+    downloadUrl?: string;
+    pathname: string;
+    contentType?: string;
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -112,56 +153,51 @@ export async function POST(req: NextRequest) {
         .slice(0, 80) || "photo.jpg";
     const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
-    const attempts: Array<"public" | "private"> = ["public", "private"];
-    let lastErr: Error | null = null;
+    const buffer = await file.arrayBuffer();
 
-    for (const access of attempts) {
+    // Prefer private (this store is private); fall back to public if store is switched
+    let blob: { url: string; pathname: string; contentType?: string } | null = null;
+    let usedAccess: "public" | "private" = "private";
+    let lastMsg = "";
+
+    for (const access of ["private", "public"] as const) {
       try {
-        const blob = await put(pathname, file, {
-          access,
-          contentType,
-          addRandomSuffix: true,
-          token,
-        });
-
-        return NextResponse.json({
-          url: toDisplayUrl(blob.url),
-          blobUrl: blob.url,
-          pathname: blob.pathname,
-          contentType,
-          size: file.size,
-          kind,
-          access,
-        });
+        blob = await blobPut(pathname, buffer, contentType, token, access);
+        usedAccess = access;
+        break;
       } catch (e) {
-        lastErr = e instanceof Error ? e : new Error(String(e));
-        const msg = lastErr.message;
-        // try other access mode
-        if (
-          /private store|public access|must be "public"|must be "private"|access must/i.test(msg)
-        ) {
-          continue;
-        }
-        if (/access denied|invalid token|unauthorized|forbidden/i.test(msg)) {
+        lastMsg = e instanceof Error ? e.message : String(e);
+        if (/private store|public access|must be/i.test(lastMsg)) continue;
+        if (/access denied|invalid token|unauthorized|forbidden/i.test(lastMsg)) {
           return NextResponse.json(
             {
               error: "Blob token is invalid. Update BLOB_READ_WRITE_TOKEN from Vercel Storage.",
-              detail: msg,
+              detail: lastMsg,
               status: blobStatus(),
             },
             { status: 403 }
           );
         }
-        throw lastErr;
+        return NextResponse.json({ error: lastMsg }, { status: 400 });
       }
     }
 
-    return NextResponse.json(
-      {
-        error: lastErr?.message || "Upload failed (public and private access both rejected)",
-      },
-      { status: 400 }
-    );
+    if (!blob?.url) {
+      return NextResponse.json(
+        { error: lastMsg || "Upload failed" },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      url: toDisplayUrl(blob.url),
+      blobUrl: blob.url,
+      pathname: blob.pathname,
+      contentType,
+      size: file.size,
+      kind,
+      access: usedAccess,
+    });
   } catch (e) {
     console.error("upload", e);
     return NextResponse.json(
