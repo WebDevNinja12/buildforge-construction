@@ -20,6 +20,9 @@ model User {
   verificationNote   String?
   avatarUrl          String?
   signatureUrl       String?
+  nin                String?
+  bvn                String?
+  nextOfKinJson      String?
   historyClearedAt   DateTime?
   agreedTermsAt      DateTime?
   approvedAt         DateTime?
@@ -40,6 +43,7 @@ model User {
   adminLogs          AdminActivityLog[]    @relation("AdminActor")
   installmentDocs    InstallmentDocument[]
   workerReviews      WorkerReview[]
+  contracts          Contract[]
 }
 
 model UserDocument {
@@ -79,46 +83,46 @@ model Asset {
   description       String
   type              String
   price             Float
-  location          String
-  size              String?
-  bedrooms          Int?
-  bathrooms         Int?
-  status            String        @default("AVAILABLE")
-  imageUrl          String?
+  location          String?
+  image             String?
   images            String?
   mainImageIndex    Int           @default(0)
-  features          String?
-  reservationHours  Int?
-  installmentMonths Int?
+  status            String        @default("AVAILABLE")
   active            Boolean       @default(true)
+  reservationHours  Int?
+  bedrooms          Int?
+  bathrooms         Int?
+  area              Float?
+  features          String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   reservations      Reservation[]
 }
 
 model Reservation {
-  id                   String    @id @default(cuid())
+  id                   String     @id @default(cuid())
   userId               String
   assetId              String
-  status               String    @default("PENDING")
+  status               String     @default("PENDING")
   paymentType          String?
   expiresAt            DateTime?
   paidAt               DateTime?
   cancelReason         String?
   installmentTotal     Float?
-  installmentPaid      Float     @default(0)
+  installmentPaid      Float      @default(0)
   installmentCount     Int?
   installmentFrequency String?
   nextDueAt            DateTime?
   planDeadlineAt       DateTime?
   scheduleJson         String?
-  docsStatus           String    @default("INCOMPLETE")
+  docsStatus           String     @default("INCOMPLETE")
   rulesAgreedAt        DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  user                 User      @relation(fields: [userId], references: [id])
-  asset                Asset     @relation(fields: [assetId], references: [id])
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  user                 User       @relation(fields: [userId], references: [id])
+  asset                Asset      @relation(fields: [assetId], references: [id])
   payments             Payment[]
+  contracts            Contract[]
 }
 
 model Tool {
@@ -181,6 +185,7 @@ model HireRequest {
   endDate   DateTime?
   expiresAt DateTime?
   notes     String?
+  total     Float?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   user      User      @relation(fields: [userId], references: [id])
@@ -219,23 +224,25 @@ model Project {
 }
 
 model InstallmentDocument {
-  id            String    @id @default(cuid())
-  userId        String
-  reservationId String?
-  type          String
-  label         String?
-  fileUrl       String    @default("")
-  fileName      String?
-  textValue     String?
-  metaJson      String?
-  inputType     String    @default("FILE")
-  required      Boolean   @default(true)
-  status        String    @default("PENDING")
-  rejectReason  String?
-  expiresAt     DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                   String    @id @default(cuid())
+  userId               String
+  reservationId        String?
+  type                 String
+  label                String?
+  fileUrl              String    @default("")
+  fileName             String?
+  textValue            String?
+  metaJson             String?
+  inputType            String    @default("FILE")
+  required             Boolean   @default(true)
+  status               String    @default("PENDING")
+  rejectReason         String?
+  previousFileUrl      String?
+  previousRejectReason String?
+  expiresAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model RequiredDocumentType {
@@ -288,9 +295,8 @@ model Notification {
   userId    String
   title     String
   body      String
-  type      String   @default("INFO")
   read      Boolean  @default(false)
-  link      String?
+  type      String?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -306,63 +312,77 @@ model AdminActivityLog {
   admin     User     @relation("AdminActor", fields: [adminId], references: [id])
 }
 
-model ContactMessage {
-  id        String   @id @default(cuid())
-  name      String
-  email     String
-  phone     String?
-  subject   String
-  message   String
-  status    String   @default("NEW")
-  createdAt DateTime @default(now())
-}
-
 model FinishedProject {
   id          String   @id @default(cuid())
   title       String
   description String
-  location    String
-  category    String   @default("RESIDENTIAL")
-  completedAt DateTime
-  imageUrl    String?
-  featured    Boolean  @default(true)
-  sortOrder   Int      @default(0)
+  location    String?
+  image       String?
+  images      String?
+  completedAt DateTime?
+  published   Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
 model SiteSetting {
-  id    String @id @default(cuid())
-  key   String @unique
-  value String
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 model QuoteRequest {
-  id          String   @id @default(cuid())
-  name        String
-  email       String
-  phone       String?
-  projectType String
-  location    String?
-  budgetRange String?
-  timeline    String?
-  description String
-  status      String   @default("NEW")
-  adminNote   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  service   String?
+  message   String
+  status    String   @default("NEW")
+  adminNote String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  role      String?
+  quote     String
+  rating    Int      @default(5)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Contract {
+  id             String            @id @default(cuid())
+  contractNumber String            @unique
+  verifyToken    String            @unique
+  userId         String
+  reservationId  String?
+  status         String            @default("ACTIVE")
+  pdfUrl         String?
+  clientName     String?
+  serviceTitle   String?
+  paymentMethod  String?
+  totalAmount    Float?
+  issuedAt       DateTime          @default(now())
+  expiresAt      DateTime?
+  metaJson       String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservation    Reservation?      @relation(fields: [reservationId], references: [id])
+  scans          VerificationScan[]
+}
+
+model VerificationScan {
   id         String   @id @default(cuid())
-  clientName String
-  role       String?
-  project    String?
-  quote      String
-  rating     Int      @default(5)
-  featured   Boolean  @default(true)
-  sortOrder  Int      @default(0)
-  active     Boolean  @default(true)
+  contractId String
+  scannedBy  String?
+  ip         String?
+  userAgent  String?
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
 }
