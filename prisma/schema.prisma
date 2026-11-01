@@ -20,9 +20,6 @@ model User {
   verificationNote   String?
   avatarUrl          String?
   signatureUrl       String?
-  nin                String?
-  bvn                String?
-  nextOfKinJson      String?
   historyClearedAt   DateTime?
   agreedTermsAt      DateTime?
   approvedAt         DateTime?
@@ -78,25 +75,25 @@ model CategoryDefault {
 }
 
 model Asset {
-  id                String        @id @default(cuid())
-  title             String
-  description       String
-  type              String
-  price             Float
-  location          String?
-  image             String?
-  images            String?
-  mainImageIndex    Int           @default(0)
-  status            String        @default("AVAILABLE")
-  active            Boolean       @default(true)
-  reservationHours  Int?
-  bedrooms          Int?
-  bathrooms         Int?
-  area              Float?
-  features          String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  reservations      Reservation[]
+  id               String        @id @default(cuid())
+  title            String
+  description      String
+  type             String
+  price            Float
+  location         String?
+  image            String?
+  images           String?
+  mainImageIndex   Int           @default(0)
+  status           String        @default("AVAILABLE")
+  active           Boolean       @default(true)
+  reservationHours Int?
+  bedrooms         Int?
+  bathrooms        Int?
+  area             Float?
+  features         String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  reservations     Reservation[]
 }
 
 model Reservation {
@@ -356,24 +353,24 @@ model Testimonial {
 }
 
 model Contract {
-  id             String            @id @default(cuid())
-  contractNumber String            @unique
-  verifyToken    String            @unique
+  id             String             @id @default(cuid())
+  contractNumber String             @unique
+  verifyToken    String             @unique
   userId         String
   reservationId  String?
-  status         String            @default("ACTIVE")
+  status         String             @default("ACTIVE")
   pdfUrl         String?
   clientName     String?
   serviceTitle   String?
   paymentMethod  String?
   totalAmount    Float?
-  issuedAt       DateTime          @default(now())
+  issuedAt       DateTime           @default(now())
   expiresAt      DateTime?
   metaJson       String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reservation    Reservation?      @relation(fields: [reservationId], references: [id])
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservation    Reservation?       @relation(fields: [reservationId], references: [id])
   scans          VerificationScan[]
 }
 
