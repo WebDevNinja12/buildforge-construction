@@ -96,6 +96,36 @@ export async function getSession(): Promise<SessionUser | null> {
   };
 }
 
+/** Session required + account allowed to use the platform */
+export async function requireApproved(): Promise<SessionUser> {
+  const session = await getSession();
+  if (!session) throw new Error("Unauthorized");
+
+  const status = (session.status || "").toUpperCase();
+  const blocked = ["REJECTED", "SUSPENDED", "ARCHIVED"];
+  if (blocked.includes(status)) {
+    throw new Error(
+      status === "SUSPENDED"
+        ? "Your account is suspended. Contact support."
+        : "Your account cannot perform this action."
+    );
+  }
+
+  // PENDING still blocked from reservations until approved or auto-approved
+  if (status === "PENDING_APPROVAL" || status === "PENDING") {
+    throw new Error("Account pending approval");
+  }
+
+  // UNDER_REVIEW / APPROVED / VERIFIED / ADMIN ok
+  return session;
+}
+
+export async function requireAdmin(): Promise<SessionUser> {
+  const session = await requireApproved();
+  if (session.role !== "ADMIN") throw new Error("Admin only");
+  return session;
+}
+
 export async function setSession(user: Pick<SessionUser, "id" | "role">) {
   const token = await createToken({ id: user.id, role: user.role });
   const cookieStore = await cookies();
@@ -173,13 +203,11 @@ export async function registerUser(
 ) {
   const normalized = email.trim().toLowerCase();
 
-  // 72h block after admin deletion of same email/phone
   await assertRegistrationAllowed(normalized, phone);
 
   const existing = await prisma.user.findUnique({ where: { email: normalized } });
   if (existing) {
     if (existing.deletedAt) {
-      // Should not normally exist if hard-deleted; treat as blocked until wipe
       throw new Error("This email cannot be used right now. Contact support if this persists.");
     }
     throw new Error("Email already registered");
