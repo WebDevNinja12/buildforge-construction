@@ -19,6 +19,7 @@ model User {
   verificationStatus String                @default("PENDING")
   verificationNote   String?
   avatarUrl          String?
+  signatureUrl       String?
   historyClearedAt   DateTime?
   agreedTermsAt      DateTime?
   approvedAt         DateTime?
