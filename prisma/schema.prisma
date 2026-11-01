@@ -13,6 +13,7 @@ model User {
   password           String
   name               String
   phone              String?
+  clientType         String                @default("INDIVIDUAL")
   role               String                @default("CLIENT")
   status             String                @default("PENDING_APPROVAL")
   verificationStatus String                @default("PENDING")
@@ -72,26 +73,26 @@ model CategoryDefault {
 }
 
 model Asset {
-  id                 String        @id @default(cuid())
-  title              String
-  description        String
-  type               String
-  price              Float
-  location           String
-  size               String?
-  bedrooms           Int?
-  bathrooms          Int?
-  status             String        @default("AVAILABLE")
-  imageUrl           String?
-  images             String?
-  mainImageIndex     Int           @default(0)
-  features           String?
-  reservationHours   Int?
-  installmentMonths  Int?
-  active             Boolean       @default(true)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  reservations       Reservation[]
+  id                String        @id @default(cuid())
+  title             String
+  description       String
+  type              String
+  price             Float
+  location          String
+  size              String?
+  bedrooms          Int?
+  bathrooms         Int?
+  status            String        @default("AVAILABLE")
+  imageUrl          String?
+  images            String?
+  mainImageIndex    Int           @default(0)
+  features          String?
+  reservationHours  Int?
+  installmentMonths Int?
+  active            Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  reservations      Reservation[]
 }
 
 model Reservation {
@@ -110,6 +111,8 @@ model Reservation {
   nextDueAt            DateTime?
   planDeadlineAt       DateTime?
   scheduleJson         String?
+  docsStatus           String    @default("INCOMPLETE")
+  rulesAgreedAt        DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   user                 User      @relation(fields: [userId], references: [id])
@@ -215,15 +218,40 @@ model Project {
 }
 
 model InstallmentDocument {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   reservationId String?
   type          String
-  fileUrl       String
-  status        String   @default("PENDING")
+  label         String?
+  fileUrl       String    @default("")
+  fileName      String?
+  textValue     String?
+  metaJson      String?
+  inputType     String    @default("FILE")
+  required      Boolean   @default(true)
+  status        String    @default("PENDING")
   rejectReason  String?
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RequiredDocumentType {
+  id          String   @id @default(cuid())
+  category    String   @default("ALL")
+  clientType  String   @default("BOTH")
+  key         String
+  label       String
+  instruction String?
+  required    Boolean  @default(true)
+  inputType   String   @default("FILE")
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([category, clientType, key])
 }
 
 model Payment {
@@ -308,34 +336,32 @@ model SiteSetting {
   value String
 }
 
-/// Lead: request a quote / estimate
 model QuoteRequest {
-  id           String   @id @default(cuid())
-  name         String
-  email        String
-  phone        String?
-  projectType  String
-  location     String?
-  budgetRange  String?
-  timeline     String?
-  description  String
-  status       String   @default("NEW")
-  adminNote    String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  projectType String
+  location    String?
+  budgetRange String?
+  timeline    String?
+  description String
+  status      String   @default("NEW")
+  adminNote   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
-/// Public testimonials
 model Testimonial {
-  id        String   @id @default(cuid())
+  id         String   @id @default(cuid())
   clientName String
-  role      String?
-  project   String?
-  quote     String
-  rating    Int      @default(5)
-  featured  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role       String?
+  project    String?
+  quote      String
+  rating     Int      @default(5)
+  featured   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
