@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HardHat, LogIn, Eye, EyeOff } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/dashboard";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -22,6 +25,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
@@ -29,7 +33,10 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
-      router.push(data.redirect || "/dashboard");
+      // Prefer return URL (e.g. /services after reserve attempt)
+      const dest =
+        next.startsWith("/") && !next.startsWith("//") ? next : data.redirect || "/dashboard";
+      router.push(dest);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -47,7 +54,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-bold text-construction-dark">Client sign in</h1>
           <p className="mt-2 text-construction-gray">
-            Access your reservations, rentals and projects
+            Sign in to preview, reserve services, and manage payments
           </p>
         </div>
 
@@ -96,9 +103,9 @@ export default function LoginPage() {
               />
               <button
                 type="button"
-                onClick={() => setShowPassword((v) => !v)}
+                onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label="Toggle password"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -110,29 +117,36 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
           >
-            {loading ? (
-              "Signing in..."
-            ) : (
-              <>
-                <LogIn className="w-4 h-4" /> Sign In
-              </>
-            )}
+            <LogIn className="w-4 h-4" />
+            {loading ? "Signing in…" : "Sign in"}
           </button>
 
-          <p className="text-center text-sm text-construction-gray">
+          <p className="text-center text-sm text-slate-500">
             No account?{" "}
             <Link href="/register" className="text-primary-600 font-medium hover:underline">
               Register
             </Link>
           </p>
-          <p className="text-center text-sm text-construction-gray">
+          <p className="text-center text-xs text-slate-400">
             Admin?{" "}
-            <Link href="/admin/login" className="text-primary-600 font-medium hover:underline">
+            <Link href="/admin/login" className="underline">
               Admin login
             </Link>
           </p>
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[50vh] flex items-center justify-center text-slate-500">Loading…</div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
