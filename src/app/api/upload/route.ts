@@ -33,6 +33,11 @@ function sniffImageType(file: File, current: string): string {
   return type;
 }
 
+/** Private Blob URLs need our proxy to display in <img> */
+function publicProxyUrl(blobUrl: string) {
+  return `/api/media?u=${encodeURIComponent(blobUrl)}`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = getBlobToken();
@@ -40,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Image storage token is missing. In Vercel → Storage → open store \"construction\" → Connect to project, then Redeploy.",
+            "Image storage token is missing. Connect Vercel Blob store and set BLOB_READ_WRITE_TOKEN.",
           status: blobStatus(),
         },
         { status: 503 }
@@ -106,20 +111,25 @@ export async function POST(req: NextRequest) {
     const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
     try {
+      // Store is private — must use access: "private"
       const blob = await put(pathname, file, {
-        access: "public",
+        access: "private",
         contentType,
         addRandomSuffix: true,
         token,
       });
 
+      // Return proxy URL so browsers can display without Blob auth
+      const displayUrl = publicProxyUrl(blob.url);
+
       return NextResponse.json({
-        url: blob.url,
+        url: displayUrl,
+        blobUrl: blob.url,
         pathname: blob.pathname,
         contentType,
         size: file.size,
         kind,
-        downloadUrl: blob.downloadUrl,
+        private: true,
       });
     } catch (blobErr) {
       const msg = blobErr instanceof Error ? blobErr.message : String(blobErr);
@@ -128,11 +138,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Blob token is invalid or not linked to this project. Fix: Vercel Dashboard → Storage → store \"construction\" → Settings / Connect Project → copy the Read-Write Token → Project Settings → Environment Variables → set BLOB_READ_WRITE_TOKEN (or construction_READ_WRITE_TOKEN) for Production → Redeploy.",
+              "Blob token is invalid. Update BLOB_READ_WRITE_TOKEN from Vercel Storage → construction store.",
             detail: msg,
             status: blobStatus(),
           },
           { status: 403 }
+        );
+      }
+      if (/private store|public access/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Blob store is private. App was updated to use private uploads — redeploy if you still see this.",
+            detail: msg,
+          },
+          { status: 400 }
         );
       }
       throw blobErr;
@@ -156,7 +176,16 @@ export async function DELETE(req: NextRequest) {
     if (!token) {
       return NextResponse.json({ error: "Blob not configured" }, { status: 503 });
     }
-    const url = new URL(req.url).searchParams.get("url");
+    let url = new URL(req.url).searchParams.get("url") || "";
+    // unwrap proxy URLs
+    if (url.includes("/api/media?u=")) {
+      try {
+        const u = new URL(url, "https://x");
+        url = u.searchParams.get("u") || url;
+      } catch {
+        /* */
+      }
+    }
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
     await del(url, { token });
     return NextResponse.json({ ok: true });
