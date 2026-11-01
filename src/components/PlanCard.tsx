@@ -7,22 +7,45 @@ import { ServiceImage } from "@/components/ServiceImage";
 import { Loader2 } from "lucide-react";
 import { InstallmentDocumentsSection } from "@/components/InstallmentDocumentsSection";
 
+async function readJson(res: Response) {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(
+      res.ok ? "Empty response from server" : `Request failed (${res.status})`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      res.ok
+        ? "Invalid response from server"
+        : `Request failed (${res.status}): ${text.slice(0, 120)}`
+    );
+  }
+}
+
 export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => void }) {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [cancelQuote, setCancelQuote] = useState<any>(null);
   const [frequency, setFrequency] = useState("MONTHLY");
   const [rulesOk, setRulesOk] = useState(false);
-  const [docsApproved, setDocsApproved] = useState(false);
+  const [docsApproved, setDocsApproved] = useState(
+    plan.docsStatus === "APPROVED"
+  );
 
-  const total = plan.totalAmount || plan.deposit || plan.asset?.price || plan.installmentTotal || 0;
+  const total =
+    plan.totalAmount || plan.deposit || plan.asset?.price || plan.installmentTotal || 0;
   const paid = plan.amountPaid || plan.installmentPaid || 0;
   const balance = Math.max(0, total - paid);
   const next = (plan.installments || []).find((i: any) => i.status === "PENDING");
   const paymentMethod = plan.paymentMethod || plan.paymentType;
   const needsMethod = !paymentMethod || paymentMethod === "UNSET" || paymentMethod === "PENDING";
   const isInstallment = paymentMethod === "INSTALLMENT";
-  const active = ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "PENDING", "CONFIRMED"].includes(plan.status);
+  const active = ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "PENDING", "CONFIRMED"].includes(
+    plan.status
+  );
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -34,8 +57,8 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
         credentials: "include",
         body: JSON.stringify({ action, ...extra }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed");
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data.error || data.detail || "Failed");
       if (action === "CANCEL_QUOTE") setCancelQuote(data);
       else {
         setMsg(data.message || "Done");
@@ -97,9 +120,9 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
               type="button"
               disabled={!!busy}
               onClick={() => act("SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
-              className="w-full text-sm font-semibold border py-2 rounded-lg hover:bg-slate-50"
+              className="w-full text-sm font-semibold border py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50"
             >
-              Full payment
+              {busy === "SET_PAYMENT_METHOD" ? "Saving…" : "Full payment"}
             </button>
             <div className="border rounded-xl p-3 space-y-2 bg-slate-50">
               <p className="text-sm font-semibold">Installment</p>
@@ -147,7 +170,7 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           />
         )}
 
-        {isInstallment && docsApproved && (
+        {isInstallment && (docsApproved || plan.docsStatus === "APPROVED") && (
           <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
             Documents approved. You can pay the first deposit below to start the installment plan.
           </p>
@@ -157,14 +180,15 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           <div className="flex flex-wrap gap-2 pt-2">
             <button
               type="button"
-              disabled={!!busy || (isInstallment && !docsApproved && plan.docsStatus !== "APPROVED")}
+              disabled={
+                !!busy ||
+                (isInstallment &&
+                  !docsApproved &&
+                  plan.docsStatus !== "APPROVED" &&
+                  plan.docsStatus !== undefined)
+              }
               onClick={() => act("PAY_INSTALLMENT")}
               className="text-xs font-semibold bg-primary-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
-              title={
-                isInstallment && !docsApproved && plan.docsStatus !== "APPROVED"
-                  ? "Wait for document approval"
-                  : undefined
-              }
             >
               {busy === "PAY_INSTALLMENT" ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -222,7 +246,9 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           </div>
         )}
 
-        {msg && <p className="text-xs text-slate-600">{msg}</p>}
+        {msg && (
+          <p className="text-xs text-slate-700 bg-slate-50 border rounded-lg px-3 py-2">{msg}</p>
+        )}
       </div>
     </div>
   );
