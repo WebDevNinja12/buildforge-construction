@@ -4,17 +4,34 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { getSession } from "@/lib/auth";
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://buildforge-construction.vercel.app";
+
 export const metadata: Metadata = {
-  title: "Hama Construction | Building Innovation Through Quality and Trust",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "Hama Construction | Building Innovation Through Quality and Trust",
+    template: "%s | Hama Construction",
+  },
   description:
-    "Building innovation through quality and trust. Buy and reserve houses, hotels, land. Hire tools and construction workers. Manage projects with Hama Construction.",
+    "Buy and reserve houses, hotels and land. Hire tools and construction workers. Request a project quote. Building innovation through quality and trust.",
+  openGraph: {
+    title: "Hama Construction",
+    description: "Building innovation through quality and trust.",
+    url: siteUrl,
+    siteName: "Hama Construction",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Hama Construction",
+    description: "Building innovation through quality and trust.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default async function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   const session = await getSession();
 
   return (

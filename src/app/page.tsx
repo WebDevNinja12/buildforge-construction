@@ -8,10 +8,13 @@ import {
   MapPin,
   ArrowRight,
   CheckCircle2,
+  Shield,
+  Award,
+  Phone,
 } from "lucide-react";
 import FinishedProjectsShowcase from "@/components/FinishedProjectsShowcase";
+import { Testimonials } from "@/components/Testimonials";
 
-/** Your uploaded home banner (repo root). Served via raw GitHub until placed under /public. */
 const HERO_BANNER =
   "https://raw.githubusercontent.com/WebDevNinja12/buildforge-construction/main/construction%20(8).png";
 
@@ -48,22 +51,27 @@ const features = [
     icon: ClipboardList,
     title: "Project Management",
     description:
-      "Track budgets, milestones and progress for your construction projects in one place.",
-    href: "/services",
+      "Open a project deal from your dashboard. Admin reviews and connects with you directly.",
+    href: "/quote",
   },
+];
+
+const trust = [
+  { icon: Shield, label: "Verified process", text: "Document review & secure accounts" },
+  { icon: Award, label: "Quality & trust", text: "Building innovation through quality and trust" },
+  { icon: CheckCircle2, label: "Transparent payments", text: "Full or installment options" },
+  { icon: MapPin, label: "Service areas", text: "Major cities & project locations" },
 ];
 
 export default function HomePage() {
   return (
     <div className="bg-white">
       <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
-        {/* Banner background image */}
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: `url('${HERO_BANNER}')` }}
           aria-hidden
         />
-        {/* Dark overlay for readable text */}
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/75 to-primary-900/60" />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32 w-full">
@@ -80,41 +88,53 @@ export default function HomePage() {
               <span className="text-accent-400">Manage Everything.</span>
             </h1>
             <p className="mt-6 text-lg sm:text-xl text-slate-200 leading-relaxed max-w-2xl">
-              Buy or reserve houses, hotels and land. Hire tools and skilled
-              workers. Manage construction work from inquiry to completion —
-              on one platform.
+              Buy or reserve houses, hotels and land. Hire tools and skilled workers. Get a project
+              quote — on one platform.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
-                href="/services"
+                href="/quote"
                 className="inline-flex items-center justify-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors shadow-lg shadow-accent-500/25"
               >
-                Explore Services
+                Request a Quote
                 <ArrowRight className="w-5 h-5" />
               </Link>
               <Link
-                href="/projects"
+                href="/services"
                 className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors border border-white/20 backdrop-blur-sm"
               >
-                Finished Projects
+                Explore Services
               </Link>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="py-20 lg:py-28 bg-slate-50">
+      <section className="border-b bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {trust.map((t) => (
+            <div key={t.label} className="flex gap-3">
+              <div className="w-11 h-11 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
+                <t.icon className="w-5 h-5 text-primary-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-construction-dark">{t.label}</p>
+                <p className="text-sm text-construction-gray">{t.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="py-20 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">
-              Everything You Need to Build
-            </h2>
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">What we offer</h2>
             <p className="mt-4 text-lg text-construction-gray">
-              From land acquisition to hiring crews — manage assets, tools,
-              labour and projects on a single platform.
+              Assets, land, tools, labour and project support — designed for modern construction.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature) => (
               <Link
                 key={feature.title}
@@ -129,7 +149,7 @@ export default function HomePage() {
                 </h3>
                 <p className="mt-2 text-construction-gray leading-relaxed">{feature.description}</p>
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-accent-600 group-hover:gap-2 transition-all">
-                  Go to services <ArrowRight className="w-4 h-4" />
+                  Learn more <ArrowRight className="w-4 h-4" />
                 </span>
               </Link>
             ))}
@@ -137,76 +157,48 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-20 lg:py-28">
+      <section className="py-20 lg:py-28 bg-slate-50/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">
               Recent Finished Projects
             </h2>
             <p className="mt-4 text-lg text-construction-gray">
-              Completed work published by Hama Construction. Listings appear here when added in Admin.
+              Completed work published by Hama Construction.
             </p>
           </div>
           <FinishedProjectsShowcase />
-        </div>
-      </section>
-
-      <section className="py-20 lg:py-28 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-construction-dark">Why Choose Hama Construction?</h2>
-              <p className="mt-4 text-lg text-accent-600 font-medium italic">
-                Building innovation through quality and trust.
-              </p>
-              <p className="mt-3 text-lg text-construction-gray">
-                We combine construction expertise with a clear digital process so you can focus on building.
-              </p>
-              <ul className="mt-8 space-y-4">
-                {[
-                  "Secure reservations with full or installment payment options",
-                  "Verified listings for assets, tools and workers",
-                  "Clear timelines, countdowns and payment status",
-                  "Admin review of payments and customer verification",
-                  "Support from inquiry through project delivery",
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-accent-500 shrink-0 mt-0.5" />
-                    <span className="text-slate-700">{item}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link href="/about" className="mt-8 inline-flex items-center gap-2 text-primary-600 font-semibold hover:text-primary-700">
-                About our company <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl aspect-[4/3]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={HERO_BANNER}
-                alt="Hama Construction project site"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            </div>
+          <div className="text-center mt-10">
+            <Link
+              href="/projects"
+              className="inline-flex items-center gap-2 text-primary-700 font-semibold hover:gap-3 transition-all"
+            >
+              View all projects <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="py-20 bg-gradient-to-r from-primary-700 to-primary-900 text-white">
+      <Testimonials />
+
+      <section className="py-16 bg-primary-900 text-white">
         <div className="max-w-4xl mx-auto px-4 text-center">
-          <p className="text-accent-300 font-medium tracking-wide uppercase text-sm mb-3">
-            Building innovation through quality and trust
-          </p>
-          <h2 className="text-3xl sm:text-4xl font-bold">Ready to Start Your Next Project?</h2>
-          <p className="mt-4 text-lg text-primary-100">
-            Register for an account to browse services, reserve assets, and manage your work with Hama Construction.
+          <h2 className="text-2xl sm:text-3xl font-bold">Ready to start your project?</h2>
+          <p className="mt-3 text-primary-100">
+            Request a quote or talk to our team — we respond promptly.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/register" className="inline-flex items-center justify-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors">
-              Create Account
+            <Link
+              href="/quote"
+              className="inline-flex justify-center items-center gap-2 bg-accent-500 hover:bg-accent-600 font-semibold px-8 py-3.5 rounded-xl"
+            >
+              Get a Quote
             </Link>
-            <Link href="/services" className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-8 py-3.5 rounded-xl border border-white/20 transition-colors">
-              View Services
+            <Link
+              href="/contact"
+              className="inline-flex justify-center items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 font-semibold px-8 py-3.5 rounded-xl"
+            >
+              <Phone className="w-4 h-4" /> Contact
             </Link>
           </div>
         </div>
