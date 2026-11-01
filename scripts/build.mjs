@@ -37,8 +37,7 @@ function run(cmd, args) {
 run("npx", ["prisma", "generate"]);
 
 if (neon) {
-  console.log("[build] Pushing Prisma schema (create/update all tables)…");
-  // Retry once — Neon sometimes flakes on cold connect
+  console.log("[build] Pushing Prisma schema…");
   let ok = false;
   for (let i = 0; i < 2; i++) {
     const push = spawnSync(
@@ -48,13 +47,38 @@ if (neon) {
     );
     if (push.status === 0) {
       ok = true;
-      console.log("[build] Database schema pushed — all tables created/updated");
+      console.log("[build] Database schema pushed");
       break;
     }
     console.warn(`[build] prisma db push attempt ${i + 1} failed`);
   }
   if (!ok) {
-    console.error("[build] prisma db push failed after retries — build continues but new models may 500");
+    console.error("[build] prisma db push failed — continuing with explicit ALTERs");
+  }
+
+  // Explicit columns so login never dies on User.nin etc.
+  const alters = [
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nextOfKinJson" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)',
+    'ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "previousFileUrl" TEXT',
+    'ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "previousRejectReason" TEXT',
+  ];
+  for (const sql of alters) {
+    const r = spawnSync(
+      "npx",
+      ["prisma", "db", "execute", "--stdin"],
+      {
+        input: sql + ";",
+        encoding: "utf8",
+        env: process.env,
+        shell: true,
+      }
+    );
+    if (r.status === 0) console.log("[build] OK:", sql.slice(0, 60));
+    else console.warn("[build] ALTER skip/fail:", sql.slice(0, 50), r.stderr || r.stdout);
   }
 } else {
   console.warn("[build] Skipping db push (no real URL)");

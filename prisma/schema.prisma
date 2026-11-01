@@ -20,6 +20,10 @@ model User {
   verificationNote   String?
   avatarUrl          String?
   signatureUrl       String?
+  /// Optional; NIN for installment flows is primarily stored on InstallmentDocument
+  nin                String?
+  bvn                String?
+  nextOfKinJson      String?
   historyClearedAt   DateTime?
   agreedTermsAt      DateTime?
   approvedAt         DateTime?
