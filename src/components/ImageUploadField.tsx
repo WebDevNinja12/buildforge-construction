@@ -1,24 +1,48 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, Upload, X, ImageIcon } from "lucide-react";
+import { Loader2, X, ImageIcon } from "lucide-react";
 
-/**
- * Simple single-image picker + upload to /api/upload (Vercel Blob).
- * Use for services, tools, workers, profile photo.
- */
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i;
+
+function looksLikeImage(file: File): boolean {
+  const t = (file.type || "").toLowerCase();
+  if (t.startsWith("image/")) return true;
+  if (!t || t === "application/octet-stream") {
+    return IMAGE_EXT.test(file.name) || true; // mobile often omits type + name
+  }
+  return false;
+}
+
+function normalizeFile(file: File): File {
+  let type = file.type;
+  let name = file.name || `upload-${Date.now()}.jpg`;
+  if (!type || type === "application/octet-stream") {
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".png")) type = "image/png";
+    else if (lower.endsWith(".webp")) type = "image/webp";
+    else if (lower.endsWith(".gif")) type = "image/gif";
+    else type = "image/jpeg";
+    if (!name.includes(".")) name = `${name}.jpg`;
+    return new File([file], name, { type });
+  }
+  return file;
+}
+
 export function ImageUploadField({
   value,
   onChange,
   folder = "services",
   label = "Photo",
   hint,
+  circular = false,
 }: {
   value: string;
   onChange: (url: string) => void;
   folder?: string;
   label?: string;
   hint?: string;
+  circular?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -29,14 +53,15 @@ export function ImageUploadField({
     setError("");
     setBusy(true);
     try {
-      if (!file.type.startsWith("image/")) {
-        throw new Error("Please choose an image (JPEG, PNG, WebP, GIF)");
+      if (!looksLikeImage(file)) {
+        throw new Error("Please choose a valid image (JPEG, PNG, WebP, GIF)");
       }
       if (file.size > 8 * 1024 * 1024) {
         throw new Error("Image must be under 8MB");
       }
+      const normalized = normalizeFile(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", normalized);
       fd.append("folder", folder);
       const res = await fetch("/api/upload", {
         method: "POST",
@@ -57,6 +82,10 @@ export function ImageUploadField({
     }
   }
 
+  const shape = circular
+    ? "h-28 w-28 rounded-full object-cover border-4 border-primary-100"
+    : "h-28 w-40 object-cover rounded-xl border border-slate-200 bg-slate-50";
+
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium text-slate-700">{label}</p>
@@ -65,11 +94,7 @@ export function ImageUploadField({
       {value ? (
         <div className="relative inline-block">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={value}
-            alt="Preview"
-            className="h-28 w-40 object-cover rounded-xl border border-slate-200 bg-slate-50"
-          />
+          <img src={value} alt="Preview" className={shape} />
           <button
             type="button"
             onClick={() => onChange("")}
@@ -80,7 +105,13 @@ export function ImageUploadField({
           </button>
         </div>
       ) : (
-        <div className="h-28 w-full max-w-xs rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400">
+        <div
+          className={
+            circular
+              ? "h-28 w-28 rounded-full border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400"
+              : "h-28 w-full max-w-xs rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400"
+          }
+        >
           <ImageIcon className="w-8 h-8" />
         </div>
       )}
@@ -89,7 +120,8 @@ export function ImageUploadField({
         <input
           ref={inputRef}
           type="file"
-          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/avif"
+          accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.heic"
+          capture="environment"
           className="block w-full max-w-xs text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-primary-600 file:text-white file:font-semibold file:cursor-pointer"
           disabled={busy}
           onChange={(e) => onFile(e.target.files?.[0])}
@@ -101,15 +133,6 @@ export function ImageUploadField({
         )}
       </div>
 
-      {/* Optional paste URL for external images */}
-      <input
-        type="url"
-        placeholder="Or paste image URL"
-        value={value.startsWith("http") ? value : ""}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border text-sm"
-      />
-
       {error && (
         <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">{error}</p>
       )}
@@ -117,7 +140,6 @@ export function ImageUploadField({
   );
 }
 
-/** Multi-image for assets (house etc.) */
 export function MultiImageUpload({
   urls,
   onChange,
@@ -140,9 +162,10 @@ export function MultiImageUpload({
     try {
       const next = [...urls];
       for (const file of Array.from(list).slice(0, max - next.length)) {
-        if (!file.type.startsWith("image/")) continue;
+        if (!looksLikeImage(file)) continue;
+        const normalized = normalizeFile(file);
         const fd = new FormData();
-        fd.append("file", file);
+        fd.append("file", normalized);
         fd.append("folder", folder);
         const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
         const data = await res.json().catch(() => ({}));

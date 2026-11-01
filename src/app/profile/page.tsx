@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { User, Loader2, ArrowLeft, Save } from "lucide-react";
-import { ImageUploadField } from "@/components/ImageUploadField";
+import { ProfileAvatarUpload } from "@/components/ProfileAvatarUpload";
 
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
@@ -59,8 +59,10 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed");
-      setMsg(data.message || "Saved");
-      if (data.avatarUrl) setForm((f) => ({ ...f, avatarUrl: data.avatarUrl }));
+      setMsg(data.message || "Profile saved");
+      if (data.avatarUrl !== undefined) {
+        setForm((f) => ({ ...f, avatarUrl: data.avatarUrl || "" }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -87,15 +89,16 @@ export default function ProfilePage() {
         </h1>
 
         <form onSubmit={save} className="bg-white border rounded-2xl p-6 space-y-5 shadow-sm">
-          {error && <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
-          {msg && <p className="text-sm text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{msg}</p>}
+          {error && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+          )}
+          {msg && (
+            <p className="text-sm text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{msg}</p>
+          )}
 
-          <ImageUploadField
-            label="Profile photo"
-            folder="avatar"
+          <ProfileAvatarUpload
             value={form.avatarUrl}
             onChange={(url) => setForm((f) => ({ ...f, avatarUrl: url }))}
-            hint="Choose a clear photo from your device (JPEG/PNG, max 8MB)."
           />
 
           <div>
@@ -109,7 +112,11 @@ export default function ProfilePage() {
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Email</label>
-            <input value={form.email} disabled className="mt-1 w-full border rounded-lg px-3 py-2 bg-slate-50 text-slate-500" />
+            <input
+              value={form.email}
+              disabled
+              className="mt-1 w-full border rounded-lg px-3 py-2 bg-slate-50 text-slate-500"
+            />
             <p className="text-xs text-slate-400 mt-1">Email cannot be changed here.</p>
           </div>
           <div>

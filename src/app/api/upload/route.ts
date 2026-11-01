@@ -14,13 +14,33 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function sniffImageType(file: File, current: string): string {
+  let type = current || "application/octet-stream";
+  if (type.startsWith("image/") || type.startsWith("video/")) {
+    if (type === "image/jpg") return "image/jpeg";
+    return type;
+  }
+  const n = (file.name || "").toLowerCase();
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".jfif")) return "image/jpeg";
+  if (n.endsWith(".png")) return "image/png";
+  if (n.endsWith(".webp")) return "image/webp";
+  if (n.endsWith(".gif")) return "image/gif";
+  if (n.endsWith(".avif")) return "image/avif";
+  if (n.endsWith(".mp4")) return "video/mp4";
+  if (n.endsWith(".webm")) return "video/webm";
+  if (n.endsWith(".mov")) return "video/quicktime";
+  // Camera blobs often have no name/type — assume JPEG
+  if (type === "application/octet-stream" || !type) return "image/jpeg";
+  return type;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const token = getBlobToken();
     if (!token) {
       return NextResponse.json(
         {
-          error: "Image storage is not connected. Ask admin to link Vercel Blob (BLOB_READ_WRITE_TOKEN).",
+          error: "Image storage is not connected. Ask admin to link Vercel Blob.",
           status: blobStatus(),
         },
         { status: 503 }
@@ -40,27 +60,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Choose a file to upload" }, { status: 400 });
     }
 
-    // Some browsers send empty type — sniff from name
-    let type = file.type || "application/octet-stream";
-    if (type === "application/octet-stream") {
-      const n = file.name.toLowerCase();
-      if (n.endsWith(".jpg") || n.endsWith(".jpeg")) type = "image/jpeg";
-      else if (n.endsWith(".png")) type = "image/png";
-      else if (n.endsWith(".webp")) type = "image/webp";
-      else if (n.endsWith(".gif")) type = "image/gif";
-      else if (n.endsWith(".mp4")) type = "video/mp4";
-    }
+    const type = sniffImageType(file, file.type || "");
 
-    if (!ALLOWED_MEDIA_TYPES.includes(type as (typeof ALLOWED_MEDIA_TYPES)[number])) {
+    const allowed =
+      ALLOWED_MEDIA_TYPES.includes(type as (typeof ALLOWED_MEDIA_TYPES)[number]) ||
+      type.startsWith("image/"); // accept any image/* after sniff
+
+    if (!allowed) {
       return NextResponse.json(
         {
-          error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, GIF, or MP4.`,
+          error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, or GIF.`,
         },
         { status: 400 }
       );
     }
 
-    const max = maxBytesFor(type);
+    // Normalize non-listed image types to jpeg for Blob content-type if needed
+    const contentType =
+      type === "image/jpg"
+        ? "image/jpeg"
+        : isImageType(type) || type.startsWith("image/")
+          ? type.startsWith("image/") && !isImageType(type)
+            ? "image/jpeg"
+            : type
+          : type;
+
+    const max = maxBytesFor(contentType.startsWith("video/") ? contentType : "image/jpeg");
     if (file.size > max) {
       return NextResponse.json(
         {
@@ -70,22 +95,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const kind = isVideoType(type) ? "video" : isImageType(type) ? "image" : "document";
+    const kind = isVideoType(contentType) ? "video" : "image";
 
-    // Folder ACL
     let scope = folderRaw;
     if (session.role !== "ADMIN") {
-      const allowed = ["documents", "proofs", "installment", "avatar", "profile", "services"];
-      if (!allowed.includes(folderRaw)) scope = "profile";
+      const allowedFolders = ["documents", "proofs", "installment", "avatar", "profile", "services"];
+      if (!allowedFolders.includes(folderRaw)) scope = "avatar";
     }
 
     const prefix = mediaFolder(kind as "image" | "video" | "document", scope);
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || `upload.${kind === "video" ? "mp4" : "jpg"}`;
+    const safeName =
+      (file.name || `photo.${kind === "video" ? "mp4" : "jpg"}")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 80) || `photo.jpg`;
     const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
     const blob = await put(pathname, file, {
       access: "public",
-      contentType: type,
+      contentType,
       addRandomSuffix: true,
       token,
     });
@@ -93,7 +120,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       url: blob.url,
       pathname: blob.pathname,
-      contentType: type,
+      contentType,
       size: file.size,
       kind,
       downloadUrl: blob.downloadUrl,
@@ -119,7 +146,6 @@ export async function DELETE(req: NextRequest) {
     }
     const url = new URL(req.url).searchParams.get("url");
     if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
-    // Clients may only delete their own blob URLs loosely; admins any
     await del(url, { token });
     return NextResponse.json({ ok: true });
   } catch (e) {
