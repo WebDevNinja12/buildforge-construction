@@ -15,8 +15,10 @@ import {
   Sparkles,
   Menu,
   X,
-  LogOut,
 } from "lucide-react";
+import { ProfileMenu } from "@/components/ProfileMenu";
+import { LogoutMenuItem } from "@/components/LogoutMenuItem";
+import { ToastProvider } from "@/components/Toast";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -28,7 +30,6 @@ const NAV = [
   { href: "/dashboard#payments", label: "Payment History", icon: CreditCard },
   { href: "/quote", label: "Request Quote", icon: MessageSquare },
   { href: "/dashboard/finished-projects", label: "Finished Projects", icon: Sparkles },
-  { href: "/quote", label: "Quotes", icon: MessageSquare },
 ];
 
 export function ClientShell({
@@ -57,7 +58,7 @@ export function ClientShell({
             key={item.href + item.label}
             href={item.href}
             onClick={() => setOpen(false)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+            className={`flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl text-sm font-medium ${
               isActive
                 ? "bg-primary-600 text-white"
                 : "text-slate-600 hover:bg-primary-50 hover:text-primary-800"
@@ -68,61 +69,55 @@ export function ClientShell({
           </Link>
         );
       })}
+      <div className="pt-2 border-t mt-2">
+        <LogoutMenuItem redirectTo="/login" />
+      </div>
     </nav>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className="hidden lg:flex lg:w-64 flex-col bg-white border-r border-slate-200 fixed inset-y-0 left-0 z-20">
-        <div className="px-5 py-5 border-b">
-          <p className="font-bold text-construction-dark">Hama Construction</p>
-          <p className="text-xs text-slate-500">Client portal</p>
-        </div>
-        <div className="flex-1 overflow-y-auto px-3 py-4">{links}</div>
-        <div className="p-4 border-t">
-          <p className="text-xs text-slate-500 truncate mb-2">{name}</p>
+    <ToastProvider>
+      <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
+        <aside className="hidden lg:flex lg:w-64 flex-col bg-white border-r border-slate-200 fixed inset-y-0 left-0 z-20">
+          <div className="px-5 py-5 border-b">
+            <p className="font-bold text-construction-dark">Hama Construction</p>
+            <p className="text-xs text-slate-500">Client portal</p>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-4">{links}</div>
+        </aside>
+
+        <div className="fixed top-0 inset-x-0 z-30 bg-white border-b px-4 h-14 flex items-center justify-between lg:left-64">
           <button
             type="button"
-            className="w-full inline-flex items-center justify-center gap-2 text-sm font-medium border rounded-xl px-3 py-2 text-slate-700 hover:bg-slate-50"
-            onClick={async () => {
-              await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-              window.location.href = "/login";
-            }}
+            className="lg:hidden min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border"
+            onClick={() => setOpen(true)}
+            aria-label="Menu"
           >
-            <LogOut className="w-4 h-4" /> Logout
+            <Menu className="w-5 h-5" />
           </button>
+          <span className="font-semibold text-construction-dark text-sm">My account</span>
+          <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/login" />
         </div>
-      </aside>
 
-      <div className="lg:hidden fixed top-0 inset-x-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between">
-        <span className="font-semibold text-construction-dark text-sm">My account</span>
-        <button type="button" onClick={() => setOpen((v) => !v)} className="p-2 rounded-lg border">
-          {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
-      </div>
-
-      {open && (
-        <div className="lg:hidden fixed inset-0 z-20">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="absolute top-14 left-0 bottom-0 w-72 bg-white p-4 overflow-y-auto shadow-xl">
-            {links}
-            <button
-              type="button"
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 text-sm font-medium border rounded-xl px-3 py-2"
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-                window.location.href = "/login";
-              }}
-            >
-              <LogOut className="w-4 h-4" /> Logout
-            </button>
+        {open && (
+          <div className="lg:hidden fixed inset-0 z-40">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
+            <div className="absolute top-0 left-0 bottom-0 w-[min(20rem,88vw)] bg-white p-4 overflow-y-auto shadow-xl">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-semibold">Menu</span>
+                <button type="button" className="min-h-[44px] min-w-[44px]" onClick={() => setOpen(false)}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {links}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 min-h-screen">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">{children}</div>
-      </main>
-    </div>
+        <main className="flex-1 lg:ml-64 pt-14 min-h-screen w-full max-w-[100vw] overflow-x-hidden">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">{children}</div>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
