@@ -23,7 +23,6 @@ if (neon) {
   process.env.DATABASE_URL = neon;
   console.log("[build] Using Neon postgres URL");
 } else {
-  // prisma generate needs the env var named in schema to exist
   process.env.construction_storage_PRISMA_DATABASE_URL =
     "postgresql://build:build@127.0.0.1:5432/build?schema=public";
   console.warn("[build] No neon URL — placeholder for generate only");
@@ -38,15 +37,24 @@ function run(cmd, args) {
 run("npx", ["prisma", "generate"]);
 
 if (neon) {
-  const push = spawnSync(
-    "npx",
-    ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"],
-    { stdio: "inherit", env: process.env, shell: true }
-  );
-  if (push.status !== 0) {
-    console.warn("[build] prisma db push failed — continuing");
-  } else {
-    console.log("[build] Database schema pushed (tables created/updated)");
+  console.log("[build] Pushing Prisma schema (create/update all tables)…");
+  // Retry once — Neon sometimes flakes on cold connect
+  let ok = false;
+  for (let i = 0; i < 2; i++) {
+    const push = spawnSync(
+      "npx",
+      ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"],
+      { stdio: "inherit", env: process.env, shell: true }
+    );
+    if (push.status === 0) {
+      ok = true;
+      console.log("[build] Database schema pushed — all tables created/updated");
+      break;
+    }
+    console.warn(`[build] prisma db push attempt ${i + 1} failed`);
+  }
+  if (!ok) {
+    console.error("[build] prisma db push failed after retries — build continues but new models may 500");
   }
 } else {
   console.warn("[build] Skipping db push (no real URL)");
