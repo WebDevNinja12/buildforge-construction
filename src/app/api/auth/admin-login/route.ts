@@ -1,23 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { runFullDbMigrate } from "@/lib/db-migrate";
 
-async function healUserColumns() {
-  const sqls = [
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nextOfKinJson" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)`,
-  ];
-  for (const sql of sqls) {
-    try {
-      await prisma.$executeRawUnsafe(sql);
-    } catch {
-      /* ignore */
-    }
-  }
-}
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,8 +17,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fix schema drift before any User findUnique/login
-    await healUserColumns();
+    // Ensure all tables/columns exist before any auth query
+    await runFullDbMigrate().catch((e) => console.error("migrate on login", e));
 
     try {
       await ensureAdminFromEnv();
@@ -56,17 +41,18 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
+    // Never show raw Prisma column errors on the form
     if (
       message.includes("prisma") ||
       message.includes("column") ||
-      message.includes("does not exist")
+      message.includes("does not exist") ||
+      message.includes("nin")
     ) {
-      // Second heal attempt then friendly message
-      await healUserColumns().catch(() => null);
+      await runFullDbMigrate().catch(() => null);
       return NextResponse.json(
         {
           error:
-            "Database was missing columns and is being fixed. Wait 10 seconds and sign in again.",
+            "Database tables were updated. Please wait 15 seconds and sign in again.",
         },
         { status: 503 }
       );
