@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
     await ensureAdminFromEnv().catch(() => false);
 
     const user = await loginUser(email, password);
-    // Cookie: signed session id only — password never stored in cookie
     await setSession({ id: user.id, role: user.role });
 
     const redirect =
@@ -27,7 +26,6 @@ export async function POST(req: NextRequest) {
           ? "/pending-approval"
           : "/dashboard";
 
-    // Response body is not a cookie; still strip anything sensitive
     return NextResponse.json({
       user: {
         id: user.id,
@@ -40,6 +38,16 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
+    if (
+      message.includes("prisma") ||
+      message.includes("column") ||
+      message.includes("does not exist")
+    ) {
+      return NextResponse.json(
+        { error: "Database is updating. Please wait a minute and try again." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: message }, { status: 401 });
   }
 }

@@ -14,10 +14,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure admin row exists / password synced (no User.nin dependency)
-    await ensureAdminFromEnv().catch((e) => {
+    try {
+      await ensureAdminFromEnv();
+    } catch (e) {
       console.error("ensureAdminFromEnv", e);
-    });
+    }
 
     const user = await loginUser(email, password, { requireRole: "ADMIN" });
     await setSession({ id: user.id, role: user.role });
@@ -34,13 +35,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
-    // Never leak raw Prisma schema errors to the form
-    if (message.includes("prisma") || message.includes("column") || message.includes("does not exist")) {
+    if (
+      message.includes("prisma") ||
+      message.includes("column") ||
+      message.includes("does not exist")
+    ) {
       return NextResponse.json(
-        {
-          error:
-            "Server database is updating. Wait one minute and try again, or contact support.",
-        },
+        { error: "Database is updating. Please wait a minute and try again." },
         { status: 503 }
       );
     }

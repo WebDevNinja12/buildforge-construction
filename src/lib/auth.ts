@@ -23,6 +23,9 @@ interface TokenClaims {
   role: string;
 }
 
+export const DEFAULT_ADMIN_EMAIL = "admin@hamaconstruction.com";
+export const DEFAULT_ADMIN_PASSWORD = "HamaAdmin2026!";
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
@@ -54,6 +57,49 @@ export async function verifyToken(token: string): Promise<TokenClaims | null> {
   }
 }
 
+/** Raw lookup — only columns that exist on older DBs (avoids User.nin schema drift) */
+async function findUserByEmailRaw(email: string) {
+  const rows = await prisma.$queryRaw<
+    {
+      id: string;
+      email: string;
+      password: string;
+      name: string;
+      role: string;
+      status: string;
+      verificationStatus: string | null;
+      deletedAt: Date | null;
+    }[]
+  >`
+    SELECT id, email, password, name, role, status,
+           "verificationStatus", "deletedAt"
+    FROM "User"
+    WHERE lower(email) = lower(${email})
+    LIMIT 1
+  `;
+  return rows[0] || null;
+}
+
+async function findUserByIdRaw(id: string) {
+  const rows = await prisma.$queryRaw<
+    {
+      id: string;
+      email: string;
+      name: string;
+      role: string;
+      status: string;
+      verificationStatus: string | null;
+      deletedAt: Date | null;
+    }[]
+  >`
+    SELECT id, email, name, role, status, "verificationStatus", "deletedAt"
+    FROM "User"
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+  return rows[0] || null;
+}
+
 export async function getSession(): Promise<SessionUser | null> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
@@ -61,27 +107,21 @@ export async function getSession(): Promise<SessionUser | null> {
   const claims = await verifyToken(token);
   if (!claims) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { id: claims.id },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      status: true,
-      verificationStatus: true,
-      deletedAt: true,
-    },
-  });
-  if (!user || user.deletedAt) return null;
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    status: user.status,
-    verificationStatus: user.verificationStatus,
-  };
+  try {
+    const user = await findUserByIdRaw(claims.id);
+    if (!user || user.deletedAt) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      status: user.status,
+      verificationStatus: user.verificationStatus || undefined,
+    };
+  } catch (e) {
+    console.error("getSession", e);
+    return null;
+  }
 }
 
 export async function requireApproved(): Promise<SessionUser> {
@@ -118,9 +158,14 @@ export async function clearSession() {
   jar.delete(SESSION_COOKIE);
 }
 
-/** Default admin — override with ADMIN_EMAIL / ADMIN_PASSWORD env vars */
-export const DEFAULT_ADMIN_EMAIL = "admin@hamaconstruction.com";
-export const DEFAULT_ADMIN_PASSWORD = "HamaAdmin2026!";
+function cuidLike() {
+  return (
+    "c" +
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2, 10) +
+    Math.random().toString(36).slice(2, 8)
+  );
+}
 
 export async function ensureAdminFromEnv(): Promise<boolean> {
   const email = (process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
@@ -128,56 +173,58 @@ export async function ensureAdminFromEnv(): Promise<boolean> {
   if (!email || !password) return false;
 
   const hashed = await hashPassword(password);
+  const name = process.env.ADMIN_NAME?.trim() || "Hama Admin";
+  const now = new Date();
 
-  // Migrate legacy admin email if present
-  const legacy = await prisma.user.findUnique({
-    where: { email: "admin@buildforge.com" },
-  });
-  if (legacy && email !== "admin@buildforge.com") {
-    const conflict = await prisma.user.findUnique({ where: { email } });
-    if (!conflict) {
-      await prisma.user.update({
-        where: { id: legacy.id },
-        data: {
-          email,
-          password: hashed,
-          role: "ADMIN",
-          status: "APPROVED",
-          verificationStatus: "VERIFIED",
-          name: legacy.name || "Hama Admin",
-        },
-      });
-      return true;
+  // Migrate legacy email if present
+  try {
+    const legacy = await findUserByEmailRaw("admin@buildforge.com");
+    if (legacy && email !== "admin@buildforge.com") {
+      const conflict = await findUserByEmailRaw(email);
+      if (!conflict) {
+        await prisma.$executeRaw`
+          UPDATE "User"
+          SET email = ${email},
+              password = ${hashed},
+              role = 'ADMIN',
+              status = 'APPROVED',
+              "verificationStatus" = 'VERIFIED',
+              name = ${name},
+              "updatedAt" = ${now}
+          WHERE id = ${legacy.id}
+        `;
+        return true;
+      }
     }
+  } catch (e) {
+    console.error("legacy admin migrate", e);
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await findUserByEmailRaw(email);
   if (existing) {
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        role: "ADMIN",
-        status: "APPROVED",
-        verificationStatus: "VERIFIED",
-        password: hashed,
-      },
-    });
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET password = ${hashed},
+          role = 'ADMIN',
+          status = 'APPROVED',
+          "verificationStatus" = 'VERIFIED',
+          name = ${name},
+          "updatedAt" = ${now}
+      WHERE id = ${existing.id}
+    `;
     return true;
   }
 
-  await prisma.user.create({
-    data: {
-      email,
-      password: hashed,
-      name: process.env.ADMIN_NAME?.trim() || "Hama Admin",
-      role: "ADMIN",
-      status: "APPROVED",
-      verificationStatus: "VERIFIED",
-      agreedTermsAt: new Date(),
-      approvedAt: new Date(),
-      verifiedAt: new Date(),
-    },
-  });
+  const id = cuidLike();
+  await prisma.$executeRaw`
+    INSERT INTO "User" (
+      id, email, password, name, role, status, "verificationStatus",
+      "clientType", "createdAt", "updatedAt", "approvedAt", "verifiedAt", "agreedTermsAt"
+    ) VALUES (
+      ${id}, ${email}, ${hashed}, ${name}, 'ADMIN', 'APPROVED', 'VERIFIED',
+      'INDIVIDUAL', ${now}, ${now}, ${now}, ${now}, ${now}
+    )
+  `;
   return true;
 }
 
@@ -188,34 +235,44 @@ export async function registerUser(
   extra?: { phone?: string; clientType?: string; agreedTerms?: boolean }
 ) {
   const normalized = email.trim().toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email: normalized } });
+  const existing = await findUserByEmailRaw(normalized);
   if (existing) throw new Error("Email already registered");
 
-  // 72h cooldown after admin delete
-  const cooldown = await prisma.siteSetting.findUnique({
-    where: { key: `cooldown:${normalized}` },
-  });
-  if (cooldown?.value) {
-    const until = new Date(cooldown.value);
-    if (until > new Date()) {
-      throw new Error("This email cannot be reused yet. Try again later.");
+  try {
+    const cooldown = await prisma.siteSetting.findUnique({
+      where: { key: `cooldown:${normalized}` },
+    });
+    if (cooldown?.value) {
+      const until = new Date(cooldown.value);
+      if (until > new Date()) {
+        throw new Error("This email cannot be reused yet. Try again later.");
+      }
     }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("cannot be reused")) throw e;
   }
 
   const hashed = await hashPassword(password);
-  return prisma.user.create({
-    data: {
-      email: normalized,
-      password: hashed,
-      name: name.trim(),
-      phone: extra?.phone || null,
-      clientType: extra?.clientType || "INDIVIDUAL",
-      role: "CLIENT",
-      status: "PENDING_APPROVAL",
-      verificationStatus: "UNDER_REVIEW",
-      agreedTermsAt: extra?.agreedTerms ? new Date() : null,
-    },
-  });
+  const id = cuidLike();
+  const now = new Date();
+  const phone = extra?.phone || null;
+  const clientType = extra?.clientType || "INDIVIDUAL";
+  const agreed = extra?.agreedTerms ? now : null;
+
+  await prisma.$executeRaw`
+    INSERT INTO "User" (
+      id, email, password, name, phone, role, status, "verificationStatus",
+      "clientType", "createdAt", "updatedAt", "agreedTermsAt"
+    ) VALUES (
+      ${id}, ${normalized}, ${hashed}, ${name.trim()}, ${phone},
+      'CLIENT', 'PENDING_APPROVAL', 'UNDER_REVIEW',
+      ${clientType}, ${now}, ${now}, ${agreed}
+    )
+  `;
+
+  const user = await findUserByEmailRaw(normalized);
+  if (!user) throw new Error("Registration failed");
+  return user;
 }
 
 export async function loginUser(
@@ -224,7 +281,7 @@ export async function loginUser(
   opts?: { requireRole?: string }
 ) {
   const normalized = email.trim().toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  const user = await findUserByEmailRaw(normalized);
   if (!user || user.deletedAt) throw new Error("Invalid email or password");
   const ok = await verifyPassword(password, user.password);
   if (!ok) throw new Error("Invalid email or password");
