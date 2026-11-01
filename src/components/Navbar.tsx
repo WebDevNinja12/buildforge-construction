@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, X, HardHat, LogIn, LogOut } from "lucide-react";
+import { Menu, X, HardHat, LogIn, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface NavbarProps {
   user?: { name: string; role: string } | null;
 }
 
-/** Public nav only — Profile, Admin, Register live on Dashboard after login */
+/** Public nav: Home, About, Projects, Services, Contact + Login or Dashboard icon */
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About" },
@@ -53,19 +53,22 @@ export default function Navbar({ user }: NavbarProps) {
             ))}
           </nav>
 
-          {/* Login / Logout icon only */}
+          {/* Logged out → Login icon | Logged in → Dashboard icon (logout is on dashboard) */}
           <div className="hidden md:flex items-center">
             {user ? (
-              <form action="/api/auth/logout" method="POST">
-                <button
-                  type="submit"
-                  title="Logout"
-                  aria-label="Logout"
-                  className="p-2.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </form>
+              <Link
+                href="/dashboard"
+                title="Dashboard"
+                aria-label="Dashboard"
+                className={cn(
+                  "p-2.5 rounded-lg transition-colors",
+                  pathname === "/dashboard" || pathname.startsWith("/dashboard")
+                    ? "bg-primary-600 text-white"
+                    : "text-slate-300 hover:text-white hover:bg-slate-700/50"
+                )}
+              >
+                <LayoutDashboard className="w-5 h-5" />
+              </Link>
             ) : (
               <Link
                 href="/login"
@@ -107,14 +110,13 @@ export default function Navbar({ user }: NavbarProps) {
               </Link>
             ))}
             {user ? (
-              <form action="/api/auth/logout" method="POST" className="px-2 pt-2">
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
-                >
-                  <LogOut className="w-4 h-4" /> Logout
-                </button>
-              </form>
+              <Link
+                href="/dashboard"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+              >
+                <LayoutDashboard className="w-4 h-4" /> Dashboard
+              </Link>
             ) : (
               <Link
                 href="/login"
