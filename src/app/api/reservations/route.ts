@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession, requireApproved } from "@/lib/auth";
-import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
+import { getSession } from "@/lib/auth";
+import { getExpiryHours } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await runMaintenance().catch(() => null);
     const session = await getSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -24,27 +23,32 @@ export async function GET() {
     return NextResponse.json(reservations);
   } catch (error) {
     console.error("reservations GET", error);
-    return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch", detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
   }
 }
 
-/**
- * Reserve first — payment method chosen later on the dashboard.
- * Fields match prisma Reservation model only.
- */
 export async function POST(req: NextRequest) {
   try {
-    await runMaintenance().catch(() => null);
-
-    let session;
-    try {
-      session = await requireApproved();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unauthorized";
-      if (msg === "Account pending approval" || msg.toLowerCase().includes("pending")) {
-        return NextResponse.json({ error: "Account pending approval" }, { status: 403 });
-      }
+    const session = await getSession();
+    if (!session) {
       return NextResponse.json({ error: "Please login to reserve" }, { status: 401 });
+    }
+
+    const status = (session.status || "").toUpperCase();
+    if (["REJECTED", "SUSPENDED", "ARCHIVED"].includes(status)) {
+      return NextResponse.json(
+        { error: "Your account cannot make reservations. Contact support." },
+        { status: 403 }
+      );
+    }
+    if (status === "PENDING_APPROVAL" || status === "PENDING") {
+      return NextResponse.json(
+        { error: "Account pending approval. Wait for admin approval or auto-approval." },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();
@@ -60,35 +64,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const asset = await prisma.asset.findUnique({ where: { id: assetId } });
-    if (!asset || asset.status !== "AVAILABLE" || asset.active === false) {
-      return NextResponse.json({ error: "Asset not available" }, { status: 400 });
+    const asset = await prisma.asset.findUnique({ where: { id: String(assetId) } });
+    if (!asset) {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+    }
+    if (asset.active === false) {
+      return NextResponse.json({ error: "Asset is inactive" }, { status: 400 });
+    }
+    if (asset.status !== "AVAILABLE") {
+      return NextResponse.json(
+        { error: `Asset is not available (status: ${asset.status})` },
+        { status: 400 }
+      );
     }
 
-    // Default hold period by type (hours); asset.reservationHours overrides
     let hours = 48;
     try {
-      hours = await getExpiryHours(asset.type);
+      hours = await getExpiryHours(asset.type, asset.reservationHours);
     } catch {
       const defaults: Record<string, number> = {
-        HOUSE: 14 * 24,
-        BUILDING: 14 * 24,
-        HOTEL: 7 * 24,
-        LAND: 5 * 24,
-        APARTMENT: 7 * 24,
-        COMMERCIAL: 7 * 24,
+        HOUSE: 336,
+        BUILDING: 336,
+        HOTEL: 168,
+        LAND: 120,
+        APARTMENT: 168,
+        COMMERCIAL: 168,
       };
-      hours = defaults[asset.type] || 48;
-    }
-    if (asset.reservationHours && asset.reservationHours > 0) {
-      hours = asset.reservationHours;
+      hours = asset.reservationHours || defaults[asset.type] || 48;
     }
 
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
     const reservation = await prisma.$transaction(async (tx) => {
-      // Re-check availability inside transaction
-      const current = await tx.asset.findUnique({ where: { id: assetId } });
+      const current = await tx.asset.findUnique({ where: { id: asset.id } });
       if (!current || current.status !== "AVAILABLE" || current.active === false) {
         throw new Error("Asset not available");
       }
@@ -96,9 +104,9 @@ export async function POST(req: NextRequest) {
       const res = await tx.reservation.create({
         data: {
           userId: session.id,
-          assetId,
+          assetId: asset.id,
           status: "PENDING",
-          paymentType: null, // chosen on dashboard: FULL | INSTALLMENT
+          paymentType: null,
           expiresAt,
           installmentTotal: asset.price,
           installmentPaid: 0,
@@ -108,7 +116,7 @@ export async function POST(req: NextRequest) {
       });
 
       await tx.asset.update({
-        where: { id: assetId },
+        where: { id: asset.id },
         data: { status: "RESERVED" },
       });
 
@@ -126,7 +134,7 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch {
-      /* non-fatal */
+      /* optional */
     }
 
     return NextResponse.json(
@@ -144,9 +152,6 @@ export async function POST(req: NextRequest) {
     if (msg === "Asset not available") {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
-    return NextResponse.json(
-      { error: "Reservation failed", detail: msg },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Reservation failed", detail: msg }, { status: 500 });
   }
 }
