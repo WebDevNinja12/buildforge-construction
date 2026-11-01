@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,23 +13,23 @@ export async function GET() {
       name: true,
       email: true,
       phone: true,
-      role: true,
+      avatarUrl: true,
+      signatureUrl: true,
+      nin: true,
+      bvn: true,
+      clientType: true,
       status: true,
       verificationStatus: true,
-      createdAt: true,
+      verificationNote: true,
     },
   });
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const avatar = await prisma.userDocument.findFirst({
-    where: { userId: session.id, type: "AVATAR" },
+  const documents = await prisma.userDocument.findMany({
+    where: { userId: session.id },
     orderBy: { updatedAt: "desc" },
   });
 
-  return NextResponse.json({
-    ...user,
-    avatarUrl: avatar?.fileUrl || null,
-  });
+  return NextResponse.json({ ...user, documents });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -40,33 +38,24 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json();
   const data: Record<string, unknown> = {};
-  if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
-  if (typeof body.phone === "string") data.phone = body.phone.trim() || null;
+  if (typeof body.name === "string") data.name = body.name.trim();
+  if (typeof body.phone === "string") data.phone = body.phone.trim();
+  if (typeof body.avatarUrl === "string") data.avatarUrl = body.avatarUrl;
+  if (typeof body.signatureUrl === "string") data.signatureUrl = body.signatureUrl;
+  if (typeof body.nin === "string") data.nin = body.nin.trim();
+  if (typeof body.bvn === "string") data.bvn = body.bvn.trim();
 
-  if (Object.keys(data).length) {
-    await prisma.user.update({ where: { id: session.id }, data });
-  }
+  await prisma.user.update({ where: { id: session.id }, data });
 
-  if (typeof body.avatarUrl === "string") {
-    const url = body.avatarUrl.trim();
-    if (url) {
-      const existing = await prisma.userDocument.findFirst({
-        where: { userId: session.id, type: "AVATAR" },
-      });
-      if (existing) {
+  if (Array.isArray(body.documents)) {
+    for (const d of body.documents) {
+      if (d.id) {
         await prisma.userDocument.update({
-          where: { id: existing.id },
-          data: { fileUrl: url, fileName: "avatar", status: "APPROVED", label: "Profile photo" },
-        });
-      } else {
-        await prisma.userDocument.create({
+          where: { id: d.id },
           data: {
-            userId: session.id,
-            type: "AVATAR",
-            label: "Profile photo",
-            fileUrl: url,
-            fileName: "avatar",
-            status: "APPROVED",
+            fileUrl: d.fileUrl,
+            status: d.status,
+            rejectReason: d.rejectReason,
           },
         });
       }
@@ -75,16 +64,16 @@ export async function PATCH(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { id: session.id },
-    select: { id: true, name: true, email: true, phone: true },
-  });
-  const avatar = await prisma.userDocument.findFirst({
-    where: { userId: session.id, type: "AVATAR" },
-    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      avatarUrl: true,
+      nin: true,
+      bvn: true,
+    },
   });
 
-  return NextResponse.json({
-    ...user,
-    avatarUrl: avatar?.fileUrl || null,
-    message: "Profile updated",
-  });
+  return NextResponse.json({ message: "Profile updated", ...user });
 }

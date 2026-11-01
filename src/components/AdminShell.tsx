@@ -22,9 +22,10 @@ import {
   X,
   MoreHorizontal,
   Shield,
+  QrCode,
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
-import { LogoutMenuItem, performLogout } from "@/components/LogoutMenuItem";
+import { LogoutMenuItem } from "@/components/LogoutMenuItem";
 import { ToastProvider } from "@/components/Toast";
 
 const PRIMARY = [
@@ -42,6 +43,7 @@ const MORE = [
   { href: "/admin/cancellations", label: "Cancellations & Refunds", icon: RotateCcw },
   { href: "/admin/quotes", label: "Quotes", icon: MessageSquare },
   { href: "/admin/deals", label: "Project Deals", icon: Briefcase },
+  { href: "/admin/scan", label: "Scan QR", icon: QrCode },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   { href: "/admin/settings", label: "Settings", icon: Settings },
   { href: "/admin/activity", label: "Activity Log", icon: Activity },
@@ -113,7 +115,6 @@ export function AdminShell({
           <div className="flex-1 overflow-y-auto px-3 py-4">{sideNav}</div>
         </aside>
 
-        {/* Top bar */}
         <div className="fixed top-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 lg:left-64 xl:left-72">
           <div className="h-14 px-4 flex items-center justify-between gap-3">
             <button
@@ -124,7 +125,7 @@ export function AdminShell({
             >
               <Menu className="w-5 h-5" />
             </button>
-            <p className="font-semibold text-sm text-construction-dark truncate lg:ml-0">Admin</p>
+            <p className="font-semibold text-sm text-construction-dark truncate">Admin</p>
             <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/admin/login" />
           </div>
         </div>
@@ -144,8 +145,7 @@ export function AdminShell({
           </div>
         )}
 
-        {/* Bottom nav: 4 primary + More */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-1 py-1 flex justify-around safe-pb">
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-1 py-1 flex justify-around">
           {PRIMARY.map((item) => {
             const Icon = item.icon;
             const isActive = active(item.href);
