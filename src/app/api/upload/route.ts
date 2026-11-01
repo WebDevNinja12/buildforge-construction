@@ -29,7 +29,6 @@ function sniffImageType(file: File, current: string): string {
   if (n.endsWith(".mp4")) return "video/mp4";
   if (n.endsWith(".webm")) return "video/webm";
   if (n.endsWith(".mov")) return "video/quicktime";
-  // Camera blobs often have no name/type — assume JPEG
   if (type === "application/octet-stream" || !type) return "image/jpeg";
   return type;
 }
@@ -40,7 +39,8 @@ export async function POST(req: NextRequest) {
     if (!token) {
       return NextResponse.json(
         {
-          error: "Image storage is not connected. Ask admin to link Vercel Blob.",
+          error:
+            "Image storage token is missing. In Vercel → Storage → open store \"construction\" → Connect to project, then Redeploy.",
           status: blobStatus(),
         },
         { status: 503 }
@@ -61,21 +61,17 @@ export async function POST(req: NextRequest) {
     }
 
     const type = sniffImageType(file, file.type || "");
-
     const allowed =
       ALLOWED_MEDIA_TYPES.includes(type as (typeof ALLOWED_MEDIA_TYPES)[number]) ||
-      type.startsWith("image/"); // accept any image/* after sniff
+      type.startsWith("image/");
 
     if (!allowed) {
       return NextResponse.json(
-        {
-          error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, or GIF.`,
-        },
+        { error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, or GIF.` },
         { status: 400 }
       );
     }
 
-    // Normalize non-listed image types to jpeg for Blob content-type if needed
     const contentType =
       type === "image/jpg"
         ? "image/jpeg"
@@ -96,7 +92,6 @@ export async function POST(req: NextRequest) {
     }
 
     const kind = isVideoType(contentType) ? "video" : "image";
-
     let scope = folderRaw;
     if (session.role !== "ADMIN") {
       const allowedFolders = ["documents", "proofs", "installment", "avatar", "profile", "services"];
@@ -105,26 +100,43 @@ export async function POST(req: NextRequest) {
 
     const prefix = mediaFolder(kind as "image" | "video" | "document", scope);
     const safeName =
-      (file.name || `photo.${kind === "video" ? "mp4" : "jpg"}")
+      (file.name || `photo.${kind === "video" ? "mp4" : "jpg"}`)
         .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(0, 80) || `photo.jpg`;
+        .slice(0, 80) || "photo.jpg";
     const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
 
-    const blob = await put(pathname, file, {
-      access: "public",
-      contentType,
-      addRandomSuffix: true,
-      token,
-    });
+    try {
+      const blob = await put(pathname, file, {
+        access: "public",
+        contentType,
+        addRandomSuffix: true,
+        token,
+      });
 
-    return NextResponse.json({
-      url: blob.url,
-      pathname: blob.pathname,
-      contentType,
-      size: file.size,
-      kind,
-      downloadUrl: blob.downloadUrl,
-    });
+      return NextResponse.json({
+        url: blob.url,
+        pathname: blob.pathname,
+        contentType,
+        size: file.size,
+        kind,
+        downloadUrl: blob.downloadUrl,
+      });
+    } catch (blobErr) {
+      const msg = blobErr instanceof Error ? blobErr.message : String(blobErr);
+      console.error("blob put", msg);
+      if (/access denied|invalid token|unauthorized|forbidden/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Blob token is invalid or not linked to this project. Fix: Vercel Dashboard → Storage → store \"construction\" → Settings / Connect Project → copy the Read-Write Token → Project Settings → Environment Variables → set BLOB_READ_WRITE_TOKEN (or construction_READ_WRITE_TOKEN) for Production → Redeploy.",
+            detail: msg,
+            status: blobStatus(),
+          },
+          { status: 403 }
+        );
+      }
+      throw blobErr;
+    }
   } catch (e) {
     console.error("upload", e);
     return NextResponse.json(
