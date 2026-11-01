@@ -26,9 +26,6 @@ export async function GET(
         verificationNote: true,
         avatarUrl: true,
         signatureUrl: true,
-        nin: true,
-        bvn: true,
-        nextOfKinJson: true,
         approvedAt: true,
         verifiedAt: true,
         createdAt: true,
@@ -49,7 +46,7 @@ export async function GET(
           orderBy: { createdAt: "desc" },
         }),
         prisma.payment.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
-        prisma.contract.findMany({ where: { userId: id }, orderBy: { issuedAt: "desc" } }),
+        prisma.contract.findMany({ where: { userId: id }, orderBy: { issuedAt: "desc" } }).catch(() => []),
         prisma.adminActivityLog.findMany({
           where: { entityId: id },
           orderBy: { createdAt: "desc" },
@@ -67,10 +64,19 @@ export async function GET(
         }),
       ]);
 
+    // NIN/BVN only from installment document text fields (not User table)
+    const typedIds = (instDocs as any[])
+      .filter((d) =>
+        ["nin", "bvn", "NIN", "BVN", "valid_id"].includes(d.type) ||
+        /nin|bvn/i.test(d.label || "")
+      )
+      .map((d) => ({ type: d.type, label: d.label, value: d.textValue, status: d.status }));
+
     return NextResponse.json({
       user,
       registrationDocuments: regDocs,
       installmentDocuments: instDocs,
+      typedIdentityFields: typedIds,
       reservations,
       payments,
       contracts,
@@ -107,9 +113,6 @@ export async function PATCH(
         "status",
         "verificationStatus",
         "verificationNote",
-        "nin",
-        "bvn",
-        "nextOfKinJson",
       ]) {
         if (body[k] !== undefined) data[k] = body[k];
       }
@@ -185,7 +188,6 @@ export async function PATCH(
         });
       }
 
-      // refresh reservation docsStatus
       const pendingRes = await prisma.reservation.findMany({
         where: { userId: id, paymentType: "INSTALLMENT" },
       });
@@ -219,12 +221,6 @@ export async function PATCH(
       const requiredInst = await prisma.installmentDocument.findMany({
         where: { userId: id, required: true },
       });
-      const requiredReg = await prisma.userDocument.findMany({ where: { userId: id } });
-      const blockers = [
-        ...requiredInst.filter((d) => d.status !== "APPROVED"),
-        ...requiredReg.filter((d) => d.status !== "APPROVED" && d.status !== "PENDING" ? d.status !== "APPROVED" : false),
-      ];
-      // Only block if there are required installment docs not approved
       const instBlock = requiredInst.filter((d) => d.status !== "APPROVED");
       if (instBlock.length) {
         return NextResponse.json(
@@ -297,7 +293,6 @@ export async function PATCH(
         clientName: user.name,
         clientEmail: user.email,
         clientPhone: user.phone,
-        nin: user.nin,
         serviceTitle: reservation?.asset?.title || body.serviceTitle || "Construction service",
         paymentMethod,
         totalAmount: total,

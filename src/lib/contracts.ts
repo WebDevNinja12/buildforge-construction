@@ -25,7 +25,6 @@ export async function buildAgreementPdf(opts: {
   clientName: string;
   clientEmail: string;
   clientPhone?: string | null;
-  nin?: string | null;
   serviceTitle: string;
   paymentMethod: string;
   totalAmount: number;
@@ -63,7 +62,6 @@ export async function buildAgreementPdf(opts: {
   draw(`Name: ${opts.clientName}`);
   draw(`Email: ${opts.clientEmail}`);
   if (opts.clientPhone) draw(`Phone: ${opts.clientPhone}`);
-  if (opts.nin) draw(`NIN: ${opts.nin}`);
   y -= 6;
   draw("Service / Asset", 12, true);
   draw(opts.serviceTitle);
