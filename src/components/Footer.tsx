@@ -19,8 +19,7 @@ export default function Footer() {
               Building innovation through quality and trust.
             </p>
             <p className="text-sm text-slate-400 leading-relaxed">
-              Your trusted partner for construction assets, tools, labor, and
-              complete project management.
+              Your trusted partner for construction assets, tools, labor, and complete project management.
             </p>
           </div>
           <div>
@@ -30,17 +29,19 @@ export default function Footer() {
               <li><Link href="/about" className="hover:text-accent-400 transition-colors">About Us</Link></li>
               <li><Link href="/projects" className="hover:text-accent-400 transition-colors">Finished Projects</Link></li>
               <li><Link href="/services" className="hover:text-accent-400 transition-colors">Services</Link></li>
+              <li><Link href="/quote" className="hover:text-accent-400 transition-colors">Request a Quote</Link></li>
+              <li><Link href="/faq" className="hover:text-accent-400 transition-colors">FAQ</Link></li>
               <li><Link href="/contact" className="hover:text-accent-400 transition-colors">Contact</Link></li>
             </ul>
           </div>
           <div>
             <h3 className="text-white font-semibold mb-4">Our Services</h3>
             <ul className="space-y-2 text-sm">
-              <li><Link href="/services#assets" className="hover:text-accent-400 transition-colors">Buy & Reserve Assets</Link></li>
-              <li><Link href="/services#land" className="hover:text-accent-400 transition-colors">Land Payments</Link></li>
-              <li><Link href="/services#tools" className="hover:text-accent-400 transition-colors">Tool Hiring</Link></li>
-              <li><Link href="/services#workers" className="hover:text-accent-400 transition-colors">Construction Hiring</Link></li>
-              <li><Link href="/services#projects" className="hover:text-accent-400 transition-colors">Project Management</Link></li>
+              <li><Link href="/services" className="hover:text-accent-400 transition-colors">Buy & Reserve Assets</Link></li>
+              <li><Link href="/services" className="hover:text-accent-400 transition-colors">Land Payments</Link></li>
+              <li><Link href="/services" className="hover:text-accent-400 transition-colors">Tool Hiring</Link></li>
+              <li><Link href="/services" className="hover:text-accent-400 transition-colors">Construction Hiring</Link></li>
+              <li><Link href="/quote" className="hover:text-accent-400 transition-colors">Project quotes</Link></li>
             </ul>
           </div>
           <div>

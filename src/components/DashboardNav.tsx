@@ -8,19 +8,16 @@ import {
   Building2,
   FileText,
   Settings,
+  ClipboardList,
 } from "lucide-react";
 
-/** Links that used to sit in the main navbar — only on Dashboard */
-export function DashboardNav({
-  role,
-}: {
-  role?: string;
-}) {
+export function DashboardNav({ role }: { role?: string }) {
   const links = [
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/profile", label: "My profile", icon: User },
     { href: "/services", label: "Browse services", icon: Building2 },
     { href: "/projects", label: "Finished projects", icon: FileText },
+    { href: "/quote", label: "Request quote", icon: ClipboardList },
   ];
 
   return (
@@ -42,6 +39,12 @@ export function DashboardNav({
             className="inline-flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-sm font-medium text-white px-3 py-2 rounded-xl"
           >
             <Shield className="w-4 h-4" /> Admin panel
+          </Link>
+          <Link
+            href="/admin/quotes"
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-sm font-medium text-white px-3 py-2 rounded-xl"
+          >
+            <ClipboardList className="w-4 h-4" /> Quotes
           </Link>
           <Link
             href="/admin/deals"
