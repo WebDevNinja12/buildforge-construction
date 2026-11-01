@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+async function healUserColumns() {
+  for (const sql of [
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nextOfKinJson" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)`,
+  ]) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await healUserColumns();
     await ensureAdminFromEnv().catch(() => false);
 
     const user = await loginUser(email, password);
@@ -43,8 +61,12 @@ export async function POST(req: NextRequest) {
       message.includes("column") ||
       message.includes("does not exist")
     ) {
+      await healUserColumns().catch(() => null);
       return NextResponse.json(
-        { error: "Database is updating. Please wait a minute and try again." },
+        {
+          error:
+            "Database was missing columns and is being fixed. Wait 10 seconds and sign in again.",
+        },
         { status: 503 }
       );
     }
