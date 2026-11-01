@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/utils";
 import { Countdown } from "@/components/Countdown";
 import { ServiceImage } from "@/components/ServiceImage";
 import { Loader2 } from "lucide-react";
+import { InstallmentDocumentsSection } from "@/components/InstallmentDocumentsSection";
 
 export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => void }) {
   const [busy, setBusy] = useState("");
@@ -12,12 +13,15 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
   const [cancelQuote, setCancelQuote] = useState<any>(null);
   const [frequency, setFrequency] = useState("MONTHLY");
   const [rulesOk, setRulesOk] = useState(false);
+  const [docsApproved, setDocsApproved] = useState(false);
 
-  const total = plan.totalAmount || plan.deposit || plan.asset?.price || 0;
-  const paid = plan.amountPaid || 0;
+  const total = plan.totalAmount || plan.deposit || plan.asset?.price || plan.installmentTotal || 0;
+  const paid = plan.amountPaid || plan.installmentPaid || 0;
   const balance = Math.max(0, total - paid);
   const next = (plan.installments || []).find((i: any) => i.status === "PENDING");
-  const needsMethod = plan.paymentMethod === "UNSET" || plan.paymentMethod === "PENDING";
+  const paymentMethod = plan.paymentMethod || plan.paymentType;
+  const needsMethod = !paymentMethod || paymentMethod === "UNSET" || paymentMethod === "PENDING";
+  const isInstallment = paymentMethod === "INSTALLMENT";
   const active = ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "PENDING", "CONFIRMED"].includes(plan.status);
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
@@ -27,6 +31,7 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
       const res = await fetch(`/api/plans/${plan.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action, ...extra }),
       });
       const data = await res.json();
@@ -46,15 +51,21 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
 
   return (
     <div className="border rounded-2xl overflow-hidden bg-white shadow-sm">
-      <ServiceImage imagesJson={plan.asset?.images} mainIndex={plan.asset?.mainImageIndex} alt={plan.asset?.title} />
-      <div className="p-4 space-y-2">
+      <ServiceImage
+        imagesJson={plan.asset?.images}
+        mainIndex={plan.asset?.mainImageIndex}
+        alt={plan.asset?.title}
+      />
+      <div className="p-4 space-y-3">
         <div className="flex justify-between gap-2">
           <h3 className="font-semibold text-construction-dark">{plan.asset?.title}</h3>
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100">{plan.status}</span>
         </div>
         <p className="text-sm text-slate-500">
-          {needsMethod ? "Payment not chosen yet" : plan.paymentMethod}
-          {plan.paymentFrequency ? ` · ${plan.paymentFrequency}` : ""}
+          {needsMethod ? "Payment not chosen yet" : paymentMethod}
+          {plan.paymentFrequency || plan.installmentFrequency
+            ? ` · ${plan.paymentFrequency || plan.installmentFrequency}`
+            : ""}
         </p>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
@@ -79,31 +90,36 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           <Countdown expiresAt={plan.expiresAt} status={plan.status} label="Hold expires in" />
         )}
 
-        {needsMethod && active && (
-          <div className="border border-primary-100 bg-primary-50/50 rounded-xl p-3 space-y-2">
-            <p className="text-sm font-semibold text-primary-900">Choose payment method</p>
+        {needsMethod && (
+          <div className="space-y-3 border-t pt-3">
+            <p className="text-sm font-semibold">Choose payment method</p>
             <button
               type="button"
               disabled={!!busy}
               onClick={() => act("SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
-              className="w-full text-sm font-semibold bg-primary-600 text-white py-2 rounded-lg"
+              className="w-full text-sm font-semibold border py-2 rounded-lg hover:bg-slate-50"
             >
               Full payment
             </button>
-            <div className="border-t pt-2 space-y-2">
-              <p className="text-xs text-slate-600">Or installment</p>
+            <div className="border rounded-xl p-3 space-y-2 bg-slate-50">
+              <p className="text-sm font-semibold">Installment</p>
               <select
                 value={frequency}
                 onChange={(e) => setFrequency(e.target.value)}
                 className="w-full border rounded-lg px-2 py-1.5 text-sm"
               >
-                {["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"].map((f) => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="QUARTERLY">Quarterly</option>
               </select>
-              <label className="flex items-start gap-2 text-xs">
-                <input type="checkbox" checked={rulesOk} onChange={(e) => setRulesOk(e.target.checked)} className="mt-0.5" />
-                I agree to installment rules for this category
+              <label className="flex items-start gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={rulesOk}
+                  onChange={(e) => setRulesOk(e.target.checked)}
+                  className="mt-0.5"
+                />
+                I have read and agree to the installment rules for this category.
               </label>
               <button
                 type="button"
@@ -117,18 +133,51 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
                 }
                 className="w-full text-sm font-semibold bg-accent-500 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                Start installment plan
+                Continue with installment
               </button>
             </div>
           </div>
         )}
 
+        {isInstallment && (
+          <InstallmentDocumentsSection
+            reservationId={plan.id}
+            category={plan.asset?.type || "HOUSE"}
+            onOverallChange={(_overall, canPay) => setDocsApproved(canPay)}
+          />
+        )}
+
+        {isInstallment && docsApproved && (
+          <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+            Documents approved. You can pay the first deposit below to start the installment plan.
+          </p>
+        )}
+
         {!needsMethod && active && balance > 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
-            <button type="button" disabled={!!busy} onClick={() => act("PAY_INSTALLMENT")} className="text-xs font-semibold bg-primary-600 text-white px-3 py-1.5 rounded-lg">
-              {busy === "PAY_INSTALLMENT" ? <Loader2 className="w-3 h-3 animate-spin" /> : "Pay Now"}
+            <button
+              type="button"
+              disabled={!!busy || (isInstallment && !docsApproved && plan.docsStatus !== "APPROVED")}
+              onClick={() => act("PAY_INSTALLMENT")}
+              className="text-xs font-semibold bg-primary-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+              title={
+                isInstallment && !docsApproved && plan.docsStatus !== "APPROVED"
+                  ? "Wait for document approval"
+                  : undefined
+              }
+            >
+              {busy === "PAY_INSTALLMENT" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                "Pay Now"
+              )}
             </button>
-            <button type="button" disabled={!!busy} onClick={() => act("PAY_REMAINING")} className="text-xs font-semibold bg-accent-500 text-white px-3 py-1.5 rounded-lg">
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => act("PAY_REMAINING")}
+              className="text-xs font-semibold bg-accent-500 text-white px-3 py-1.5 rounded-lg"
+            >
               Pay Remaining Balance
             </button>
             <button
@@ -142,7 +191,12 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
             >
               Extra payment
             </button>
-            <button type="button" disabled={!!busy} onClick={() => act("CANCEL_QUOTE")} className="text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg">
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => act("CANCEL_QUOTE")}
+              className="text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg"
+            >
               Cancel
             </button>
           </div>
@@ -151,10 +205,20 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
         {cancelQuote && (
           <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm space-y-2">
             <p>{cancelQuote.message}</p>
-            <button type="button" className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg" onClick={() => act("CANCEL_CONFIRM", { reason: "Client confirmed" })}>
+            <button
+              type="button"
+              className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg"
+              onClick={() => act("CANCEL_CONFIRM", { reason: "Client confirmed" })}
+            >
               Confirm cancel
             </button>
-            <button type="button" className="text-xs border px-3 py-1.5 rounded-lg ml-2" onClick={() => setCancelQuote(null)}>Keep</button>
+            <button
+              type="button"
+              className="text-xs border px-3 py-1.5 rounded-lg ml-2"
+              onClick={() => setCancelQuote(null)}
+            >
+              Keep
+            </button>
           </div>
         )}
 
