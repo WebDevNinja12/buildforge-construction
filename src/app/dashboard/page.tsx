@@ -7,7 +7,7 @@ import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientHistoryActions, AdminExportButtons } from "@/components/HistoryActions";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { DashboardNav } from "@/components/DashboardNav";
-import { LogoutButton, LogoutIconButton } from "@/components/LogoutButton";
+import { LogoutIconButton } from "@/components/LogoutButton";
 import {
   Building2, Wrench, Users, ClipboardList, CreditCard, BadgeCheck,
 } from "lucide-react";
@@ -55,10 +55,7 @@ export default async function DashboardPage() {
             <h1 className="text-3xl font-bold text-construction-dark">Dashboard</h1>
             <p className="mt-1 text-construction-gray">Welcome back, {session.name}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <LogoutIconButton />
-            <LogoutButton />
-          </div>
+          <LogoutIconButton />
         </div>
 
         <DashboardNav role={session.role} />
