@@ -1,19 +1,15 @@
-"use client";
+use client;
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
-  Loader2,
+  CheckCircle2,
+  XCircle,
   FileText,
-  Check,
-  X,
-  ExternalLink,
-  RefreshCw,
+  Loader2,
 } from "lucide-react";
-import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
-import { useToast } from "@/components/Toast";
 
 type Tab =
   | "overview"
@@ -24,90 +20,107 @@ type Tab =
   | "contracts"
   | "activity";
 
+function formatDate(d?: string | null) {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
+function statusColor(s?: string) {
+  const v = (s || "").toUpperCase();
+  if (["APPROVED", "VERIFIED", "ACTIVE", "PAID", "COMPLETED"].includes(v))
+    return "bg-emerald-100 text-emerald-800";
+  if (["PENDING", "UNDER_REVIEW", "INCOMPLETE"].includes(v))
+    return "bg-amber-100 text-amber-800";
+  if (["REJECTED", "SUSPENDED", "CANCELLED", "EXPIRED", "OVERDUE"].includes(v))
+    return "bg-red-100 text-red-800";
+  return "bg-slate-100 text-slate-700";
+}
+
+function identityValue(fields: any[] | undefined, key: string) {
+  if (!fields?.length) return null;
+  const hit = fields.find((f) =>
+    new RegExp(key, "i").test(String(f.type || "") + " " + String(f.label || ""))
+  );
+  return hit?.value || null;
+}
+
 export default function AdminClientProfilePage() {
-  const { id } = useParams<{ id: string }>();
-  const { toast } = useToast();
+  const params = useParams();
+  const id = String(params?.id || "");
   const [tab, setTab] = useState<Tab>("overview");
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [reviews, setReviews] = useState<Record<string, { status?: string; remark?: string }>>({});
+  const [msg, setMsg] = useState("");
+  const [reviews, setReviews] = useState<Record<string, { status: string; rejectReason: string }>>({});
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setError("");
     try {
-      const res = await fetch(`/api/admin/clients/${id}`, { credentials: "include" });
+      const res = await fetch(`/api/admin/clients/${id}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
+      if (!res.ok) throw new Error(json.error || "Failed to load");
       setData(json);
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to load", "err");
-      setData(null);
-    } finally {
-      setLoading(false);
+      setError(e instanceof Error ? e.message : "Failed");
     }
-  }, [id, toast]);
+  }, [id]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (id) load();
+  }, [id, load]);
 
+  const u = data?.user;
   const allDocs = useMemo(() => {
-    if (!data) return [] as any[];
-    const reg = (data.registrationDocuments || []).map((d: any) => ({
+    const reg = (data?.registrationDocuments || []).map((d: any) => ({
       ...d,
       source: "REGISTRATION",
-      group: "Registration documents",
     }));
-    const inst = (data.installmentDocuments || []).map((d: any) => ({
+    const inst = (data?.installmentDocuments || []).map((d: any) => ({
       ...d,
       source: "INSTALLMENT",
-      group: d.reservationId ? `Installment · ${d.reservationId.slice(-6)}` : "Installment documents",
     }));
     return [...reg, ...inst];
   }, [data]);
 
-  const fileDocs = allDocs.filter((d) => d.fileUrl);
+  const fileDocs = useMemo(
+    () => allDocs.filter((d: any) => d.fileUrl),
+    [allDocs]
+  );
 
   async function submitReviews() {
-    const payload = Object.entries(reviews)
-      .filter(([, v]) => v.status)
-      .map(([key, v]) => {
-        const [source, docId] = key.split(":");
-        return {
-          id: docId,
-          source,
-          status: v.status,
-          rejectReason: v.remark,
-        };
-      });
-    if (!payload.length) {
-      toast("Mark at least one document", "err");
-      return;
-    }
-    for (const p of payload) {
-      if (p.status === "REJECTED" && !p.rejectReason?.trim()) {
-        toast("Remark required for each rejection", "err");
-        return;
-      }
-    }
     setBusy(true);
+    setMsg("");
     try {
+      const payload = Object.entries(reviews)
+        .filter(([, v]) => v.status)
+        .map(([docId, v]) => {
+          const doc = allDocs.find((d: any) => d.id === docId);
+          return {
+            id: docId,
+            status: v.status,
+            rejectReason: v.rejectReason || undefined,
+            source: doc?.source === "REGISTRATION" ? "REGISTRATION" : "INSTALLMENT",
+          };
+        });
       const res = await fetch(`/api/admin/clients/${id}`, {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "BATCH_REVIEW_DOCS", reviews: payload }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
-      toast("Review submitted");
+      if (!res.ok) throw new Error(json.error || "Review failed");
+      setMsg("Reviews saved");
       setReviews({});
-      load();
+      await load();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed", "err");
+      setMsg(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
     }
@@ -115,65 +128,66 @@ export default function AdminClientProfilePage() {
 
   async function finalApprove() {
     setBusy(true);
+    setMsg("");
     try {
       const res = await fetch(`/api/admin/clients/${id}`, {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "FINAL_APPROVE" }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
-      toast("Client approved / verified");
-      load();
+      if (!res.ok) throw new Error(json.error || "Approve failed");
+      setMsg("Client fully verified");
+      await load();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed", "err");
+      setMsg(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
     }
   }
 
-  async function generateAgreement(reservationId?: string) {
+  async function generateAgreement() {
     setBusy(true);
+    setMsg("");
     try {
       const res = await fetch(`/api/admin/clients/${id}`, {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "GENERATE_AGREEMENT", reservationId }),
+        body: JSON.stringify({ action: "GENERATE_AGREEMENT" }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
-      toast(`Agreement ${json.contract?.contractNumber} ready");
-      load();
-      setTab("contracts");
+      if (!res.ok) throw new Error(json.error || "Generate failed");
+      setMsg(`Agreement ${json.contract?.contractNumber || ""} created`);
+      await load();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed", "err");
+      setMsg(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
     }
   }
 
-  if (loading) {
+  if (error) {
     return (
-      <div className="flex justify-center py-20">
+      <div className="p-6">
+        <p className="text-red-600">{error}</p>
+        <Link href="/admin/clients" className="text-primary-600 underline">
+          Back to clients
+        </Link>
+      </div>
+    );
+  }
+
+  if (!data || !u) {
+    return (
+      <div className="p-10 flex justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
       </div>
     );
   }
 
-  if (!data?.user) {
-    return (
-      <div className="space-y-3">
-        <Link href="/admin/clients" className="text-sm text-primary-600">
-          ← Clients
-        </Link>
-        <p className="text-slate-600">Client not found.</p>
-      </div>
-    );
-  }
+  const nin = identityValue(data.typedIdentityFields, "nin");
+  const bvn = identityValue(data.typedIdentityFields, "bvn");
 
-  const u = data.user;
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Documents" },
@@ -184,68 +198,58 @@ export default function AdminClientProfilePage() {
     { id: "activity", label: "Activity" },
   ];
 
-  const requiredPending = (data.installmentDocuments || []).filter(
-    (d: any) => d.required && d.status !== "APPROVED"
-  );
-
   return (
-    <div className="space-y-5 max-w-5xl">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex items-center gap-3">
           <Link
             href="/admin/clients"
-            className="inline-flex items-center gap-1 text-sm text-primary-600 min-h-[40px]"
+            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border"
           >
-            <ArrowLeft className="w-4 h-4" /> Clients
+            <ArrowLeft className="w-5 h-5" />
           </Link>
-          <h1 className="text-2xl font-bold text-construction-dark">{u.name}</h1>
-          <p className="text-sm text-slate-500 break-all">{u.email}</p>
-          <div className="flex flex-wrap gap-2 mt-2">
-            <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(u.status)}`}>
-              {u.status}
-            </span>
-            <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(u.verificationStatus)}`}>
-              {u.verificationStatus}
-            </span>
+          <div>
+            <h1 className="text-xl font-bold text-construction-dark">{u.name}</h1>
+            <p className="text-sm text-slate-500">{u.email}</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={load}
-            className="min-h-[44px] px-3 rounded-xl border bg-white text-sm inline-flex items-center gap-1"
-          >
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
-          <button
-            type="button"
-            disabled={busy || requiredPending.length > 0}
-            onClick={finalApprove}
-            className="min-h-[44px] px-4 rounded-xl bg-green-600 text-white text-sm font-semibold disabled:opacity-50"
-            title={requiredPending.length ? "Approve all required documents first" : ""}
-          >
-            Approve Client
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => generateAgreement()}
-            className="min-h-[44px] px-4 rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50"
-          >
-            Generate agreement
-          </button>
-        </div>
+        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusColor(u.verificationStatus)}`}>
+          {u.verificationStatus}
+        </span>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+      {msg && (
+        <div className="text-sm rounded-xl border px-4 py-3 bg-slate-50 text-slate-700">{msg}</div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={finalApprove}
+          className="min-h-[44px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50"
+        >
+          Final verify
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={generateAgreement}
+          className="min-h-[44px] px-4 rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50"
+        >
+          Generate agreement PDF
+        </button>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
-            className={`min-h-[40px] px-3 rounded-xl text-xs font-semibold whitespace-nowrap ${
+            className={`min-h-[40px] px-3 rounded-full text-sm whitespace-nowrap ${
               tab === t.id
-                ? "bg-primary-600 text-white"
+                ? "bg-construction-dark text-white"
                 : "bg-white border text-slate-600"
             }`}
           >
@@ -258,12 +262,18 @@ export default function AdminClientProfilePage() {
         <div className="grid md:grid-cols-2 gap-4">
           <div className="bg-white border rounded-2xl p-4 space-y-2 text-sm">
             <h2 className="font-bold text-construction-dark">Client details</h2>
-            <p><span className="text-slate-500">Phone:</span> {u.phone || "—"}</p>
-            <p><span className="text-slate-500">Type:</span> {u.clientType}</p>
-            <p className="font-semibold text-construction-dark">
-              NIN: <span className="text-primary-700">{u.nin || "Not provided"}</span>
+            <p>
+              <span className="text-slate-500">Phone:</span> {u.phone || "—"}
             </p>
-            <p><span className="text-slate-500">BVN:</span> {u.bvn || "—"}</p>
+            <p>
+              <span className="text-slate-500">Type:</span> {u.clientType}
+            </p>
+            <p className="font-semibold text-construction-dark">
+              NIN: <span className="text-primary-700">{nin || "Not provided"}</span>
+            </p>
+            <p>
+              <span className="text-slate-500">BVN:</span> {bvn || "—"}
+            </p>
             <p className="text-xs text-slate-500">Joined {formatDate(u.createdAt)}</p>
           </div>
           <div className="bg-white border rounded-2xl p-4 space-y-2 text-sm">
@@ -304,125 +314,91 @@ export default function AdminClientProfilePage() {
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm">
             <p className="font-semibold">Client details (compare with ID)</p>
             <p>
-              <span className="font-bold">NIN:</span> {u.nin || "—"}
+              <span className="font-bold">NIN:</span> {nin || "—"}
             </p>
-            <p>BVN: {u.bvn || "—"}</p>
-            <p>Name: {u.name}</p>
+            <p>BVN: {bvn || "—"}</p>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
-            {allDocs.length === 0 ? (
-              <p className="text-sm text-slate-500">No documents uploaded.</p>
-            ) : (
-              allDocs.map((d) => {
-                const key = `${d.source}:${d.id}`;
-                const draft = reviews[key] || {};
-                return (
-                  <div key={key} className="bg-white border rounded-2xl p-3 space-y-2">
-                    <div className="flex justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold">{d.label || d.type}</p>
-                        <p className="text-[11px] text-slate-500">{d.group}</p>
-                        <p className="text-[11px] text-slate-400">{formatDate(d.createdAt)}</p>
-                      </div>
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${statusBadgeClass(d.status)}`}>
-                        {d.status}
-                      </span>
-                    </div>
-                    {d.textValue && (
-                      <p className="text-xs bg-slate-50 rounded-lg px-2 py-1">Value: {d.textValue}</p>
-                    )}
-                    {d.fileUrl && (
-                      <a
-                        href={d.fileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-primary-600 inline-flex items-center gap-1"
-                      >
-                        <ExternalLink className="w-3 h-3" /> Open file
-                      </a>
-                    )}
-                    {d.previousFileUrl && (
-                      <p className="text-[11px] text-slate-500">
-                        Previous file kept · remark: {d.previousRejectReason || "—"}
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReviews((r) => ({ ...r, [key]: { ...r[key], status: "APPROVED", remark: "" } }))
-                        }
-                        className={`min-h-[40px] flex-1 text-xs font-semibold rounded-lg ${
-                          draft.status === "APPROVED"
-                            ? "bg-green-600 text-white"
-                            : "border text-green-700"
-                        }`}
-                      >
-                        <Check className="w-3.5 h-3.5 inline" /> Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReviews((r) => ({ ...r, [key]: { ...r[key], status: "REJECTED" } }))
-                        }
-                        className={`min-h-[40px] flex-1 text-xs font-semibold rounded-lg ${
-                          draft.status === "REJECTED"
-                            ? "bg-red-600 text-white"
-                            : "border text-red-700"
-                        }`}
-                      >
-                        <X className="w-3.5 h-3.5 inline" /> Reject
-                      </button>
-                    </div>
-                    {draft.status === "REJECTED" && (
-                      <textarea
-                        placeholder="Remark required (e.g. Image not clear, upload again)"
-                        value={draft.remark || ""}
-                        onChange={(e) =>
-                          setReviews((r) => ({
-                            ...r,
-                            [key]: { ...r[key], status: "REJECTED", remark: e.target.value },
-                          }))
-                        }
-                        className="w-full border rounded-lg text-xs p-2 min-h-[60px]"
-                      />
-                    )}
+            {allDocs.map((d: any) => (
+              <div key={d.id} className="border rounded-xl p-3 bg-white space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-sm">{d.label || d.type}</p>
+                    <p className="text-xs text-slate-500">{d.source}</p>
                   </div>
-                );
-              })
-            )}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${statusColor(d.status)}`}>
+                    {d.status}
+                  </span>
+                </div>
+                {d.textValue && <p className="text-xs">Value: {d.textValue}</p>}
+                {d.fileUrl && (
+                  <a href={d.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-600 underline">
+                    Open file
+                  </a>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="min-h-[40px] flex-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
+                    onClick={() =>
+                      setReviews((r) => ({
+                        ...r,
+                        [d.id]: { status: "APPROVED", rejectReason: "" },
+                      }))
+                    }
+                  >
+                    <CheckCircle2 className="w-3 h-3 inline mr-1" />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-[40px] flex-1 rounded-lg bg-red-600 text-white text-xs font-semibold"
+                    onClick={() =>
+                      setReviews((r) => ({
+                        ...r,
+                        [d.id]: {
+                          status: "REJECTED",
+                          rejectReason: r[d.id]?.rejectReason || "",
+                        },
+                      }))
+                    }
+                  >
+                    <XCircle className="w-3 h-3 inline mr-1" />
+                    Reject
+                  </button>
+                </div>
+                {reviews[d.id]?.status === "REJECTED" && (
+                  <input
+                    className="w-full border rounded-lg px-2 py-2 text-xs"
+                    placeholder="Remark required"
+                    value={reviews[d.id]?.rejectReason || ""}
+                    onChange={(e) =>
+                      setReviews((r) => ({
+                        ...r,
+                        [d.id]: { status: "REJECTED", rejectReason: e.target.value },
+                      }))
+                    }
+                  />
+                )}
+              </div>
+            ))}
+            {!allDocs.length && <p className="text-slate-500 text-sm">No documents yet.</p>}
           </div>
         </div>
       )}
 
       {tab === "reservations" && (
         <div className="space-y-2">
-          {(data.reservations || []).length === 0 ? (
-            <p className="text-sm text-slate-500">No reservations.</p>
-          ) : (
-            data.reservations.map((r: any) => (
-              <div key={r.id} className="bg-white border rounded-xl p-4 text-sm">
-                <div className="flex justify-between gap-2">
-                  <p className="font-semibold">{r.asset?.title}</p>
-                  <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(r.status)}`}>
-                    {r.status}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  {r.paymentType || "No payment method"} · {formatCurrency(r.installmentTotal || r.asset?.price)}
-                </p>
-                <p className="text-xs text-slate-400">Expires {formatDate(r.expiresAt)}</p>
-                <button
-                  type="button"
-                  className="mt-2 text-xs font-semibold text-primary-700"
-                  onClick={() => generateAgreement(r.id)}
-                >
-                  Generate agreement for this booking
-                </button>
-              </div>
-            ))
-          )}
+          {(data.reservations || []).map((r: any) => (
+            <div key={r.id} className="border rounded-xl p-3 bg-white text-sm">
+              <p className="font-semibold">{r.asset?.title || "Asset"}</p>
+              <p className="text-xs text-slate-500">
+                {r.status} · {r.paymentType || "—"} · expires {formatDate(r.expiresAt)}
+              </p>
+            </div>
+          ))}
+          {!data.reservations?.length && <p className="text-slate-500 text-sm">No reservations.</p>}
         </div>
       )}
 
@@ -431,126 +407,102 @@ export default function AdminClientProfilePage() {
           {(data.reservations || [])
             .filter((r: any) => r.paymentType === "INSTALLMENT")
             .map((r: any) => (
-              <div key={r.id} className="bg-white border rounded-xl p-4 text-sm">
+              <div key={r.id} className="border rounded-xl p-3 bg-white text-sm">
                 <p className="font-semibold">{r.asset?.title}</p>
                 <p>
-                  Paid {formatCurrency(r.installmentPaid)} / {formatCurrency(r.installmentTotal || r.asset?.price)}
+                  Paid: {r.installmentPaid || 0} / {r.installmentTotal || r.asset?.price || 0}
                 </p>
-                <p className="text-xs text-slate-500">
-                  Next due {formatDate(r.nextDueAt)} · Deadline {formatDate(r.planDeadlineAt)}
-                </p>
+                <p className="text-xs">Next due: {formatDate(r.nextDueAt)}</p>
+                <p className="text-xs">Deadline: {formatDate(r.planDeadlineAt)}</p>
                 <p className="text-xs">Docs: {r.docsStatus}</p>
               </div>
             ))}
-          {(data.reservations || []).filter((r: any) => r.paymentType === "INSTALLMENT").length === 0 && (
-            <p className="text-sm text-slate-500">No installment plans.</p>
-          )}
         </div>
       )}
 
       {tab === "payments" && (
         <div className="space-y-2">
-          {(data.payments || []).length === 0 ? (
-            <p className="text-sm text-slate-500">No payments.</p>
-          ) : (
-            data.payments.map((p: any) => (
-              <div key={p.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between text-sm">
-                <div>
-                  <p className="font-semibold">{formatCurrency(p.amount)}</p>
-                  <p className="text-xs text-slate-500">{p.type} · {formatDate(p.createdAt)}</p>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${statusBadgeClass(p.status)}`}>
-                  {p.status}
-                </span>
+          {(data.payments || []).map((p: any) => (
+            <div key={p.id} className="border rounded-xl p-3 bg-white text-sm flex justify-between">
+              <div>
+                <p className="font-semibold">
+                  {p.currency || "USD"} {p.amount}
+                </p>
+                <p className="text-xs text-slate-500">{p.type} · {formatDate(p.createdAt)}</p>
               </div>
-            ))
-          )}
+              <span className={`text-xs px-2 py-1 rounded-full h-fit ${statusColor(p.status)}`}>
+                {p.status}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
       {tab === "contracts" && (
         <div className="space-y-2">
-          {(data.contracts || []).length === 0 ? (
-            <p className="text-sm text-slate-500">No contracts yet. Generate an agreement after document approval.</p>
-          ) : (
-            data.contracts.map((c: any) => (
-              <div key={c.id} className="bg-white border rounded-xl p-4 text-sm space-y-1">
-                <p className="font-semibold">{c.contractNumber}</p>
-                <p className="text-xs text-slate-500">{c.serviceTitle}</p>
-                <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(c.status)}`}>
-                  {c.status}
-                </span>
-                <div className="flex flex-wrap gap-3 pt-1">
-                  {c.pdfUrl && (
-                    <a href={c.pdfUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-600 font-semibold">
-                      Download PDF
-                    </a>
-                  )}
-                  <Link href={`/verify/${c.verifyToken}`} className="text-xs text-slate-600 font-semibold">
-                    Open verification
-                  </Link>
-                </div>
-              </div>
-            ))
-          )}
+          {(data.contracts || []).map((c: any) => (
+            <div key={c.id} className="border rounded-xl p-3 bg-white text-sm">
+              <p className="font-semibold flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                {c.contractNumber}
+              </p>
+              <p className="text-xs">{c.serviceTitle}</p>
+              <p className="text-xs">Status: {c.status}</p>
+              {c.pdfUrl && (
+                <a href={c.pdfUrl} className="text-primary-600 underline text-xs" target="_blank" rel="noreferrer">
+                  Download PDF
+                </a>
+              )}
+            </div>
+          ))}
+          {!data.contracts?.length && <p className="text-slate-500 text-sm">No contracts yet.</p>}
         </div>
       )}
 
       {tab === "activity" && (
-        <ul className="space-y-2 text-sm">
-          {(data.activity || []).length === 0 ? (
-            <p className="text-slate-500">No activity logged for this client id yet.</p>
-          ) : (
-            data.activity.map((a: any) => (
-              <li key={a.id} className="bg-white border rounded-xl px-4 py-3">
-                <p className="font-medium">{a.action}</p>
-                <p className="text-xs text-slate-500">{formatDate(a.createdAt)} · {a.entity}</p>
-              </li>
-            ))
-          )}
-        </ul>
+        <div className="space-y-2">
+          {(data.activity || []).map((a: any) => (
+            <div key={a.id} className="border rounded-xl p-3 bg-white text-xs">
+              <p className="font-semibold">{a.action}</p>
+              <p className="text-slate-500">{formatDate(a.createdAt)}</p>
+            </div>
+          ))}
+        </div>
       )}
 
-      {/* Gallery modal */}
       {galleryOpen && fileDocs.length > 0 && (
         <div className="fixed inset-0 z-50 bg-black/80 flex flex-col">
-          <div className="flex items-center justify-between p-3 text-white">
-            <p className="text-sm font-semibold">
-              {galleryIndex + 1} / {fileDocs.length} · {fileDocs[galleryIndex]?.label || fileDocs[galleryIndex]?.type}
+          <div className="flex justify-between items-center p-4 text-white">
+            <p className="text-sm">
+              {galleryIndex + 1} / {fileDocs.length} — {fileDocs[galleryIndex]?.label || fileDocs[galleryIndex]?.type}
             </p>
-            <button type="button" className="min-h-[44px] px-3" onClick={() => setGalleryOpen(false)}>
+            <button type="button" className="min-h-[44px] px-4" onClick={() => setGalleryOpen(false)}>
               Close
             </button>
           </div>
-          <div className="flex-1 flex items-center justify-center px-2 relative">
-            <button
-              type="button"
-              className="absolute left-2 min-h-[44px] min-w-[44px] bg-white/20 text-white rounded-full"
-              onClick={() => setGalleryIndex((i) => (i - 1 + fileDocs.length) % fileDocs.length)}
-            >
-              ‹
-            </button>
+          <div className="flex-1 flex items-center justify-center p-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={fileDocs[galleryIndex].fileUrl}
               alt=""
-              className="max-h-[70vh] max-w-full object-contain rounded-lg"
+              className="max-h-[70vh] max-w-full object-contain"
             />
+          </div>
+          <div className="flex justify-center gap-4 p-4">
             <button
               type="button"
-              className="absolute right-2 min-h-[44px] min-w-[44px] bg-white/20 text-white rounded-full"
+              className="min-h-[44px] px-6 rounded-xl bg-white"
+              onClick={() => setGalleryIndex((i) => (i - 1 + fileDocs.length) % fileDocs.length)}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className="min-h-[44px] px-6 rounded-xl bg-white"
               onClick={() => setGalleryIndex((i) => (i + 1) % fileDocs.length)}
             >
-              ›
+              Next
             </button>
-          </div>
-          <div className="p-3 flex justify-center gap-3 text-white text-sm">
-            <a href={fileDocs[galleryIndex].fileUrl} download className="underline">
-              Download
-            </a>
-            <span className={statusBadgeClass(fileDocs[galleryIndex].status)}>
-              {fileDocs[galleryIndex].status}
-            </span>
           </div>
         </div>
       )}
