@@ -1,3 +1,8 @@
+/**
+ * Vercel build — generate Prisma client only.
+ * Do NOT run `prisma db push` here (causes invalid_db_setup on Neon).
+ * Schema is healed at runtime via /api/db-heal and login migrate.
+ */
 import { spawnSync } from "node:child_process";
 
 function pickUrl() {
@@ -21,11 +26,11 @@ const neon = pickUrl();
 if (neon) {
   process.env.construction_storage_PRISMA_DATABASE_URL = neon;
   process.env.DATABASE_URL = neon;
-  console.log("[build] Neon URL set");
+  console.log("[build] DATABASE URL present — generate only (no db push)");
 } else {
   process.env.construction_storage_PRISMA_DATABASE_URL =
     "postgresql://build:build@127.0.0.1:5432/build?schema=public";
-  console.warn("[build] No DB URL — generate only");
+  console.warn("[build] No DB URL — placeholder for prisma generate");
 }
 
 function run(cmd, args) {
@@ -35,15 +40,5 @@ function run(cmd, args) {
 }
 
 run("npx", ["prisma", "generate"]);
-
-if (neon) {
-  // Non-fatal: schema push
-  const push = spawnSync(
-    "npx",
-    ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"],
-    { stdio: "inherit", env: process.env, shell: true }
-  );
-  console.log("[build] db push status", push.status);
-}
-
 run("npx", ["next", "build"]);
+console.log("[build] OK");
