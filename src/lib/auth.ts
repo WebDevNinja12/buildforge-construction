@@ -18,11 +18,6 @@ export interface SessionUser {
   verificationStatus?: string;
 }
 
-interface TokenClaims {
-  id: string;
-  role: string;
-}
-
 export const DEFAULT_ADMIN_EMAIL = "admin@hamaconstruction.com";
 export const DEFAULT_ADMIN_PASSWORD = "HamaAdmin2026!";
 
@@ -30,98 +25,71 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
 
-export async function verifyPassword(
-  password: string,
-  hash: string
-): Promise<boolean> {
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
-export async function createToken(
-  user: Pick<SessionUser, "id" | "role">
-): Promise<string> {
-  return new SignJWT({ id: user.id, role: user.role })
+export async function createToken(user: Pick<SessionUser, "id" | "role">): Promise<string> {
+  return new SignJWT({ id: user.id, role: user.role, sub: user.id })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
     .sign(JWT_SECRET);
 }
 
-export async function verifyToken(token: string): Promise<TokenClaims | null> {
+export async function verifyToken(token: string): Promise<{ sub: string; role: string } | null> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    if (!payload.id || !payload.role) return null;
-    return { id: String(payload.id), role: String(payload.role) };
+    const sub = String(payload.sub || payload.id || "");
+    const role = String(payload.role || "");
+    if (!sub || !role) return null;
+    return { sub, role };
   } catch {
     return null;
   }
 }
 
-/** Raw lookup — only columns that exist on older DBs (avoids User.nin schema drift) */
-async function findUserByEmailRaw(email: string) {
-  const rows = await prisma.$queryRaw<
-    {
-      id: string;
-      email: string;
-      password: string;
-      name: string;
-      role: string;
-      status: string;
-      verificationStatus: string | null;
-      deletedAt: Date | null;
-    }[]
-  >`
-    SELECT id, email, password, name, role, status,
-           "verificationStatus", "deletedAt"
-    FROM "User"
-    WHERE lower(email) = lower(${email})
-    LIMIT 1
-  `;
-  return rows[0] || null;
-}
-
-async function findUserByIdRaw(id: string) {
-  const rows = await prisma.$queryRaw<
-    {
-      id: string;
-      email: string;
-      name: string;
-      role: string;
-      status: string;
-      verificationStatus: string | null;
-      deletedAt: Date | null;
-    }[]
-  >`
-    SELECT id, email, name, role, status, "verificationStatus", "deletedAt"
-    FROM "User"
-    WHERE id = ${id}
-    LIMIT 1
-  `;
-  return rows[0] || null;
-}
+/** Safe user columns only — never SELECT nin/bvn (installment-doc fields only) */
+const USER_SAFE = {
+  id: true,
+  email: true,
+  password: true,
+  name: true,
+  role: true,
+  status: true,
+  verificationStatus: true,
+  deletedAt: true,
+} as const;
 
 export async function getSession(): Promise<SessionUser | null> {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
+  const cookieStore = await cookies();
+  const token =
+    cookieStore.get(SESSION_COOKIE)?.value || cookieStore.get("session")?.value;
   if (!token) return null;
   const claims = await verifyToken(token);
   if (!claims) return null;
 
-  try {
-    const user = await findUserByIdRaw(claims.id);
-    if (!user || user.deletedAt) return null;
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      status: user.status,
-      verificationStatus: user.verificationStatus || undefined,
-    };
-  } catch (e) {
-    console.error("getSession", e);
-    return null;
-  }
+  const user = await prisma.user.findUnique({
+    where: { id: claims.sub },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      verificationStatus: true,
+      deletedAt: true,
+    },
+  });
+  if (!user || user.deletedAt) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    status: user.status,
+    verificationStatus: user.verificationStatus || undefined,
+  };
 }
 
 export async function requireApproved(): Promise<SessionUser> {
@@ -135,16 +103,14 @@ export async function requireApproved(): Promise<SessionUser> {
 
 export async function requireAdmin(): Promise<SessionUser> {
   const session = await getSession();
-  if (!session || session.role !== "ADMIN") {
-    throw new Error("Admin only");
-  }
+  if (!session || session.role !== "ADMIN") throw new Error("Admin only");
   return session;
 }
 
 export async function setSession(user: Pick<SessionUser, "id" | "role">) {
   const token = await createToken(user);
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -154,17 +120,9 @@ export async function setSession(user: Pick<SessionUser, "id" | "role">) {
 }
 
 export async function clearSession() {
-  const jar = await cookies();
-  jar.delete(SESSION_COOKIE);
-}
-
-function cuidLike() {
-  return (
-    "c" +
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2, 10) +
-    Math.random().toString(36).slice(2, 8)
-  );
+  const cookieStore = await cookies();
+  cookieStore.delete(SESSION_COOKIE);
+  cookieStore.delete("session");
 }
 
 export async function ensureAdminFromEnv(): Promise<boolean> {
@@ -173,58 +131,37 @@ export async function ensureAdminFromEnv(): Promise<boolean> {
   if (!email || !password) return false;
 
   const hashed = await hashPassword(password);
-  const name = process.env.ADMIN_NAME?.trim() || "Hama Admin";
-  const now = new Date();
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, role: true },
+  });
 
-  // Migrate legacy email if present
-  try {
-    const legacy = await findUserByEmailRaw("admin@buildforge.com");
-    if (legacy && email !== "admin@buildforge.com") {
-      const conflict = await findUserByEmailRaw(email);
-      if (!conflict) {
-        await prisma.$executeRaw`
-          UPDATE "User"
-          SET email = ${email},
-              password = ${hashed},
-              role = 'ADMIN',
-              status = 'APPROVED',
-              "verificationStatus" = 'VERIFIED',
-              name = ${name},
-              "updatedAt" = ${now}
-          WHERE id = ${legacy.id}
-        `;
-        return true;
-      }
-    }
-  } catch (e) {
-    console.error("legacy admin migrate", e);
-  }
-
-  const existing = await findUserByEmailRaw(email);
   if (existing) {
-    await prisma.$executeRaw`
-      UPDATE "User"
-      SET password = ${hashed},
-          role = 'ADMIN',
-          status = 'APPROVED',
-          "verificationStatus" = 'VERIFIED',
-          name = ${name},
-          "updatedAt" = ${now}
-      WHERE id = ${existing.id}
-    `;
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        role: "ADMIN",
+        status: "APPROVED",
+        verificationStatus: "VERIFIED",
+        password: hashed,
+      },
+    });
     return true;
   }
 
-  const id = cuidLike();
-  await prisma.$executeRaw`
-    INSERT INTO "User" (
-      id, email, password, name, role, status, "verificationStatus",
-      "clientType", "createdAt", "updatedAt", "approvedAt", "verifiedAt", "agreedTermsAt"
-    ) VALUES (
-      ${id}, ${email}, ${hashed}, ${name}, 'ADMIN', 'APPROVED', 'VERIFIED',
-      'INDIVIDUAL', ${now}, ${now}, ${now}, ${now}, ${now}
-    )
-  `;
+  await prisma.user.create({
+    data: {
+      email,
+      password: hashed,
+      name: process.env.ADMIN_NAME?.trim() || "Hama Admin",
+      role: "ADMIN",
+      status: "APPROVED",
+      verificationStatus: "VERIFIED",
+      agreedTermsAt: new Date(),
+      approvedAt: new Date(),
+      verifiedAt: new Date(),
+    },
+  });
   return true;
 }
 
@@ -232,64 +169,87 @@ export async function registerUser(
   email: string,
   password: string,
   name: string,
-  extra?: { phone?: string; clientType?: string; agreedTerms?: boolean }
+  phone?: string
 ) {
   const normalized = email.trim().toLowerCase();
-  const existing = await findUserByEmailRaw(normalized);
-  if (existing) throw new Error("Email already registered");
-
-  try {
-    const cooldown = await prisma.siteSetting.findUnique({
-      where: { key: `cooldown:${normalized}` },
-    });
-    if (cooldown?.value) {
-      const until = new Date(cooldown.value);
-      if (until > new Date()) {
-        throw new Error("This email cannot be reused yet. Try again later.");
-      }
+  const existing = await prisma.user.findUnique({
+    where: { email: normalized },
+    select: { id: true, deletedAt: true },
+  });
+  if (existing) {
+    if (existing.deletedAt) {
+      throw new Error("This email cannot be used right now. Contact support if this persists.");
     }
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("cannot be reused")) throw e;
+    throw new Error("Email already registered");
   }
 
   const hashed = await hashPassword(password);
-  const id = cuidLike();
-  const now = new Date();
-  const phone = extra?.phone || null;
-  const clientType = extra?.clientType || "INDIVIDUAL";
-  const agreed = extra?.agreedTerms ? now : null;
-
-  await prisma.$executeRaw`
-    INSERT INTO "User" (
-      id, email, password, name, phone, role, status, "verificationStatus",
-      "clientType", "createdAt", "updatedAt", "agreedTermsAt"
-    ) VALUES (
-      ${id}, ${normalized}, ${hashed}, ${name.trim()}, ${phone},
-      'CLIENT', 'PENDING_APPROVAL', 'UNDER_REVIEW',
-      ${clientType}, ${now}, ${now}, ${agreed}
-    )
-  `;
-
-  const user = await findUserByEmailRaw(normalized);
-  if (!user) throw new Error("Registration failed");
+  const user = await prisma.user.create({
+    data: {
+      email: normalized,
+      password: hashed,
+      name,
+      phone: phone || null,
+      role: "CLIENT",
+      status: "PENDING_APPROVAL",
+      verificationStatus: "UNDER_REVIEW",
+      agreedTermsAt: new Date(),
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+    },
+  });
   return user;
 }
 
 export async function loginUser(
   email: string,
   password: string,
-  opts?: { requireRole?: string }
+  options?: { requireRole?: "ADMIN" | "CLIENT" }
 ) {
   const normalized = email.trim().toLowerCase();
-  const user = await findUserByEmailRaw(normalized);
-  if (!user || user.deletedAt) throw new Error("Invalid email or password");
-  const ok = await verifyPassword(password, user.password);
-  if (!ok) throw new Error("Invalid email or password");
-  if (opts?.requireRole && user.role !== opts.requireRole) {
-    throw new Error("Invalid email or password");
+  const user = await prisma.user.findUnique({
+    where: { email: normalized },
+    select: {
+      id: true,
+      email: true,
+      password: true,
+      name: true,
+      role: true,
+      status: true,
+      deletedAt: true,
+    },
+  });
+  if (!user) throw new Error("Invalid email or password");
+
+  const valid = await verifyPassword(password, user.password);
+  if (!valid) throw new Error("Invalid email or password");
+  if (user.deletedAt) throw new Error("Invalid email or password");
+
+  if (user.status === "REJECTED" || user.status === "SUSPENDED") {
+    throw new Error(
+      user.status === "SUSPENDED"
+        ? "Your account is suspended. Contact support."
+        : "Your account was not approved. Contact support."
+    );
   }
-  if (["SUSPENDED", "ARCHIVED"].includes(user.status)) {
-    throw new Error("Account suspended");
+
+  if (options?.requireRole === "ADMIN" && user.role !== "ADMIN") {
+    throw new Error("This portal is for administrators only. Use the client login.");
   }
-  return user;
+  if (options?.requireRole === "CLIENT" && user.role === "ADMIN") {
+    throw new Error("Administrators must sign in at /admin/login");
+  }
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    status: user.status,
+  };
 }
