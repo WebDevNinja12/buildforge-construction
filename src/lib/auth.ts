@@ -18,8 +18,14 @@ export interface SessionUser {
   verificationStatus?: string;
 }
 
-export const DEFAULT_ADMIN_EMAIL = "admin@hamaconstruction.com";
+export const DEFAULT_ADMIN_EMAIL = "hamaconstruction01@gmail.com";
 export const DEFAULT_ADMIN_PASSWORD = "HamaAdmin2026!";
+
+const LEGACY_ADMIN_EMAILS = [
+  "admin@hamaconstruction.com",
+  "admin@buildforge.com",
+  "admin@hamaconstroction.com",
+];
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -48,18 +54,6 @@ export async function verifyToken(token: string): Promise<{ sub: string; role: s
     return null;
   }
 }
-
-/** Safe user columns only — never SELECT nin/bvn (installment-doc fields only) */
-const USER_SAFE = {
-  id: true,
-  email: true,
-  password: true,
-  name: true,
-  role: true,
-  status: true,
-  verificationStatus: true,
-  deletedAt: true,
-} as const;
 
 export async function getSession(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
@@ -125,16 +119,52 @@ export async function clearSession() {
   cookieStore.delete("session");
 }
 
+/** Ensure admin exists at ADMIN_EMAIL / default; migrate legacy admin emails. */
 export async function ensureAdminFromEnv(): Promise<boolean> {
   const email = (process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
   if (!email || !password) return false;
 
   const hashed = await hashPassword(password);
-  const existing = await prisma.user.findUnique({
+
+  // Prefer exact email match
+  let existing = await prisma.user.findUnique({
     where: { email },
     select: { id: true, role: true },
   });
+
+  // Migrate old admin login emails → new address
+  if (!existing) {
+    for (const legacy of LEGACY_ADMIN_EMAILS) {
+      if (legacy === email) continue;
+      const old = await prisma.user.findUnique({
+        where: { email: legacy },
+        select: { id: true },
+      });
+      if (old) {
+        try {
+          await prisma.user.update({
+            where: { id: old.id },
+            data: {
+              email,
+              password: hashed,
+              role: "ADMIN",
+              status: "APPROVED",
+              verificationStatus: "VERIFIED",
+              name: process.env.ADMIN_NAME?.trim() || "Hama Admin",
+            },
+          });
+          return true;
+        } catch {
+          // email may already exist on another row — fall through to update that row
+        }
+      }
+    }
+    existing = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true },
+    });
+  }
 
   if (existing) {
     await prisma.user.update({
@@ -147,6 +177,29 @@ export async function ensureAdminFromEnv(): Promise<boolean> {
       },
     });
     return true;
+  }
+
+  // Any existing ADMIN with different email — promote target email as admin account
+  const anyAdmin = await prisma.user.findFirst({
+    where: { role: "ADMIN", deletedAt: null },
+    select: { id: true, email: true },
+  });
+  if (anyAdmin && anyAdmin.email !== email) {
+    try {
+      await prisma.user.update({
+        where: { id: anyAdmin.id },
+        data: {
+          email,
+          password: hashed,
+          role: "ADMIN",
+          status: "APPROVED",
+          verificationStatus: "VERIFIED",
+        },
+      });
+      return true;
+    } catch {
+      /* create new below */
+    }
   }
 
   await prisma.user.create({

@@ -5,7 +5,7 @@
  *   ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME
  *
  * Defaults:
- *   admin@hamaconstruction.com / HamaAdmin2026!
+ *   hamaconstruction01@gmail.com / HamaAdmin2026!
  *
  * Run: npm run db:seed
  */
@@ -14,7 +14,7 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const DEFAULT_ADMIN_EMAIL = "admin@hamaconstruction.com";
+const DEFAULT_ADMIN_EMAIL = "hamaconstruction01@gmail.com";
 const DEFAULT_ADMIN_PASSWORD = "HamaAdmin2026!";
 
 async function main() {
@@ -29,8 +29,6 @@ async function main() {
       cancelDeductionPercent: 10,
       graceHours: 24,
       continuesAfterHold: true,
-      installmentRulesText:
-        "Installment continues after the reservation hold. Pay the first deposit before the hold expires.",
     },
     {
       category: "HOTEL",
@@ -40,8 +38,6 @@ async function main() {
       cancelDeductionPercent: 20,
       graceHours: 24,
       continuesAfterHold: false,
-      installmentRulesText:
-        "Installments must be completed within the reservation period.",
     },
     {
       category: "LAND",
@@ -51,8 +47,6 @@ async function main() {
       cancelDeductionPercent: 10,
       graceHours: 24,
       continuesAfterHold: true,
-      installmentRulesText:
-        "Installment continues after the hold. Plan duration is set by the company.",
     },
     {
       category: "APARTMENT",
@@ -62,7 +56,6 @@ async function main() {
       cancelDeductionPercent: 10,
       graceHours: 24,
       continuesAfterHold: true,
-      installmentRulesText: "Same as house/building installment rules.",
     },
     {
       category: "TOOLS",
@@ -72,7 +65,6 @@ async function main() {
       cancelDeductionPercent: 15,
       graceHours: 12,
       continuesAfterHold: false,
-      installmentRulesText: "Complete payment within the reservation period.",
     },
     {
       category: "WORKERS",
@@ -82,17 +74,15 @@ async function main() {
       cancelDeductionPercent: 15,
       graceHours: 6,
       continuesAfterHold: false,
-      installmentRulesText: "Short hold; pay promptly to confirm hire.",
     },
     {
       category: "OTHER",
       name: "Other Construction Activities",
-      defaultExpiryHours: 72,
+      defaultExpiryHours: 24,
       installmentPlanMonths: null,
-      cancelDeductionPercent: 15,
-      graceHours: 24,
+      cancelDeductionPercent: 10,
+      graceHours: 12,
       continuesAfterHold: false,
-      installmentRulesText: "Follow the terms shown at reservation.",
     },
   ];
 
@@ -106,7 +96,6 @@ async function main() {
         cancelDeductionPercent: c.cancelDeductionPercent,
         graceHours: c.graceHours,
         continuesAfterHold: c.continuesAfterHold,
-        installmentRulesText: c.installmentRulesText,
       },
       create: {
         category: c.category,
@@ -116,70 +105,61 @@ async function main() {
         cancelDeductionPercent: c.cancelDeductionPercent,
         graceHours: c.graceHours,
         continuesAfterHold: c.continuesAfterHold,
-        installmentRulesText: c.installmentRulesText,
       },
     });
   }
 
-  const adminEmail = (
-    process.env.ADMIN_EMAIL?.trim() || DEFAULT_ADMIN_EMAIL
-  ).toLowerCase();
+  const adminEmail = (process.env.ADMIN_EMAIL?.trim() || DEFAULT_ADMIN_EMAIL).toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
   const adminName = process.env.ADMIN_NAME?.trim() || "Hama Admin";
+  const hashed = await bcrypt.hash(adminPassword, 12);
 
-  if (adminPassword.length < 8) {
-    throw new Error("ADMIN_PASSWORD must be at least 8 characters");
-  }
-
-  const hash = await bcrypt.hash(adminPassword, 12);
-
-  // Migrate old default email if needed
-  const legacy = await prisma.user.findUnique({
-    where: { email: "admin@buildforge.com" },
-  });
-  if (legacy && adminEmail !== "admin@buildforge.com") {
-    const taken = await prisma.user.findUnique({ where: { email: adminEmail } });
-    if (!taken) {
-      await prisma.user.update({
-        where: { id: legacy.id },
-        data: {
-          email: adminEmail,
-          password: hash,
-          name: adminName,
-          role: "ADMIN",
-          status: "APPROVED",
-          verificationStatus: "VERIFIED",
-        },
-      });
-      console.log(`Migrated admin → ${adminEmail}`);
+  for (const legacy of ["admin@hamaconstruction.com", "admin@buildforge.com"]) {
+    if (legacy === adminEmail) continue;
+    const old = await prisma.user.findUnique({ where: { email: legacy } });
+    if (old) {
+      try {
+        await prisma.user.update({
+          where: { id: old.id },
+          data: {
+            email: adminEmail,
+            password: hashed,
+            name: adminName,
+            role: "ADMIN",
+            status: "APPROVED",
+            verificationStatus: "VERIFIED",
+          },
+        });
+        console.log("Migrated legacy admin", legacy, "->", adminEmail);
+      } catch {
+        /* */
+      }
     }
   }
 
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
-      password: hash,
+      password: hashed,
       name: adminName,
       role: "ADMIN",
       status: "APPROVED",
       verificationStatus: "VERIFIED",
-      approvedAt: new Date(),
-      verifiedAt: new Date(),
     },
     create: {
       email: adminEmail,
-      password: hash,
+      password: hashed,
       name: adminName,
       role: "ADMIN",
       status: "APPROVED",
       verificationStatus: "VERIFIED",
+      agreedTermsAt: new Date(),
       approvedAt: new Date(),
       verifiedAt: new Date(),
-      agreedTermsAt: new Date(),
     },
   });
 
-  console.log(`Admin ready: ${adminEmail}`);
+  console.log("Admin ready:", adminEmail);
   console.log("Seed complete.");
 }
 
@@ -188,6 +168,4 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .finally(() => prisma.$disconnect());
