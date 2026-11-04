@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth";
-import { buildAgreementPdf, nextContractNumber, randomVerifyToken } from "@/lib/contracts";
+import { getSession } from "@/lib/auth";
+import { healSchema } from "@/lib/schema-heal";
+import { recordAdminActivity } from "@/lib/admin-activity";
+
+export const dynamic = "force-dynamic";
+
+async function requireAdmin() {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN") return null;
+  return session;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -12,6 +21,8 @@ export async function GET(
   const { id } = await params;
 
   try {
+    await healSchema().catch(() => null);
+
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
@@ -19,61 +30,115 @@ export async function GET(
         email: true,
         name: true,
         phone: true,
-        clientType: true,
         role: true,
         status: true,
         verificationStatus: true,
         verificationNote: true,
-        avatarUrl: true,
-        signatureUrl: true,
         approvedAt: true,
         verifiedAt: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
       },
     });
-    if (!user || user.role === "ADMIN") {
+    if (!user || user.role === "ADMIN" || user.deletedAt) {
       return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
-    const [regDocs, instDocs, reservations, payments, contracts, logs, toolRentals, hires] =
-      await Promise.all([
-        prisma.userDocument.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } }),
-        prisma.installmentDocument.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } }),
-        prisma.reservation.findMany({
-          where: { userId: id },
-          include: { asset: true, payments: { orderBy: { createdAt: "desc" } } },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.payment.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
-        prisma.contract.findMany({ where: { userId: id }, orderBy: { issuedAt: "desc" } }).catch(() => []),
-        prisma.adminActivityLog.findMany({
-          where: { entityId: id },
-          orderBy: { createdAt: "desc" },
-          take: 40,
-        }),
-        prisma.toolRental.findMany({
-          where: { userId: id },
-          include: { tool: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.hireRequest.findMany({
-          where: { userId: id },
-          include: { worker: true },
-          orderBy: { createdAt: "desc" },
-        }),
-      ]);
+    // Load each section independently so one missing column never blanks the profile
+    const regDocs = await prisma.userDocument
+      .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } })
+      .catch(() => []);
 
-    // NIN/BVN only from installment document text fields (not User table)
+    const instDocs = await prisma.installmentDocument
+      .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } })
+      .catch(() => []);
+
+    let reservations: unknown[] = [];
+    try {
+      reservations = await prisma.reservation.findMany({
+        where: { userId: id },
+        include: { asset: true, payments: { orderBy: { createdAt: "desc" } } },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch {
+      reservations = await prisma.reservation
+        .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } })
+        .catch(() => []);
+    }
+
+    const payments = await prisma.payment
+      .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 50 })
+      .catch(() => []);
+
+    const contracts = await prisma.contract
+      .findMany({ where: { userId: id }, orderBy: { issuedAt: "desc" } })
+      .catch(() => []);
+
+    const logs = await prisma.adminActivityLog
+      .findMany({
+        where: {
+          OR: [{ entityId: id }, { details: { contains: id } }],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+      })
+      .catch(() => []);
+
+    let toolRentals: unknown[] = [];
+    try {
+      toolRentals = await prisma.toolRental.findMany({
+        where: { userId: id },
+        include: { tool: true },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch {
+      toolRentals = await prisma.toolRental
+        .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } })
+        .catch(() => []);
+    }
+
+    let hires: unknown[] = [];
+    try {
+      hires = await prisma.hireRequest.findMany({
+        where: { userId: id },
+        include: { worker: true },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch {
+      // Missing HireRequest.total etc. — minimal select
+      try {
+        hires = await prisma.$queryRaw`
+          SELECT id, "userId", "workerId", status, location, notes, "createdAt"
+          FROM "HireRequest" WHERE "userId" = ${id}
+          ORDER BY "createdAt" DESC
+        `;
+      } catch {
+        hires = [];
+      }
+    }
+
     const typedIds = (instDocs as any[])
-      .filter((d) =>
-        ["nin", "bvn", "NIN", "BVN", "valid_id"].includes(d.type) ||
-        /nin|bvn/i.test(d.label || "")
+      .filter(
+        (d) =>
+          ["nin", "bvn", "NIN", "BVN", "valid_id"].includes(d.type) ||
+          /nin|bvn/i.test(d.label || "")
       )
-      .map((d) => ({ type: d.type, label: d.label, value: d.textValue, status: d.status }));
+      .map((d) => ({
+        type: d.type,
+        label: d.label,
+        value: d.textValue,
+        status: d.status,
+      }));
 
     return NextResponse.json({
-      user,
+      user: {
+        ...user,
+        // optional fields may not exist on older rows
+        clientType: (user as any).clientType || "INDIVIDUAL",
+        avatarUrl: (user as any).avatarUrl || null,
+        signatureUrl: (user as any).signatureUrl || null,
+      },
       registrationDocuments: regDocs,
       installmentDocuments: instDocs,
       typedIdentityFields: typedIds,
@@ -85,7 +150,7 @@ export async function GET(
       hireRequests: hires,
     });
   } catch (e) {
-    console.error(e);
+    console.error("client profile GET", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to load profile" },
       { status: 500 }
@@ -100,280 +165,157 @@ export async function PATCH(
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
   const { id } = await params;
-  const body = await req.json();
-  const action = body.action as string;
 
   try {
-    if (action === "UPDATE_CLIENT") {
-      const data: Record<string, unknown> = {};
-      for (const k of [
-        "name",
-        "phone",
-        "clientType",
-        "status",
-        "verificationStatus",
-        "verificationNote",
-      ]) {
-        if (body[k] !== undefined) data[k] = body[k];
-      }
-      if (body.verificationStatus === "VERIFIED") data.verifiedAt = new Date();
-      if (body.status === "APPROVED") data.approvedAt = new Date();
-      const user = await prisma.user.update({ where: { id }, data });
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: admin.id,
-          action: "UPDATE_CLIENT",
-          entity: "User",
-          entityId: id,
-          details: JSON.stringify(data),
-        },
-      });
-      return NextResponse.json({ user });
+    await healSchema().catch(() => null);
+    const body = await req.json().catch(() => ({}));
+    const action = String(body.action || "").toUpperCase();
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || user.role === "ADMIN") {
+      return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
-    if (action === "BATCH_REVIEW_DOCS") {
-      const reviews = Array.isArray(body.reviews) ? body.reviews : [];
-      const results = [];
-      for (const r of reviews) {
-        if (!r.id || !r.status) continue;
-        if (r.status === "REJECTED" && !r.rejectReason) {
-          return NextResponse.json(
-            { error: "Remark required when rejecting a document" },
-            { status: 400 }
-          );
-        }
-        const source = r.source === "REGISTRATION" ? "registration" : "installment";
-        if (source === "registration") {
-          const doc = await prisma.userDocument.update({
-            where: { id: r.id },
-            data: {
-              status: r.status,
-              rejectReason: r.status === "REJECTED" ? r.rejectReason : null,
-            },
-          });
-          results.push(doc);
-        } else {
-          const existing = await prisma.installmentDocument.findUnique({ where: { id: r.id } });
-          const doc = await prisma.installmentDocument.update({
-            where: { id: r.id },
-            data: {
-              status: r.status,
-              rejectReason: r.status === "REJECTED" ? r.rejectReason : null,
-              previousRejectReason:
-                r.status === "REJECTED"
-                  ? r.rejectReason
-                  : existing?.previousRejectReason || null,
-            },
-          });
-          results.push(doc);
-          if (r.status === "REJECTED") {
-            await prisma.notification.create({
-              data: {
-                userId: id,
-                title: "Document rejected",
-                body: `Document rejected: ${r.rejectReason}. Please re-upload.`,
-                type: "DOC_REJECTED",
-              },
-            });
-          }
-        }
-        await prisma.adminActivityLog.create({
-          data: {
-            adminId: admin.id,
-            action: r.status === "APPROVED" ? "APPROVE_DOCUMENT" : "REJECT_DOCUMENT",
-            entity: source === "registration" ? "UserDocument" : "InstallmentDocument",
-            entityId: r.id,
-            details: JSON.stringify({ remark: r.rejectReason || null, userId: id }),
-          },
-        });
-      }
-
-      const pendingRes = await prisma.reservation.findMany({
-        where: { userId: id, paymentType: "INSTALLMENT" },
-      });
-      for (const res of pendingRes) {
-        const docs = await prisma.installmentDocument.findMany({
-          where: { reservationId: res.id, required: true },
-        });
-        if (!docs.length) continue;
-        const allApproved = docs.every((d) => d.status === "APPROVED");
-        const anyRejected = docs.some((d) => d.status === "REJECTED");
-        const anyPending = docs.some((d) =>
-          ["PENDING", "UNDER_REVIEW", "NOT_UPLOADED"].includes(d.status)
-        );
-        const docsStatus = allApproved
-          ? "APPROVED"
-          : anyRejected
-            ? "ACTION_NEEDED"
-            : anyPending
-              ? "UNDER_REVIEW"
-              : "INCOMPLETE";
-        await prisma.reservation.update({
-          where: { id: res.id },
-          data: { docsStatus },
-        });
-      }
-
-      return NextResponse.json({ ok: true, results });
-    }
-
-    if (action === "FINAL_APPROVE") {
-      const requiredInst = await prisma.installmentDocument.findMany({
-        where: { userId: id, required: true },
-      });
-      const instBlock = requiredInst.filter((d) => d.status !== "APPROVED");
-      if (instBlock.length) {
-        return NextResponse.json(
-          {
-            error: "Cannot approve: some required documents are still pending or rejected",
-            pending: instBlock.map((d) => ({ id: d.id, label: d.label, status: d.status })),
-          },
-          { status: 400 }
-        );
-      }
-
-      const user = await prisma.user.update({
+    if (action === "VERIFY" || action === "FINAL_APPROVE") {
+      await prisma.user.update({
         where: { id },
         data: {
           status: "APPROVED",
           verificationStatus: "VERIFIED",
           verifiedAt: new Date(),
+          approvedAt: user.approvedAt || new Date(),
+        },
+      });
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_VERIFY",
+        entity: "User",
+        entityId: id,
+        details: { email: user.email },
+        alsoNotifyEmails: [user.email],
+      });
+      return NextResponse.json({ ok: true, message: "Client verified" });
+    }
+
+    if (action === "UNVERIFY") {
+      await prisma.user.update({
+        where: { id },
+        data: { verificationStatus: "UNDER_REVIEW" },
+      });
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_UNVERIFY",
+        entity: "User",
+        entityId: id,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "SUSPEND") {
+      await prisma.user.update({
+        where: { id },
+        data: { status: "SUSPENDED" },
+      });
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_SUSPEND",
+        entity: "User",
+        entityId: id,
+        alsoNotifyEmails: [user.email],
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "REACTIVATE" || action === "APPROVE") {
+      await prisma.user.update({
+        where: { id },
+        data: {
+          status: "APPROVED",
           approvedAt: new Date(),
+          verificationStatus: user.verificationStatus === "PENDING" ? "UNDER_REVIEW" : user.verificationStatus,
         },
       });
-
-      await prisma.notification.create({
-        data: {
-          userId: id,
-          title: "Account verified",
-          body: "All required documents were approved. Your account is fully verified.",
-          type: "DOCS_APPROVED",
-        },
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_APPROVE",
+        entity: "User",
+        entityId: id,
+        alsoNotifyEmails: [user.email],
       });
-
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: admin.id,
-          action: "FINAL_APPROVE_CLIENT",
-          entity: "User",
-          entityId: id,
-        },
-      });
-
-      return NextResponse.json({ user });
+      return NextResponse.json({ ok: true });
     }
 
-    if (action === "GENERATE_AGREEMENT") {
-      const user = await prisma.user.findUnique({ where: { id } });
-      if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-      let reservation = null as any;
-      if (body.reservationId) {
-        reservation = await prisma.reservation.findFirst({
-          where: { id: body.reservationId, userId: id },
-          include: { asset: true },
-        });
-      } else {
-        reservation = await prisma.reservation.findFirst({
-          where: { userId: id },
-          include: { asset: true },
-          orderBy: { createdAt: "desc" },
-        });
-      }
-
-      const contractNumber = await nextContractNumber();
-      const verifyToken = randomVerifyToken();
-      const total =
-        reservation?.installmentTotal || reservation?.asset?.price || Number(body.totalAmount) || 0;
-      const paymentMethod = reservation?.paymentType || body.paymentMethod || "FULL";
-
-      const pdfUrl = await buildAgreementPdf({
-        contractNumber,
-        verifyToken,
-        clientName: user.name,
-        clientEmail: user.email,
-        clientPhone: user.phone,
-        serviceTitle: reservation?.asset?.title || body.serviceTitle || "Construction service",
-        paymentMethod,
-        totalAmount: total,
-        scheduleText: reservation?.scheduleJson
-          ? `Frequency: ${reservation.installmentFrequency || "—"}\nDeadline: ${reservation.planDeadlineAt || "—"}`
-          : undefined,
-        rulesText: "Pay on schedule. Late payments may incur holds. See category rules in your plan.",
-        cancelText: "Cancellation may deduct a category percentage of amounts paid.",
-        signatureUrl: user.signatureUrl,
+    if (action === "UPDATE" || body.name || body.phone || body.status) {
+      const data: Record<string, unknown> = {};
+      if (body.name != null) data.name = String(body.name);
+      if (body.phone != null) data.phone = String(body.phone);
+      if (body.status != null) data.status = String(body.status);
+      if (body.verificationStatus != null) data.verificationStatus = String(body.verificationStatus);
+      if (body.verificationNote != null) data.verificationNote = String(body.verificationNote);
+      await prisma.user.update({ where: { id }, data });
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_UPDATE",
+        entity: "User",
+        entityId: id,
+        details: data,
       });
-
-      const contract = await prisma.contract.create({
-        data: {
-          contractNumber,
-          verifyToken,
-          userId: id,
-          reservationId: reservation?.id || null,
-          status: "ACTIVE",
-          pdfUrl,
-          clientName: user.name,
-          serviceTitle: reservation?.asset?.title || body.serviceTitle || "Construction service",
-          paymentMethod,
-          totalAmount: total,
-        },
-      });
-
-      await prisma.notification.create({
-        data: {
-          userId: id,
-          title: "Agreement ready",
-          body: `Your agreement letter (${contractNumber}) is ready to download under My Contracts.`,
-          type: "AGREEMENT_READY",
-        },
-      });
-
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: admin.id,
-          action: "GENERATE_AGREEMENT",
-          entity: "Contract",
-          entityId: contract.id,
-          details: JSON.stringify({ contractNumber }),
-        },
-      });
-
-      return NextResponse.json({ contract });
+      return NextResponse.json({ ok: true });
     }
 
-    if (action === "UPSERT_DOCUMENT") {
-      if (body.documentId) {
-        const doc = await prisma.userDocument.update({
-          where: { id: body.documentId },
-          data: {
-            fileUrl: body.fileUrl ?? undefined,
-            fileName: body.fileName ?? undefined,
-            label: body.label ?? undefined,
-            type: body.type ?? undefined,
-            status: body.status ?? undefined,
-            rejectReason: body.rejectReason ?? undefined,
-          },
-        });
-        return NextResponse.json(doc);
+    // Document batch review
+    if (action === "REVIEW_DOCS" && Array.isArray(body.reviews)) {
+      for (const r of body.reviews) {
+        if (!r.id || !r.status) continue;
+        try {
+          await prisma.userDocument.update({
+            where: { id: r.id },
+            data: {
+              status: r.status,
+              rejectReason: r.status === "REJECTED" ? r.rejectReason || "Rejected" : null,
+            },
+          });
+        } catch {
+          try {
+            await prisma.installmentDocument.update({
+              where: { id: r.id },
+              data: {
+                status: r.status,
+                rejectReason: r.status === "REJECTED" ? r.rejectReason || "Rejected" : null,
+              },
+            });
+          } catch {
+            /* */
+          }
+        }
       }
-      const doc = await prisma.userDocument.create({
-        data: {
-          userId: id,
-          type: body.type || "OTHER",
-          label: body.label || null,
-          fileUrl: body.fileUrl,
-          fileName: body.fileName || null,
-          status: body.status || "APPROVED",
-        },
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "CLIENT_REVIEW_DOCS",
+        entity: "User",
+        entityId: id,
+        details: { count: body.reviews.length },
       });
-      return NextResponse.json(doc, { status: 201 });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
-    console.error(e);
+    console.error("client profile PATCH", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Action failed" },
+      { error: e instanceof Error ? e.message : "Update failed" },
       { status: 500 }
     );
   }

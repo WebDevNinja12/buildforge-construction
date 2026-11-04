@@ -16,7 +16,8 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verifiedAt" TIMESTAMP(3)`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "agreedTermsAt" TIMESTAMP(3)`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verificationNote" TEXT`,
-    // Asset — root cause of reservation failure
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "clientType" TEXT`,
+    // Asset
     `ALTER TABLE "Asset" ADD COLUMN IF NOT EXISTS "image" TEXT`,
     `ALTER TABLE "Asset" ADD COLUMN IF NOT EXISTS "images" TEXT`,
     `ALTER TABLE "Asset" ADD COLUMN IF NOT EXISTS "mainImageIndex" INTEGER DEFAULT 0`,
@@ -47,6 +48,18 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reservationId" TEXT`,
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT`,
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3)`,
+    // HireRequest — caused client profile 500
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "total" DOUBLE PRECISION`,
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "notes" TEXT`,
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "location" TEXT`,
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3)`,
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "startDate" TIMESTAMP(3)`,
+    `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "endDate" TIMESTAMP(3)`,
+    // ToolRental
+    `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3)`,
+    `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "total" DOUBLE PRECISION`,
+    `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "startDate" TIMESTAMP(3)`,
+    `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "endDate" TIMESTAMP(3)`,
   ];
 
   for (const sql of stmts) {
