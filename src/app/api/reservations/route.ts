@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    // Free expired / stuck holds so stock can be reserved again
     await runMaintenance().catch(() => null);
 
     const session = await resolveSession(req);
@@ -176,11 +175,10 @@ export async function POST(req: NextRequest) {
           title: "Reservation created",
           body: `"${asset.title}" is held for ${hours} hours. Open Dashboard to choose payment before the hold expires.`,
           type: "RESERVATION",
-          link: "/dashboard",
         },
       });
     } catch {
-      /* optional */
+      /* schema may omit optional fields */
     }
 
     return NextResponse.json(

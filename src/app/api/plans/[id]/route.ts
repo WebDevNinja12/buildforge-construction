@@ -26,10 +26,9 @@ async function loadPlan(id: string) {
   });
 }
 
-function totals(plan: Awaited<ReturnType<typeof loadPlan>>) {
-  if (!plan) return { total: 0, paid: 0, balance: 0 };
-  const total = plan.installmentTotal ?? plan.asset?.price ?? 0;
-  const paid = plan.installmentPaid ?? 0;
+function totals(plan: NonNullable<Awaited<ReturnType<typeof loadPlan>>>) {
+  const total = Number(plan.installmentTotal ?? plan.asset?.price ?? 0);
+  const paid = Number(plan.installmentPaid ?? 0);
   return { total, paid, balance: Math.max(0, total - paid) };
 }
 
@@ -39,7 +38,6 @@ function shapePlan(plan: NonNullable<Awaited<ReturnType<typeof loadPlan>>>) {
   const next = installments.find((i) => (i.status || "PENDING") === "PENDING");
   return {
     ...plan,
-    // aliases used by PlanCard UI
     totalAmount: total,
     amountPaid: paid,
     deposit: total * 0.1,
@@ -48,7 +46,6 @@ function shapePlan(plan: NonNullable<Awaited<ReturnType<typeof loadPlan>>>) {
     planDeadline: plan.planDeadlineAt,
     installments: installments.map((i) => ({
       ...i,
-      dueDate: i.dueDate,
       status: i.status || "PENDING",
     })),
     summary: {
@@ -96,7 +93,7 @@ export async function POST(
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try {
       body = await req.json();
     } catch {
@@ -111,6 +108,7 @@ export async function POST(
     }
 
     const { total, paid, balance } = totals(plan);
+    const price = Number(plan.asset?.price ?? total ?? 0);
 
     // —— SET_PAYMENT_METHOD ——
     if (action === "SET_PAYMENT_METHOD") {
@@ -118,11 +116,8 @@ export async function POST(
       if (method !== "FULL" && method !== "INSTALLMENT") {
         return NextResponse.json({ error: "Choose FULL or INSTALLMENT" }, { status: 400 });
       }
-      if (plan.paymentType && plan.paymentType !== "UNSET") {
-        // allow switch only if still pending unpaid
-        if (paid > 0) {
-          return NextResponse.json({ error: "Payment method already set" }, { status: 400 });
-        }
+      if (plan.paymentType && plan.paymentType !== "UNSET" && paid > 0) {
+        return NextResponse.json({ error: "Payment method already set" }, { status: 400 });
       }
 
       if (method === "FULL") {
@@ -130,31 +125,42 @@ export async function POST(
           where: { id },
           data: {
             paymentType: "FULL",
-            installmentTotal: total || plan.asset.price,
+            installmentTotal: price,
             installmentFrequency: null,
+            installmentCount: 1,
             scheduleJson: null,
             rulesAgreedAt: null,
           },
         });
+        const updated = await loadPlan(id);
         return NextResponse.json({
           ok: true,
           paymentMethod: "FULL",
-          message: "Full payment selected. Complete payment below.",
+          message: "Full payment selected. Submit payment from your plan card.",
+          plan: updated ? shapePlan(updated) : null,
         });
       }
 
       // INSTALLMENT
-      if (!body.rulesAgreed) {
-        return NextResponse.json({ error: "Agree to installment rules" }, { status: 400 });
+      const frequency = (String(body.paymentFrequency || "MONTHLY").toUpperCase() ||
+        "MONTHLY") as Frequency;
+      let months = 6;
+      try {
+        const cat = await prisma.categoryDefault.findUnique({
+          where: { category: plan.asset?.type || "HOUSE" },
+        });
+        if (cat?.installmentPlanMonths) months = cat.installmentPlanMonths;
+      } catch {
+        /* */
       }
-      const frequency = (body.paymentFrequency || "MONTHLY") as Frequency;
-      const months = plan.asset.installmentMonths || 6;
       const deadline = new Date(Date.now() + months * 30 * 24 * 3600 * 1000);
       const schedule = buildSchedule({
-        totalAmount: total || plan.asset.price,
+        totalAmount: price,
         amountAlreadyPaid: 0,
         frequency,
         planDeadline: deadline,
+        firstIsDeposit: true,
+        depositPercent: 10,
       });
       const nextDue = schedule[0]?.dueDate ? new Date(schedule[0].dueDate) : null;
 
@@ -163,30 +169,36 @@ export async function POST(
         data: {
           paymentType: "INSTALLMENT",
           installmentFrequency: frequency,
-          installmentTotal: total || plan.asset.price,
+          installmentTotal: price,
           installmentCount: schedule.length,
           planDeadlineAt: deadline,
           nextDueAt: nextDue,
           scheduleJson: JSON.stringify(
-            schedule.map((s) => ({ ...s, status: "PENDING" }))
+            schedule.map((s) => ({
+              sequence: s.sequence,
+              amount: s.amount,
+              dueDate: s.dueDate instanceof Date ? s.dueDate.toISOString() : s.dueDate,
+              status: "PENDING",
+            }))
           ),
           rulesAgreedAt: new Date(),
           docsStatus: plan.docsStatus || "INCOMPLETE",
         },
       });
 
+      const updated = await loadPlan(id);
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
         message:
-          "Installment selected. Upload required documents, then pay the first deposit after approval.",
+          "Installment selected. Upload required documents if asked, then pay the first deposit.",
+        plan: updated ? shapePlan(updated) : null,
       });
     }
 
-    // —— CANCEL ——
     if (action === "CANCEL_QUOTE") {
-      const pct = 10; // simple default; category config can refine later
-      const deducted = Math.round(((paid || total * 0.1) * pct) / 100);
+      const pct = 10;
+      const deducted = Math.round(((paid || price * 0.1) * pct) / 100);
       const refund = Math.max(0, paid - deducted);
       return NextResponse.json({
         percent: pct,
@@ -202,10 +214,17 @@ export async function POST(
           where: { id },
           data: {
             status: "CANCELLED",
-            cancelReason: body.reason || "Client confirmed",
+            cancelReason: String(body.reason || "Client confirmed").slice(0, 500),
           },
         });
-        if (plan.asset.status === "RESERVED") {
+        const other = await tx.reservation.findFirst({
+          where: {
+            assetId: plan.assetId,
+            id: { not: id },
+            status: { in: ["PENDING", "CONFIRMED"] },
+          },
+        });
+        if (!other) {
           await tx.asset.update({
             where: { id: plan.assetId },
             data: { status: "AVAILABLE" },
@@ -215,21 +234,42 @@ export async function POST(
       return NextResponse.json({ ok: true, message: "Reservation cancelled." });
     }
 
-    // —— PAYMENTS ——
-    if (action === "PAY_REMAINING" || action === "EXTRA_PAYMENT" || action === "PAY_INSTALLMENT") {
-      // Installment docs gate
+    // —— Submit payment for admin approval ——
+    if (
+      action === "PAY_REMAINING" ||
+      action === "EXTRA_PAYMENT" ||
+      action === "PAY_INSTALLMENT" ||
+      action === "PAY_NOW" ||
+      action === "PAY_FULL"
+    ) {
+      if (!plan.paymentType || plan.paymentType === "UNSET") {
+        return NextResponse.json(
+          { error: "Choose Full or Installment payment first" },
+          { status: 400 }
+        );
+      }
+
       if (
         plan.paymentType === "INSTALLMENT" &&
         plan.docsStatus &&
-        plan.docsStatus !== "APPROVED" &&
+        ["INCOMPLETE", "UNDER_REVIEW", "ACTION_NEEDED", "REJECTED"].includes(plan.docsStatus) &&
         action !== "EXTRA_PAYMENT"
       ) {
-        // soft gate: allow if no docsStatus field usage yet
-        if (["INCOMPLETE", "UNDER_REVIEW", "ACTION_NEEDED"].includes(plan.docsStatus)) {
+        // Allow first flow if docs not configured (no required types)
+        const requiredCount = await prisma.requiredDocumentType
+          .count({
+            where: {
+              category: plan.asset?.type || undefined,
+              required: true,
+            },
+          })
+          .catch(() => 0);
+        if (requiredCount > 0) {
           return NextResponse.json(
             {
               error:
-                "Complete and get approval for installment documents before paying the deposit.",
+                "Complete and get approval for installment documents before paying.",
+              docsStatus: plan.docsStatus,
             },
             { status: 400 }
           );
@@ -237,20 +277,29 @@ export async function POST(
       }
 
       let amount =
-        action === "PAY_REMAINING" ? balance : Number(body.amount || 0);
+        action === "PAY_REMAINING" || action === "PAY_FULL"
+          ? balance || price
+          : Number(body.amount || 0);
 
-      if (action === "PAY_INSTALLMENT" && !(amount > 0)) {
-        const schedule = parseSchedule(plan.scheduleJson);
-        const next = schedule.find((i) => (i.status || "PENDING") === "PENDING");
-        amount = next?.amount || (total || plan.asset.price) * 0.1;
+      if ((action === "PAY_INSTALLMENT" || action === "PAY_NOW") && !(amount > 0)) {
+        if (plan.paymentType === "FULL") {
+          amount = balance || price;
+        } else {
+          const schedule = parseSchedule(plan.scheduleJson);
+          const next = schedule.find((i) => (i.status || "PENDING") === "PENDING");
+          amount = Number(next?.amount || price * 0.1);
+        }
       }
 
-      if (!(amount > 0)) {
+      if (!(amount > 0) || !Number.isFinite(amount)) {
         return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
       }
 
+      // Cap at remaining balance
+      if (balance > 0 && amount > balance) amount = balance;
+
       const type =
-        action === "PAY_REMAINING"
+        action === "PAY_REMAINING" || action === "PAY_FULL"
           ? "PAY_REMAINING"
           : action === "EXTRA_PAYMENT"
             ? "EXTRA"
@@ -262,29 +311,45 @@ export async function POST(
         data: {
           userId: plan.userId,
           amount,
+          currency: "USD",
           type,
-          method: body.proofUrl ? "PROOF_UPLOAD" : "PENDING",
+          method: body.proofUrl ? "PROOF_UPLOAD" : "MANUAL",
           status: "PENDING",
-          proofUrl: body.proofUrl || null,
+          proofUrl: body.proofUrl ? String(body.proofUrl) : null,
           reservationId: id,
           referenceId: id,
         },
       });
 
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: plan.userId,
+            title: "Payment submitted",
+            body: `Payment of ${amount} is pending admin approval.`,
+            type: "PAYMENT",
+          },
+        });
+      } catch {
+        /* */
+      }
+
       return NextResponse.json({
+        ok: true,
         payment,
         message: "Payment submitted for admin approval",
       });
     }
 
     if (action === "SET_FREQUENCY") {
-      const frequency = (body.frequency || "MONTHLY") as Frequency;
+      const frequency = (String(body.frequency || "MONTHLY").toUpperCase() ||
+        "MONTHLY") as Frequency;
       const deadline =
         plan.planDeadlineAt ||
         plan.expiresAt ||
         new Date(Date.now() + 180 * 24 * 3600 * 1000);
       const schedule = buildSchedule({
-        totalAmount: total,
+        totalAmount: total || price,
         amountAlreadyPaid: paid,
         frequency,
         planDeadline: new Date(deadline),
@@ -294,21 +359,26 @@ export async function POST(
         data: {
           installmentFrequency: frequency,
           scheduleJson: JSON.stringify(
-            schedule.map((s) => ({ ...s, status: "PENDING" }))
+            schedule.map((s) => ({
+              sequence: s.sequence,
+              amount: s.amount,
+              dueDate: s.dueDate instanceof Date ? s.dueDate.toISOString() : s.dueDate,
+              status: "PENDING",
+            }))
           ),
-          installmentCount: schedule.length,
           nextDueAt: schedule[0]?.dueDate ? new Date(schedule[0].dueDate) : null,
         },
       });
-      return NextResponse.json({ ok: true, frequency, message: "Schedule regenerated" });
+      const updated = await loadPlan(id);
+      return NextResponse.json({ ok: true, plan: updated ? shapePlan(updated) : null });
     }
 
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    return NextResponse.json({ error: `Unknown action: ${action || "(empty)"}` }, { status: 400 });
   } catch (e) {
     console.error("plans POST", e);
     return NextResponse.json(
       {
-        error: "Payment action failed",
+        error: "Plan update failed",
         detail: e instanceof Error ? e.message : String(e),
       },
       { status: 500 }
