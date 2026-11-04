@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { recordAdminActivity } from "@/lib/admin-activity";
+import { healSchema } from "@/lib/schema-heal";
+
+export const dynamic = "force-dynamic";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -8,126 +12,182 @@ async function requireAdmin() {
   return session;
 }
 
-/** List all reservations for admin */
+function normalizeAction(body: Record<string, unknown>): "ACCEPT" | "REJECT" | null {
+  const raw = String(body.action || body.status || "")
+    .trim()
+    .toUpperCase();
+  if (["ACCEPT", "APPROVE", "APPROVED", "CONFIRM"].includes(raw)) return "ACCEPT";
+  if (["REJECT", "REJECTED", "CANCEL"].includes(raw)) return "REJECT";
+  return null;
+}
+
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
-
-  const reservations = await prisma.reservation.findMany({
-    include: {
-      user: { select: { id: true, name: true, email: true, phone: true } },
-      asset: true,
-      payments: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  return NextResponse.json(reservations);
+  await healSchema().catch(() => null);
+  try {
+    const reservations = await prisma.reservation.findMany({
+      include: {
+        asset: true,
+        user: { select: { id: true, name: true, email: true } },
+        payments: { orderBy: { createdAt: "desc" }, take: 10 },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    return NextResponse.json(reservations);
+  } catch (e) {
+    try {
+      const reservations = await prisma.reservation.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      return NextResponse.json(reservations);
+    } catch (e2) {
+      return NextResponse.json(
+        { error: "Failed to load", detail: e2 instanceof Error ? e2.message : String(e2) },
+        { status: 500 }
+      );
+    }
+  }
 }
 
-/**
- * Accept or reject a reservation.
- * body: { id, action: "ACCEPT" | "REJECT" }
- *
- * ACCEPT  → status CONFIRMED, asset stays RESERVED (or SOLD if fully paid later)
- * REJECT  → status CANCELLED, asset returns to AVAILABLE, pending payments failed
- */
 export async function PATCH(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
   try {
-    const body = await req.json();
-    const { id, action } = body;
+    await healSchema().catch(() => null);
+    const body = await req.json().catch(() => ({}));
+    const id = String(body.id || "").trim();
+    const action = normalizeAction(body);
 
     if (!id || !action) {
-      return NextResponse.json({ error: "id and action required" }, { status: 400 });
-    }
-    if (!["ACCEPT", "REJECT"].includes(action)) {
-      return NextResponse.json({ error: "action must be ACCEPT or REJECT" }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: "id and action required",
+          hint: 'action: ACCEPT|REJECT (or status APPROVED|REJECTED)',
+        },
+        { status: 400 }
+      );
     }
 
-    const reservation = await prisma.reservation.findUnique({
-      where: { id },
-      include: { asset: true },
-    });
+    const reservation = await prisma.reservation.findUnique({ where: { id } });
     if (!reservation) {
       return NextResponse.json({ error: "Reservation not found" }, { status: 404 });
     }
-    if (!["PENDING", "CONFIRMED"].includes(reservation.status) && action === "ACCEPT") {
-      // allow accepting only pending (or re-confirm)
-      if (reservation.status !== "PENDING") {
+
+    if (action === "ACCEPT") {
+      if (!["PENDING", "CONFIRMED"].includes(reservation.status)) {
         return NextResponse.json(
           { error: `Cannot accept a reservation with status ${reservation.status}` },
           { status: 400 }
         );
       }
-    }
 
-    if (action === "ACCEPT") {
-      const updated = await prisma.$transaction(async (tx) => {
-        const r = await tx.reservation.update({
-          where: { id },
-          data: { status: "CONFIRMED" },
-          include: {
-            user: { select: { id: true, name: true, email: true } },
-            asset: true,
+      await prisma.reservation.update({
+        where: { id },
+        data: { status: "CONFIRMED" },
+      });
+      await prisma.$executeRaw`
+        UPDATE "Asset" SET status = 'RESERVED', "updatedAt" = ${new Date()}
+        WHERE id = ${reservation.assetId}
+      `.catch(() => null);
+
+      const user = await prisma.user.findUnique({
+        where: { id: reservation.userId },
+        select: { email: true, name: true },
+      });
+
+      await prisma.notification
+        .create({
+          data: {
+            userId: reservation.userId,
+            title: "Reservation accepted",
+            body: "Your reservation was accepted by Hama Construction.",
+            type: "RESERVATION",
           },
-        });
-        // Keep asset reserved / mark sold once confirmed
-        await tx.asset.update({
-          where: { id: reservation.assetId },
-          data: { status: "RESERVED" },
-        });
-        // Mark related pending payments as completed (admin accepted hold)
-        await tx.payment.updateMany({
-          where: { reservationId: id, status: "PENDING" },
-          data: { status: "COMPLETED", method: "ADMIN_CONFIRMED" },
-        });
-        return r;
+        })
+        .catch(() => null);
+
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "RESERVATION_ACCEPT",
+        entity: "Reservation",
+        entityId: id,
+        details: { assetId: reservation.assetId },
+        alsoNotifyEmails: user?.email ? [user.email] : [],
       });
-      return NextResponse.json({
-        ...updated,
-        message: "Reservation accepted",
-      });
+
+      return NextResponse.json({ ok: true, message: "Reservation accepted", status: "CONFIRMED" });
     }
 
     // REJECT
-    const updated = await prisma.$transaction(async (tx) => {
-      const r = await tx.reservation.update({
-        where: { id },
-        data: { status: "CANCELLED" },
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          asset: true,
+    await prisma.reservation.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        cancelReason: body.reason ? String(body.reason).slice(0, 500) : "Rejected by admin",
+      },
+    });
+    await prisma.payment.updateMany({
+      where: { reservationId: id, status: "PENDING" },
+      data: { status: "FAILED" },
+    });
+
+    const other = await prisma.reservation.findFirst({
+      where: {
+        assetId: reservation.assetId,
+        id: { not: id },
+        status: { in: ["PENDING", "CONFIRMED"] },
+      },
+    });
+    if (!other) {
+      await prisma.$executeRaw`
+        UPDATE "Asset" SET status = 'AVAILABLE', "updatedAt" = ${new Date()}
+        WHERE id = ${reservation.assetId}
+      `.catch(() => null);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: reservation.userId },
+      select: { email: true },
+    });
+
+    await prisma.notification
+      .create({
+        data: {
+          userId: reservation.userId,
+          title: "Reservation rejected",
+          body: "Your reservation was rejected. The service is available again.",
+          type: "RESERVATION",
         },
-      });
-      await tx.payment.updateMany({
-        where: { reservationId: id, status: "PENDING" },
-        data: { status: "FAILED" },
-      });
-      // Free asset if no other active hold
-      const other = await tx.reservation.findFirst({
-        where: {
-          assetId: reservation.assetId,
-          id: { not: id },
-          status: { in: ["PENDING", "CONFIRMED"] },
-        },
-      });
-      if (!other) {
-        await tx.asset.update({
-          where: { id: reservation.assetId },
-          data: { status: "AVAILABLE" },
-        });
-      }
-      return r;
+      })
+      .catch(() => null);
+
+    await recordAdminActivity({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminName: admin.name,
+      action: "RESERVATION_REJECT",
+      entity: "Reservation",
+      entityId: id,
+      details: { assetId: reservation.assetId },
+      alsoNotifyEmails: user?.email ? [user.email] : [],
     });
 
     return NextResponse.json({
-      ...updated,
+      ok: true,
       message: "Reservation rejected — asset returned to available listings",
+      status: "CANCELLED",
     });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: "Failed to update reservation" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to update reservation", detail: e instanceof Error ? e.message : String(e) },
+      { status: 500 }
+    );
   }
 }

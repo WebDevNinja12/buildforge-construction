@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordAdminActivity } from "@/lib/admin-activity";
+import { healSchema } from "@/lib/schema-heal";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,17 @@ function parseSchedule(json: string | null | undefined) {
   }
 }
 
-/** Apply approved payment amount onto the reservation plan */
-async function applyPaymentToReservation(paymentId: string, amount: number, reservationId: string) {
+/** Normalize UI payloads: status APPROVED|REJECTED or action APPROVE|REJECT */
+function normalizeAction(body: Record<string, unknown>): "APPROVE" | "REJECT" | null {
+  const raw = String(body.action || body.status || "")
+    .trim()
+    .toUpperCase();
+  if (["APPROVE", "APPROVED", "ACCEPT"].includes(raw)) return "APPROVE";
+  if (["REJECT", "REJECTED"].includes(raw)) return "REJECT";
+  return null;
+}
+
+async function applyPaymentToReservation(amount: number, reservationId: string) {
   const reservation = await prisma.reservation.findUnique({ where: { id: reservationId } });
   if (!reservation) return;
 
@@ -44,10 +54,7 @@ async function applyPaymentToReservation(paymentId: string, amount: number, rese
       if (remaining + 0.01 >= due) {
         row.status = "PAID";
         remaining -= due;
-      } else {
-        // partial — leave pending but reduce conceptual amount (keep simple: mark paid if close)
-        break;
-      }
+      } else break;
     }
     const next = schedule.find((i) => (i.status || "PENDING") === "PENDING");
     nextDueAt = next?.dueDate ? new Date(next.dueDate) : null;
@@ -61,28 +68,29 @@ async function applyPaymentToReservation(paymentId: string, amount: number, rese
       scheduleJson,
       nextDueAt,
       paidAt: fullyPaid ? new Date() : reservation.paidAt,
-      status: fullyPaid ? "CONFIRMED" : reservation.status === "PENDING" ? "CONFIRMED" : reservation.status,
+      status:
+        fullyPaid || reservation.status === "PENDING"
+          ? "CONFIRMED"
+          : reservation.status,
     },
   });
 
-  // Keep asset reserved while plan active; mark SOLD when fully paid for property types
   if (fullyPaid && reservation.assetId) {
-    await prisma.asset
-      .update({
-        where: { id: reservation.assetId },
-        data: { status: "SOLD" },
-      })
-      .catch(() => null);
+    await prisma.$executeRaw`
+      UPDATE "Asset" SET status = 'SOLD', "updatedAt" = ${new Date()}
+      WHERE id = ${reservation.assetId}
+    `.catch(() => null);
   }
 }
 
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  await healSchema().catch(() => null);
   const status = new URL(req.url).searchParams.get("status");
   try {
     const payments = await prisma.payment.findMany({
-      where: status ? { status } : undefined,
+      where: status && status !== "ALL" ? { status } : undefined,
       include: {
         user: { select: { id: true, name: true, email: true } },
         reservation: { include: { asset: true } },
@@ -93,7 +101,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payments);
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: "Failed to load payments" }, { status: 500 });
+    // Fallback without nested includes if Asset columns missing
+    try {
+      const payments = await prisma.payment.findMany({
+        where: status && status !== "ALL" ? { status } : undefined,
+        orderBy: { createdAt: "desc" },
+        take: 150,
+      });
+      return NextResponse.json(payments);
+    } catch (e2) {
+      return NextResponse.json(
+        { error: "Failed to load payments", detail: e2 instanceof Error ? e2.message : String(e2) },
+        { status: 500 }
+      );
+    }
   }
 }
 
@@ -102,14 +123,18 @@ export async function PATCH(req: NextRequest) {
   if (!admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
   try {
-    const body = await req.json();
-    const id = String(body.id || "");
-    const action = String(body.action || "").toUpperCase();
-    const reason = body.reason ? String(body.reason) : null;
+    await healSchema().catch(() => null);
+    const body = await req.json().catch(() => ({}));
+    const id = String(body.id || "").trim();
+    const action = normalizeAction(body);
+    const reason = body.reason != null ? String(body.reason) : body.rejectReason != null ? String(body.rejectReason) : null;
 
-    if (!id || !["APPROVE", "REJECT"].includes(action)) {
+    if (!id || !action) {
       return NextResponse.json(
-        { error: "id and action (APPROVE|REJECT) required" },
+        {
+          error: "id and action/status required",
+          hint: 'Send { id, action: "APPROVE"|"REJECT" } or { id, status: "APPROVED"|"REJECTED" }',
+        },
         { status: 400 }
       );
     }
@@ -140,7 +165,7 @@ export async function PATCH(req: NextRequest) {
       });
 
       if (payment.reservationId) {
-        await applyPaymentToReservation(id, payment.amount, payment.reservationId);
+        await applyPaymentToReservation(payment.amount, payment.reservationId);
       }
 
       if (payment.userId) {
@@ -195,7 +220,7 @@ export async function PATCH(req: NextRequest) {
       alsoNotifyEmails: payment.user?.email ? [payment.user.email] : [],
     });
 
-    return NextResponse.json({ ok: true, action });
+    return NextResponse.json({ ok: true, action, status: action === "APPROVE" ? "APPROVED" : "REJECTED" });
   } catch (e) {
     console.error(e);
     return NextResponse.json(

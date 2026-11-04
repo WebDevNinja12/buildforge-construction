@@ -11,20 +11,19 @@ export default function AdminPaymentsPage() {
   const [status, setStatus] = useState("PENDING");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/payments?status=${status}`, { credentials: "include" });
-      let list: any[] = [];
-      if (res.ok) {
-        const d = await res.json();
-        list = Array.isArray(d) ? d : d?.payments || [];
-      } else {
-        const res2 = await fetch("/api/admin/payments", { credentials: "include" });
-        const d = await res2.json().catch(() => []);
-        list = Array.isArray(d) ? d : d?.payments || [];
-        if (status !== "ALL") list = list.filter((p) => p?.status === status);
+      const url =
+        status === "ALL" ? "/api/admin/payments" : `/api/admin/payments?status=${status}`;
+      const res = await fetch(url, { credentials: "include" });
+      const d = await res.json().catch(() => []);
+      let list: any[] = Array.isArray(d) ? d : d?.payments || [];
+      if (!res.ok) {
+        toast(d.error || "Failed to load payments", "err");
+        list = [];
       }
       setItems(list);
     } catch {
@@ -39,19 +38,35 @@ export default function AdminPaymentsPage() {
     load();
   }, [status]);
 
-  async function review(id: string, next: "APPROVED" | "REJECTED") {
-    const reason = next === "REJECTED" ? prompt("Reason") || "Rejected" : undefined;
-    const res = await fetch("/api/admin/payments", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status: next, rejectReason: reason }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) toast(data.error || "Failed", "err");
-    else {
-      toast(next === "APPROVED" ? "Payment approved" : "Payment rejected");
-      load();
+  async function review(id: string, next: "APPROVE" | "REJECT") {
+    const reason =
+      next === "REJECT" ? window.prompt("Reason for rejection") || "Rejected" : undefined;
+    if (next === "REJECT" && reason === null) return;
+    setBusyId(id);
+    try {
+      const res = await fetch("/api/admin/payments", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          action: next,
+          status: next === "APPROVE" ? "APPROVED" : "REJECTED",
+          reason,
+          rejectReason: reason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data.error || data.detail || "Failed", "err");
+        return;
+      }
+      toast(next === "APPROVE" ? "Payment approved" : "Payment rejected");
+      await load();
+    } catch {
+      toast("Network error", "err");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -61,7 +76,8 @@ export default function AdminPaymentsPage() {
     return (
       String(p?.type || "").toLowerCase().includes(s) ||
       String(p?.userId || "").toLowerCase().includes(s) ||
-      String(p?.user?.email || "").toLowerCase().includes(s)
+      String(p?.user?.email || "").toLowerCase().includes(s) ||
+      String(p?.reservation?.asset?.title || "").toLowerCase().includes(s)
     );
   });
 
@@ -72,10 +88,14 @@ export default function AdminPaymentsPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search type or user"
+          placeholder="Search type, email, or service"
           className="flex-1 border rounded-xl px-3 min-h-[44px] text-sm"
         />
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="border rounded-xl px-3 min-h-[44px] text-sm">
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="border rounded-xl px-3 min-h-[44px] text-sm"
+        >
           <option value="PENDING">Pending</option>
           <option value="APPROVED">Approved</option>
           <option value="REJECTED">Rejected</option>
@@ -84,76 +104,68 @@ export default function AdminPaymentsPage() {
       </div>
 
       {loading ? (
-        <Loader2 className="w-6 h-6 animate-spin" />
+        <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-slate-500 bg-white border rounded-2xl p-6">No data yet.</p>
+        <p className="text-sm text-slate-500 bg-white border rounded-2xl p-6">No payments yet.</p>
       ) : (
-        <>
-          <div className="md:hidden space-y-3">
-            {filtered.map((p) => (
-              <div key={p.id} className="bg-white border rounded-2xl p-4 space-y-2">
-                <div className="flex justify-between gap-2">
-                  <p className="font-semibold">{formatCurrency(p?.amount)}</p>
-                  <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(p?.status)}`}>
-                    {p?.status}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">{p?.type} · {formatDate(p?.createdAt)}</p>
-                <p className="text-xs text-slate-500 break-all">{p?.user?.email || p?.userId}</p>
-                {p?.status === "PENDING" && (
-                  <div className="flex gap-2 pt-1">
-                    <button type="button" className="min-h-[44px] flex-1 text-xs font-semibold bg-green-600 text-white rounded-lg" onClick={() => review(p.id, "APPROVED")}>
-                      Approve
+        <div className="space-y-3">
+          {filtered.map((p) => (
+            <div
+              key={p.id}
+              className="bg-white border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <p className="font-semibold text-sm">
+                  {formatCurrency(Number(p.amount))} · {p.type || "Payment"}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {p.user?.email || p.userId}
+                  {p.reservation?.asset?.title ? ` · ${p.reservation.asset.title}` : ""}
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">{formatDate(p.createdAt)}</p>
+                <span
+                  className={`inline-block mt-1 text-[10px] font-semibold px-2 py-1 rounded-full ${
+                    statusBadgeClass(p.status)
+                  }`}
+                >
+                  {p.status}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                {p.proofUrl && (
+                  <a
+                    href={p.proofUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-h-[44px] inline-flex items-center text-xs underline text-primary-600 px-2"
+                  >
+                    Proof
+                  </a>
+                )}
+                {p.status === "PENDING" && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busyId === p.id}
+                      className="min-h-[44px] text-xs font-semibold bg-green-600 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                      onClick={() => review(p.id, "APPROVE")}
+                    >
+                      {busyId === p.id ? "…" : "Approve"}
                     </button>
-                    <button type="button" className="min-h-[44px] flex-1 text-xs font-semibold bg-red-600 text-white rounded-lg" onClick={() => review(p.id, "REJECTED")}>
+                    <button
+                      type="button"
+                      disabled={busyId === p.id}
+                      className="min-h-[44px] text-xs font-semibold bg-red-600 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                      onClick={() => review(p.id, "REJECT")}
+                    >
                       Reject
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
-            ))}
-          </div>
-
-          <div className="hidden md:block bg-white border rounded-2xl overflow-x-auto">
-            <table className="min-w-[640px] w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-left text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id} className="border-t">
-                    <td className="px-4 py-3">{formatDate(p?.createdAt)}</td>
-                    <td className="px-4 py-3 font-medium">{formatCurrency(p?.amount)}</td>
-                    <td className="px-4 py-3">{p?.type}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(p?.status)}`}>
-                        {p?.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {p?.status === "PENDING" && (
-                        <div className="flex gap-2">
-                          <button type="button" className="min-h-[44px] text-xs font-semibold bg-green-600 text-white px-3 py-2 rounded-lg" onClick={() => review(p.id, "APPROVED")}>
-                            Approve
-                          </button>
-                          <button type="button" className="min-h-[44px] text-xs font-semibold bg-red-600 text-white px-3 py-2 rounded-lg" onClick={() => review(p.id, "REJECTED")}>
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
