@@ -1,26 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession, verifyToken, SESSION_COOKIE } from "@/lib/auth";
-import { getExpiryHours } from "@/lib/maintenance";
+import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 
 async function resolveSession(req: NextRequest) {
-  // 1) Standard cookie session
   const fromCookie = await getSession();
   if (fromCookie) return fromCookie;
 
-  // 2) Authorization: Bearer <jwt>
   const auth = req.headers.get("authorization") || "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-
-  // 3) Cookie header manually (some edge cases miss cookies() on POST)
   const cookieHeader = req.headers.get("cookie") || "";
   const match =
     cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`)) ||
     cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
   const rawCookie = match?.[1] ? decodeURIComponent(match[1]) : "";
-
   const token = bearer || rawCookie;
   if (!token) return null;
 
@@ -50,6 +45,7 @@ async function resolveSession(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    await runMaintenance().catch(() => null);
     const session = await resolveSession(req);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -67,7 +63,10 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("reservations GET", error);
     return NextResponse.json(
-      { error: "Failed to fetch", detail: error instanceof Error ? error.message : String(error) },
+      {
+        error: "Failed to fetch",
+        detail: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }
@@ -75,6 +74,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    // Free expired / stuck holds so stock can be reserved again
+    await runMaintenance().catch(() => null);
+
     const session = await resolveSession(req);
     if (!session) {
       return NextResponse.json({ error: "Please login to reserve" }, { status: 401 });
@@ -89,13 +91,18 @@ export async function POST(req: NextRequest) {
     }
     if (status === "PENDING_APPROVAL" || status === "PENDING") {
       return NextResponse.json(
-        { error: "Account pending approval. Wait for admin approval or auto-approval." },
+        {
+          error:
+            "Account pending approval. Wait for admin approval or auto-approval (within 12 hours).",
+        },
         { status: 403 }
       );
     }
 
-    const body = await req.json();
-    const { assetId, confirmed, notes } = body;
+    const body = await req.json().catch(() => ({}));
+    const assetId = body.assetId || body.id;
+    const confirmed = body.confirmed === true || body.confirmed === "true";
+    const notes = body.notes;
 
     if (!assetId) {
       return NextResponse.json({ error: "Asset ID required" }, { status: 400 });
@@ -116,7 +123,9 @@ export async function POST(req: NextRequest) {
     }
     if (asset.status !== "AVAILABLE") {
       return NextResponse.json(
-        { error: `Asset is not available (status: ${asset.status})` },
+        {
+          error: `This service is not available right now (status: ${asset.status}). Try another listing or wait for an expired hold to release.`,
+        },
         { status: 400 }
       );
     }
@@ -127,6 +136,7 @@ export async function POST(req: NextRequest) {
     } catch {
       hours = asset.reservationHours || 48;
     }
+    if (!Number.isFinite(hours) || hours <= 0) hours = 48;
 
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
 
@@ -145,6 +155,7 @@ export async function POST(req: NextRequest) {
           expiresAt,
           installmentTotal: asset.price,
           installmentPaid: 0,
+          docsStatus: "INCOMPLETE",
           cancelReason: notes ? String(notes).slice(0, 500) : null,
         },
         include: { asset: true },
@@ -163,7 +174,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Reservation created",
-          body: `"${asset.title}" is reserved for ${hours} hours. Open Dashboard to choose payment before the hold expires.`,
+          body: `"${asset.title}" is held for ${hours} hours. Open Dashboard to choose payment before the hold expires.`,
           type: "RESERVATION",
           link: "/dashboard",
         },
