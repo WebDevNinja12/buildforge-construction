@@ -59,3 +59,23 @@ export function contactReceivedHtml(name: string) {
 <p>We received your message and will respond as soon as possible.</p>
 <p>— Hama Construction</p>`;
 }
+
+export function adminActivityEmailHtml(opts: {
+  action: string;
+  adminLabel: string;
+  entity?: string;
+  entityId?: string;
+  details?: string;
+  when: string;
+}) {
+  return `
+    <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto">
+      <h2 style="color:#0f172a">Admin activity</h2>
+      <p><strong>Action:</strong> ${opts.action}</p>
+      <p><strong>By:</strong> ${opts.adminLabel}</p>
+      ${opts.entity ? `<p><strong>Entity:</strong> ${opts.entity} ${opts.entityId || ""}</p>` : ""}
+      ${opts.details ? `<pre style="background:#f8fafc;padding:12px;border-radius:8px;font-size:12px">${opts.details}</pre>` : ""}
+      <p style="color:#64748b;font-size:12px">${opts.when}</p>
+      <p style="color:#64748b;font-size:12px">Hama Construction</p>
+    </div>`;
+}

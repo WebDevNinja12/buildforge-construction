@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { recordAdminActivity } from "@/lib/admin-activity";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -62,17 +63,15 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    await prisma.adminActivityLog
-      .create({
-        data: {
-          adminId: admin.id,
-          action: "WORKER_CREATE",
-          entity: "Worker",
-          entityId: worker.id,
-          details: JSON.stringify({ name, specialty, dailyRate }),
-        },
-      })
-      .catch(() => null);
+    await recordAdminActivity({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminName: admin.name,
+      action: "WORKER_CREATE",
+      entity: "Worker",
+      entityId: worker.id,
+      details: { name, specialty, dailyRate },
+    });
 
     return NextResponse.json(worker, { status: 201 });
   } catch (e) {
@@ -110,17 +109,15 @@ export async function PATCH(req: NextRequest) {
 
     const worker = await prisma.worker.update({ where: { id }, data });
 
-    await prisma.adminActivityLog
-      .create({
-        data: {
-          adminId: admin.id,
-          action: "WORKER_UPDATE",
-          entity: "Worker",
-          entityId: id,
-          details: JSON.stringify(data),
-        },
-      })
-      .catch(() => null);
+    await recordAdminActivity({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminName: admin.name,
+      action: "WORKER_UPDATE",
+      entity: "Worker",
+      entityId: id,
+      details: data,
+    });
 
     return NextResponse.json(worker);
   } catch (e) {
@@ -136,38 +133,31 @@ export async function DELETE(req: NextRequest) {
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    // Soft-deactivate related hires (workerId is required on HireRequest)
     await prisma.hireRequest.updateMany({
       where: { workerId: id, status: { in: ["PENDING", "ACTIVE", "RESERVED"] } },
       data: { status: "CANCELLED" },
     });
 
-    // Soft delete preferred: keep history
-    const soft = new URL(req.url).searchParams.get("hard") === "1";
-    if (soft) {
+    const hard = new URL(req.url).searchParams.get("hard") === "1";
+    if (hard) {
       await prisma.workerReview.deleteMany({ where: { workerId: id } }).catch(() => null);
       await prisma.hireRequest.deleteMany({ where: { workerId: id } }).catch(() => null);
       await prisma.worker.delete({ where: { id } });
     } else {
-      await prisma.worker.update({
-        where: { id },
-        data: { active: false },
-      });
+      await prisma.worker.update({ where: { id }, data: { active: false } });
     }
 
-    await prisma.adminActivityLog
-      .create({
-        data: {
-          adminId: admin.id,
-          action: soft ? "WORKER_DELETE_HARD" : "WORKER_DEACTIVATE",
-          entity: "Worker",
-          entityId: id,
-          details: JSON.stringify({ hard: soft }),
-        },
-      })
-      .catch(() => null);
+    await recordAdminActivity({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminName: admin.name,
+      action: hard ? "WORKER_DELETE_HARD" : "WORKER_DEACTIVATE",
+      entity: "Worker",
+      entityId: id,
+      details: { hard },
+    });
 
-    return NextResponse.json({ ok: true, hard: soft });
+    return NextResponse.json({ ok: true, hard });
   } catch (e) {
     console.error(e);
     return NextResponse.json(
