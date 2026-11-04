@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { recordAdminActivity } from "@/lib/admin-activity";
 
-/** Safe list — avoids Prisma selecting columns missing on older DBs */
 async function listAssets(opts: { type?: string | null; status?: string | null; all?: boolean }) {
   try {
     return await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
@@ -102,6 +102,17 @@ export async function POST(req: NextRequest) {
     const rows = await prisma.$queryRaw<
       Record<string, unknown>[]
     >`SELECT * FROM "Asset" WHERE id = ${id} LIMIT 1`;
+
+    await recordAdminActivity({
+      adminId: session.id,
+      adminEmail: session.email,
+      adminName: session.name,
+      action: "SERVICE_CREATE",
+      entity: "Asset",
+      entityId: id,
+      details: { title, type, price },
+    });
+
     return NextResponse.json(rows[0] || { id }, { status: 201 });
   } catch (error) {
     console.error(error);
@@ -115,12 +126,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * DELETE
- * - ?id=xxx  single
- * - ?all=1   clear every service
- * - body { ids: string[] } selected services
- */
 export async function DELETE(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "ADMIN") {
@@ -150,10 +155,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (!ids.length) {
-      return NextResponse.json(
-        { error: "Provide id, ids[], or all=1" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Provide id, ids[], or all=1" }, { status: 400 });
     }
 
     let deleted = 0;
@@ -167,19 +169,15 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    try {
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: session.id,
-          action: clearAll ? "SERVICES_CLEAR_ALL" : "SERVICES_DELETE",
-          entity: "Asset",
-          entityId: ids[0] || null,
-          details: JSON.stringify({ count: deleted, requested: ids.length, clearAll }),
-        },
-      });
-    } catch {
-      /* optional */
-    }
+    await recordAdminActivity({
+      adminId: session.id,
+      adminEmail: session.email,
+      adminName: session.name,
+      action: clearAll ? "SERVICES_CLEAR_ALL" : "SERVICES_DELETE",
+      entity: "Asset",
+      entityId: ids[0] || null,
+      details: { count: deleted, requested: ids.length, clearAll },
+    });
 
     return NextResponse.json({
       ok: true,
