@@ -9,37 +9,34 @@ import { InstallmentDocumentsSection } from "@/components/InstallmentDocumentsSe
 
 async function readJson(res: Response) {
   const text = await res.text();
-  if (!text) {
-    throw new Error(res.ok ? "Empty response from server" : `Request failed (${res.status})`);
-  }
   try {
-    return JSON.parse(text);
+    return text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(
-      res.ok ? "Invalid response from server" : `Request failed (${res.status}): ${text.slice(0, 120)}`
-    );
+    return { error: text || "Invalid response" };
   }
 }
 
-export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => void }) {
+export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: () => void }) {
+  const [plan, setPlan] = useState(initial);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
-  const [cancelQuote, setCancelQuote] = useState<any>(null);
   const [frequency, setFrequency] = useState("MONTHLY");
-  const [rulesOk, setRulesOk] = useState(false);
-  const [docsApproved, setDocsApproved] = useState(plan?.docsStatus === "APPROVED");
 
-  const total =
-    plan?.totalAmount || plan?.deposit || plan?.asset?.price || plan?.installmentTotal || 0;
-  const paid = plan?.amountPaid || plan?.installmentPaid || 0;
-  const balance = Math.max(0, Number(total) - Number(paid));
-  const next = (plan?.installments || []).find((i: any) => i?.status === "PENDING");
-  const paymentMethod = plan?.paymentMethod || plan?.paymentType;
-  const needsMethod = !paymentMethod || paymentMethod === "UNSET" || paymentMethod === "PENDING";
-  const isInstallment = paymentMethod === "INSTALLMENT";
-  const active = ["INSTALLMENT_PLAN", "PARTIALLY_PAID", "PENDING", "CONFIRMED"].includes(
-    plan?.status || ""
-  );
+  const total = Number(plan?.totalAmount ?? plan?.installmentTotal ?? plan?.asset?.price ?? 0);
+  const paid = Number(plan?.amountPaid ?? plan?.installmentPaid ?? 0);
+  const balance = Math.max(0, total - paid);
+  const paymentMethod = plan?.paymentMethod || plan?.paymentType || "UNSET";
+  const needsMethod = !paymentMethod || paymentMethod === "UNSET";
+  const installments = Array.isArray(plan?.installments)
+    ? plan.installments
+    : (() => {
+        try {
+          return JSON.parse(plan?.scheduleJson || "[]");
+        } catch {
+          return [];
+        }
+      })();
+  const next = installments.find((i: any) => (i.status || "PENDING") === "PENDING");
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -47,18 +44,15 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
     try {
       const res = await fetch(`/api/plans/${plan.id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
       });
       const data = await readJson(res);
-      if (!res.ok) throw new Error(data.error || data.detail || "Failed");
-      if (action === "CANCEL_QUOTE") setCancelQuote(data);
-      else {
-        setMsg(data.message || "Done");
-        setCancelQuote(null);
-        onUpdated?.();
-      }
+      if (!res.ok) throw new Error(data.error || data.detail || "Request failed");
+      if (data.plan) setPlan(data.plan);
+      setMsg(data.message || "Updated");
+      onUpdated?.();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -88,6 +82,30 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
             ? ` · ${plan?.paymentFrequency || plan?.installmentFrequency}`
             : ""}
         </p>
+
+        {/* Live ticking clock */}
+        {plan?.expiresAt ? (
+          <Countdown
+            expiresAt={plan.expiresAt}
+            status={plan.status}
+            label="Hold expires in"
+            variant="clock"
+            showWhenSettled={false}
+          />
+        ) : (
+          <p className="text-xs text-slate-400">No hold expiry set on this reservation.</p>
+        )}
+
+        {plan?.nextDueAt && paymentMethod === "INSTALLMENT" && (
+          <Countdown
+            expiresAt={plan.nextDueAt}
+            status={plan.status}
+            label="Next installment due in"
+            variant="badge"
+            showWhenSettled
+          />
+        )}
+
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="bg-slate-50 rounded-xl p-2.5">
             <p className="text-slate-400 text-[11px]">Total</p>
@@ -107,10 +125,6 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
           </div>
         </div>
 
-        {plan?.expiresAt && (
-          <Countdown expiresAt={plan.expiresAt} status={plan.status} label="Hold expires in" />
-        )}
-
         {needsMethod && (
           <div className="space-y-3 border-t pt-3">
             <p className="text-sm font-semibold text-construction-dark">Payment method</p>
@@ -118,137 +132,66 @@ export function PlanCard({ plan, onUpdated }: { plan: any; onUpdated?: () => voi
               type="button"
               disabled={!!busy}
               onClick={() => act("SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
-              className="w-full min-h-[44px] text-sm font-semibold border border-slate-200 py-2.5 rounded-xl hover:bg-slate-50 disabled:opacity-50"
+              className="w-full min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50"
             >
               {busy === "SET_PAYMENT_METHOD" ? "Saving…" : "Full payment"}
             </button>
-            <div className="border border-slate-200 rounded-xl p-3 space-y-2 bg-slate-50">
-              <p className="text-sm font-semibold">Installment</p>
+            <div className="space-y-2">
               <select
                 value={frequency}
                 onChange={(e) => setFrequency(e.target.value)}
-                className="w-full border rounded-xl px-3 min-h-[44px] text-sm bg-white"
+                className="w-full border rounded-xl px-3 min-h-[44px] text-sm"
               >
-                <option value="WEEKLY">Weekly</option>
-                <option value="MONTHLY">Monthly</option>
-                <option value="QUARTERLY">Quarterly</option>
+                {["MONTHLY", "WEEKLY", "QUARTERLY", "YEARLY"].map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
               </select>
-              <label className="flex items-start gap-2 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={rulesOk}
-                  onChange={(e) => setRulesOk(e.target.checked)}
-                  className="mt-1 h-4 w-4"
-                />
-                I have read and agree to the installment rules for this category.
-              </label>
               <button
                 type="button"
-                disabled={!!busy || !rulesOk}
+                disabled={!!busy}
                 onClick={() =>
                   act("SET_PAYMENT_METHOD", {
                     paymentMethod: "INSTALLMENT",
                     paymentFrequency: frequency,
-                    rulesAgreed: true,
                   })
                 }
-                className="w-full min-h-[44px] text-sm font-semibold bg-accent-500 hover:bg-accent-600 text-white py-2.5 rounded-xl disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-primary-600 text-primary-700 text-sm font-semibold disabled:opacity-50"
               >
-                Continue with installment
+                Installment payment
               </button>
             </div>
           </div>
         )}
 
-        {isInstallment && (
-          <InstallmentDocumentsSection
-            reservationId={plan.id}
-            category={plan?.asset?.type || "HOUSE"}
-            onOverallChange={(_overall, canPay) => setDocsApproved(canPay)}
-          />
+        {paymentMethod === "INSTALLMENT" && (
+          <InstallmentDocumentsSection reservationId={plan.id} />
         )}
 
-        {isInstallment && (docsApproved || plan?.docsStatus === "APPROVED") && (
-          <p className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
-            Documents approved. You can pay the first deposit below.
-          </p>
-        )}
-
-        {!needsMethod && active && balance > 0 && (
-          <div className="flex flex-wrap gap-2 pt-1 mt-auto">
+        {!needsMethod && balance > 0 && (
+          <div className="flex flex-col gap-2 border-t pt-3">
             <button
               type="button"
-              disabled={
-                !!busy ||
-                (isInstallment &&
-                  !docsApproved &&
-                  plan?.docsStatus !== "APPROVED" &&
-                  plan?.docsStatus !== undefined)
-              }
-              onClick={() => act("PAY_INSTALLMENT")}
-              className="min-h-[44px] text-xs font-semibold bg-primary-600 text-white px-4 py-2 rounded-xl disabled:opacity-50"
+              disabled={!!busy}
+              onClick={() => act("PAY_NOW")}
+              className="w-full min-h-[44px] rounded-xl bg-accent-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
-              {busy === "PAY_INSTALLMENT" ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                "Pay Now"
-              )}
+              {busy === "PAY_NOW" && <Loader2 className="w-4 h-4 animate-spin" />}
+              Pay now
             </button>
             <button
               type="button"
               disabled={!!busy}
               onClick={() => act("PAY_REMAINING")}
-              className="min-h-[44px] text-xs font-semibold bg-accent-500 text-white px-4 py-2 rounded-xl"
+              className="w-full min-h-[44px] rounded-xl border text-sm font-semibold disabled:opacity-50"
             >
-              Pay remaining
-            </button>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => {
-                const amt = prompt("Extra payment amount");
-                if (amt) act("EXTRA_PAYMENT", { amount: Number(amt) });
-              }}
-              className="min-h-[44px] text-xs font-semibold border px-4 py-2 rounded-xl"
-            >
-              Extra payment
-            </button>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => act("CANCEL_QUOTE")}
-              className="min-h-[44px] text-xs font-semibold text-red-600 border border-red-200 px-4 py-2 rounded-xl"
-            >
-              Cancel
+              Pay remaining balance
             </button>
           </div>
         )}
 
-        {cancelQuote && (
-          <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm space-y-2">
-            <p>{cancelQuote.message}</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="min-h-[44px] text-xs bg-red-600 text-white px-4 py-2 rounded-xl"
-                onClick={() => act("CANCEL_CONFIRM", { reason: "Client confirmed" })}
-              >
-                Confirm cancel
-              </button>
-              <button
-                type="button"
-                className="min-h-[44px] text-xs border px-4 py-2 rounded-xl"
-                onClick={() => setCancelQuote(null)}
-              >
-                Keep
-              </button>
-            </div>
-          </div>
-        )}
-
-        {msg && (
-          <p className="text-xs text-slate-700 bg-slate-50 border rounded-xl px-3 py-2">{msg}</p>
-        )}
+        {msg && <p className="text-xs text-slate-600">{msg}</p>}
       </div>
     </div>
   );

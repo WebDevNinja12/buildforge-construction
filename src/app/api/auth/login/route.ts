@@ -18,6 +18,7 @@ async function healUserColumns() {
   }
 }
 
+/** Client portal login only — admins must use /api/auth/admin-login */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -34,26 +35,38 @@ export async function POST(req: NextRequest) {
     await healUserColumns();
     await ensureAdminFromEnv().catch(() => false);
 
-    const user = await loginUser(email, password);
-    await setSession({ id: user.id, role: user.role });
+    // Block admin accounts on the client login page
+    try {
+      const user = await loginUser(email, password, { requireRole: "CLIENT" });
+      await setSession({ id: user.id, role: user.role });
 
-    const redirect =
-      user.role === "ADMIN"
-        ? "/admin"
-        : user.status === "PENDING_APPROVAL"
-          ? "/pending-approval"
-          : "/dashboard";
+      const redirect =
+        user.status === "PENDING_APPROVAL" ? "/pending-approval" : "/dashboard";
 
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        status: user.status,
-      },
-      redirect,
-    });
+      return NextResponse.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          status: user.status,
+        },
+        redirect,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Login failed";
+      if (message.includes("Administrators must sign in")) {
+        return NextResponse.json(
+          {
+            error: "Administrators must sign in at the staff login page.",
+            code: "USE_ADMIN_PORTAL",
+            adminLogin: "/admin/login",
+          },
+          { status: 403 }
+        );
+      }
+      throw error;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
     if (message.includes("column") || message.includes("nin") || message.includes("prisma")) {
