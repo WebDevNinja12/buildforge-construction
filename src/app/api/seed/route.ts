@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 
-/** Demo seed endpoint disabled for production. */
+/** Demo seed endpoint permanently disabled — production uses real admin + real catalog only. */
 export async function POST() {
   return NextResponse.json(
     {
-      error: "Demo seed is disabled. Use POST /api/setup/admin with SETUP_SECRET to create your admin, then add real services in the admin panel.",
+      error: "Demo seed is disabled",
+      message:
+        "Add real services in Admin → Services, tools in Admin → Tools, workers in Admin → Workers. Create admin via env ADMIN_EMAIL / ADMIN_PASSWORD or Settings.",
     },
     { status: 410 }
   );

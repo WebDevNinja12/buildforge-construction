@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Shield, Mail, Loader2 } from "lucide-react";
+import { KeyRound, Shield, Mail, Loader2, Trash2 } from "lucide-react";
 
 export default function AdminSettingsPage() {
   const [ownMsg, setOwnMsg] = useState("");
@@ -23,6 +23,10 @@ export default function AdminSettingsPage() {
   const [linkErr, setLinkErr] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkEmail, setLinkEmail] = useState("");
+
+  const [purgeMsg, setPurgeMsg] = useState("");
+  const [purgeErr, setPurgeErr] = useState("");
+  const [purgeBusy, setPurgeBusy] = useState(false);
 
   async function changeOwn(e: React.FormEvent) {
     e.preventDefault();
@@ -98,16 +102,53 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function purgeCatalog() {
+    if (
+      !confirm(
+        "Delete ALL services, tools, workers, and related reservations/payments? Only keep real users/admin. This cannot be undone."
+      )
+    )
+      return;
+    const typed = window.prompt('Type CLEAR CATALOG to confirm');
+    if (typed !== "CLEAR CATALOG") {
+      alert("Cancelled");
+      return;
+    }
+    setPurgeBusy(true);
+    setPurgeMsg("");
+    setPurgeErr("");
+    try {
+      const res = await fetch("/api/admin/purge", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "CLEAR CATALOG" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Purge failed");
+      setPurgeMsg(
+        data.message +
+          (data.counts
+            ? ` Removed: ${JSON.stringify(data.counts)}`
+            : "")
+      );
+    } catch (e) {
+      setPurgeErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPurgeBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-8 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-construction-dark">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Password security and platform defaults. NIN is collected only on installment documents, not at login.
+          Password security and data cleanup. Listings must be real — add them under Services, Tools, and
+          Workers.
         </p>
       </div>
 
-      {/* Change own password */}
       <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
         <h2 className="font-semibold text-construction-dark flex items-center gap-2">
           <Shield className="w-4 h-4 text-primary-600" />
@@ -156,15 +197,11 @@ export default function AdminSettingsPage() {
         </form>
       </section>
 
-      {/* Set user password */}
       <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
         <h2 className="font-semibold text-construction-dark flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-primary-600" />
           Set a client password
         </h2>
-        <p className="text-xs text-slate-500">
-          Directly set a new password for a registered client (or another admin). Share it with them securely.
-        </p>
         <form onSubmit={setUserPassword} className="space-y-3">
           <input
             type="email"
@@ -196,16 +233,11 @@ export default function AdminSettingsPage() {
         </form>
       </section>
 
-      {/* Send reset link */}
       <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
         <h2 className="font-semibold text-construction-dark flex items-center gap-2">
           <Mail className="w-4 h-4 text-primary-600" />
           Send password reset link
         </h2>
-        <p className="text-xs text-slate-500">
-          Creates a one-hour reset link. If email (Resend) is configured, the client is emailed; otherwise the
-          link is shown here for you to copy.
-        </p>
         <form onSubmit={sendResetLink} className="space-y-3">
           <input
             type="email"
@@ -227,28 +259,35 @@ export default function AdminSettingsPage() {
           {linkErr && <p className="text-sm text-red-600">{linkErr}</p>}
           {resetLink && (
             <div className="bg-slate-50 border rounded-xl p-3 text-xs break-all">
-              <p className="font-semibold mb-1">Reset link (copy and share securely)</p>
+              <p className="font-semibold mb-1">Reset link</p>
               <a href={resetLink} className="text-primary-600 underline" target="_blank" rel="noreferrer">
                 {resetLink}
               </a>
             </div>
           )}
         </form>
-        <p className="text-xs text-slate-500">
-          Clients can also use the public page:{" "}
-          <a href="/forgot-password" className="text-primary-600 underline" target="_blank" rel="noreferrer">
-            /forgot-password
-          </a>
-        </p>
       </section>
 
-      <section className="bg-slate-50 border rounded-2xl p-4 text-sm text-slate-600 space-y-2">
-        <p className="font-semibold text-construction-dark">Platform defaults (reference)</p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>House hold default: 14 days</li>
-          <li>Hotel: 7 days · Land: 5 days · Tools: 48h · Workers: 12h</li>
-          <li>Installment documents load from RequiredDocumentType / built-in defaults</li>
-        </ul>
+      <section className="bg-red-50 border border-red-100 rounded-2xl p-4 sm:p-5 space-y-3">
+        <h2 className="font-semibold text-red-800 flex items-center gap-2">
+          <Trash2 className="w-4 h-4" />
+          Remove demo / sample catalog
+        </h2>
+        <p className="text-sm text-red-900/80">
+          Deletes all services, tools, workers, reservations, and payments so the site only shows what you add
+          for real. Your admin login is kept.
+        </p>
+        <button
+          type="button"
+          disabled={purgeBusy}
+          onClick={purgeCatalog}
+          className="min-h-[44px] px-4 rounded-xl bg-red-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+        >
+          {purgeBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+          Clear all listings & transactions
+        </button>
+        {purgeMsg && <p className="text-sm text-emerald-800">{purgeMsg}</p>}
+        {purgeErr && <p className="text-sm text-red-700">{purgeErr}</p>}
       </section>
     </div>
   );
