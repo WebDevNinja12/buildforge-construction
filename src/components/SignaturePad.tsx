@@ -1,35 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Eraser, Loader2, PenLine, Upload, Check } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PenLine, Loader2, Upload, Trash2 } from "lucide-react";
 
-type Props = {
+export function SignaturePad({
+  existingUrl,
+  onSaved,
+}: {
   existingUrl?: string | null;
-  onSaved?: (url: string) => void;
-};
-
-export function SignaturePad({ existingUrl, onSaved }: Props) {
+  onSaved?: (url: string, dataUrl?: string) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [hasInk, setHasInk] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<string | null>(existingUrl || null);
   const [msg, setMsg] = useState("");
+  const [preview, setPreview] = useState<string | null>(existingUrl || null);
 
   useEffect(() => {
-    setPreview(existingUrl || null);
+    if (existingUrl) setPreview(existingUrl);
   }, [existingUrl]);
 
-  useEffect(() => {
+  const initCanvas = useCallback(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rect = c.getBoundingClientRect();
-    c.width = Math.floor(rect.width * dpr);
-    c.height = Math.floor(rect.height * dpr);
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
+    const rect = c.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = Math.floor(rect.width * dpr);
+    c.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, rect.width, rect.height);
     ctx.strokeStyle = "#0f172a";
@@ -37,6 +38,13 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
   }, []);
+
+  useEffect(() => {
+    initCanvas();
+    const onResize = () => initCanvas();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [initCanvas]);
 
   function pos(e: React.PointerEvent<HTMLCanvasElement>) {
     const c = canvasRef.current!;
@@ -75,19 +83,27 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
     const ctx = c.getContext("2d");
     if (!ctx) return;
     const r = c.getBoundingClientRect();
-    ctx.save();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, c.width, c.height);
-    ctx.restore();
-    // redraw scale already applied via transform from init - re-init stroke style
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.strokeStyle = "#0f172a";
     ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     setHasInk(false);
+  }
+
+  /** PNG data URL from canvas for reliable PDF embed */
+  function canvasDataUrl(): string | null {
+    const c = canvasRef.current;
+    if (!c || !hasInk) return null;
+    try {
+      return c.toDataURL("image/png");
+    } catch {
+      return null;
+    }
   }
 
   async function saveDrawn() {
@@ -99,12 +115,13 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
     setBusy(true);
     setMsg("");
     try {
+      const dataUrl = canvasDataUrl();
       const blob: Blob | null = await new Promise((resolve) =>
         c.toBlob((b) => resolve(b), "image/png")
       );
       if (!blob) throw new Error("Could not capture signature");
       const file = new File([blob], "signature.png", { type: "image/png" });
-      await upload(file);
+      await upload(file, dataUrl || undefined);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -112,7 +129,7 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
     }
   }
 
-  async function upload(file: File) {
+  async function upload(file: File, dataUrl?: string) {
     const ok =
       file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
     if (!ok) throw new Error("Upload a PNG or JPG signature image");
@@ -133,18 +150,41 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
     const url = upData.url || upData.blobUrl;
     if (!url) throw new Error("No URL returned");
 
+    // Prefer storing a data URL snapshot alongside blob URL so PDF never fails to load private blob
+    let storedDataUrl = dataUrl;
+    if (!storedDataUrl) {
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const mime = file.type || "image/png";
+        storedDataUrl = `data:${mime};base64,${b64}`;
+      } catch {
+        /* optional */
+      }
+    }
+
     const res = await fetch("/api/signature", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ signatureUrl: url }),
+      body: JSON.stringify({
+        signatureUrl: url,
+        signatureDataUrl: storedDataUrl || null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Could not save signature");
 
     setPreview(url);
     setMsg("Signature saved — it will appear on your agreement PDF.");
-    onSaved?.(url);
+    onSaved?.(url, storedDataUrl || undefined);
+    // Cache data URL for download button on this device
+    try {
+      if (storedDataUrl) sessionStorage.setItem("hama_sig_data", storedDataUrl);
+      sessionStorage.setItem("hama_sig_url", url);
+    } catch {
+      /* */
+    }
   }
 
   return (
@@ -154,50 +194,47 @@ export function SignaturePad({ existingUrl, onSaved }: Props) {
         <h4 className="font-semibold text-sm text-construction-dark">Your signature</h4>
       </div>
       <p className="text-xs text-slate-500">
-        Draw or upload your signature. It is saved to your profile and stamped automatically on the
-        installment agreement PDF you download.
+        Draw or upload your signature. It is saved and stamped automatically on the installment
+        agreement PDF.
       </p>
 
       {preview && (
         <div className="bg-white border rounded-lg p-2 inline-block">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={preview} alt="Saved signature" className="h-16 object-contain" />
-          <p className="text-[10px] text-green-700 flex items-center gap-1 mt-1">
-            <Check className="w-3 h-3" /> Saved
-          </p>
+          <p className="text-[10px] text-green-700 mt-1">Saved on profile</p>
         </div>
       )}
 
-      <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl overflow-hidden touch-none">
-        <canvas
-          ref={canvasRef}
-          className="w-full h-36 cursor-crosshair block"
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerLeave={onUp}
-        />
-      </div>
+      <canvas
+        ref={canvasRef}
+        className="w-full h-28 bg-white border border-slate-300 rounded-lg touch-none cursor-crosshair"
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
+      />
 
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={clear}
-          className="inline-flex items-center gap-1 text-xs font-semibold border px-3 py-2 rounded-lg"
-        >
-          <Eraser className="w-3.5 h-3.5" /> Clear
-        </button>
-        <button
-          type="button"
           disabled={busy || !hasInk}
           onClick={saveDrawn}
-          className="inline-flex items-center gap-1 text-xs font-semibold bg-primary-600 text-white px-3 py-2 rounded-lg disabled:opacity-50"
+          className="min-h-[40px] text-xs font-semibold bg-primary-600 text-white px-3 py-2 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PenLine className="w-3.5 h-3.5" />}
           Save drawn signature
         </button>
-        <label className="inline-flex items-center gap-1 text-xs font-semibold border px-3 py-2 rounded-lg cursor-pointer">
-          <Upload className="w-3.5 h-3.5" /> Upload image
+        <button
+          type="button"
+          onClick={clear}
+          className="min-h-[40px] text-xs font-semibold border px-3 py-2 rounded-lg inline-flex items-center gap-1.5"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Clear
+        </button>
+        <label className="min-h-[40px] text-xs font-semibold border px-3 py-2 rounded-lg inline-flex items-center gap-1.5 cursor-pointer">
+          <Upload className="w-3.5 h-3.5" />
+          Upload image
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"

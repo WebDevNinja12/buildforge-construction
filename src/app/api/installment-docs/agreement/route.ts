@@ -8,13 +8,20 @@ export const dynamic = "force-dynamic";
 
 async function resolveSignatureUrl(userId: string): Promise<string | null> {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { signatureUrl: true } as any,
-    });
-    if ((user as any)?.signatureUrl) return (user as any).signatureUrl as string;
+    const rows = await prisma.$queryRaw<{ signatureUrl: string | null }[]>`
+      SELECT "signatureUrl" FROM "User" WHERE id = ${userId} LIMIT 1
+    `;
+    if (rows[0]?.signatureUrl) return rows[0].signatureUrl;
   } catch {
-    /* column missing */
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { signatureUrl: true } as any,
+      });
+      if ((user as any)?.signatureUrl) return (user as any).signatureUrl as string;
+    } catch {
+      /* */
+    }
   }
   try {
     const doc = await prisma.userDocument.findFirst({
@@ -33,6 +40,8 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const reservationId = sp.get("reservationId");
     const requireSignature = sp.get("requireSignature") === "1";
+    // Optional: client can pass data URL if blob fetch fails (base64, truncated length ok for small sigs)
+    const signatureDataParam = sp.get("sigData");
 
     let clientName = "_______________________________";
     let clientEmail = "";
@@ -78,7 +87,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (requireSignature && !signatureUrl) {
+    let signatureDataUrl: string | null = null;
+    if (signatureDataParam && signatureDataParam.startsWith("data:image")) {
+      signatureDataUrl = signatureDataParam;
+    }
+
+    if (requireSignature && !signatureUrl && !signatureDataUrl) {
       return NextResponse.json(
         {
           error:
@@ -99,6 +113,7 @@ export async function GET(req: NextRequest) {
       deadline,
       paymentMethod: "INSTALLMENT",
       signatureUrl,
+      signatureDataUrl,
       allowUnsigned: !requireSignature,
     });
 
@@ -118,6 +133,88 @@ export async function GET(req: NextRequest) {
         error: "Could not generate agreement PDF",
         detail: e instanceof Error ? e.message : String(e),
       },
+      { status: 500 }
+    );
+  }
+}
+
+/** POST: generate PDF with optional body.signatureDataUrl for reliable embedding */
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Please login" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const reservationId = body.reservationId ? String(body.reservationId) : null;
+    const signatureDataUrl =
+      typeof body.signatureDataUrl === "string" && body.signatureDataUrl.startsWith("data:image")
+        ? body.signatureDataUrl
+        : null;
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.id },
+      select: { name: true, email: true, phone: true },
+    });
+
+    let serviceTitle = "Installment service";
+    let totalPrice = "—";
+    let frequency = "—";
+    let deadline = "—";
+
+    if (reservationId) {
+      try {
+        const r = await prisma.reservation.findFirst({
+          where: { id: reservationId, userId: session.id },
+          include: { asset: true },
+        });
+        if (r) {
+          serviceTitle = (r as any).asset?.title || serviceTitle;
+          const total = Number((r as any).installmentTotal || (r as any).asset?.price || 0);
+          totalPrice = total ? `$${total.toFixed(2)}` : totalPrice;
+          frequency = (r as any).installmentFrequency || frequency;
+        }
+      } catch {
+        /* */
+      }
+    }
+
+    const signatureUrl = await resolveSignatureUrl(session.id);
+
+    if (!signatureUrl && !signatureDataUrl) {
+      return NextResponse.json(
+        { error: "Signature required before downloading the agreement." },
+        { status: 400 }
+      );
+    }
+
+    const { bytes, hasSignature } = await buildInstallmentAgreementPdf({
+      clientName: user?.name || "Client",
+      clientEmail: user?.email || "",
+      clientPhone: user?.phone,
+      serviceTitle,
+      totalPrice,
+      frequency,
+      deadline,
+      paymentMethod: "INSTALLMENT",
+      signatureUrl,
+      signatureDataUrl,
+    });
+
+    return new NextResponse(Buffer.from(bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="hama-installment-agreement.pdf"`,
+        "X-Has-Signature": hasSignature ? "1" : "0",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e) {
+    console.error("agreement PDF POST", e);
+    return NextResponse.json(
+      { error: "Could not generate agreement PDF", detail: e instanceof Error ? e.message : String(e) },
       { status: 500 }
     );
   }

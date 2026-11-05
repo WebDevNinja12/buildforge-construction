@@ -1,26 +1,92 @@
 import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 import { getCompanySealBytes, COMPANY_SEAL_RC } from "@/lib/company-seal";
+import { getBlobToken } from "@/lib/media";
 
+/** Load image bytes for PDF embedding (public URL, private blob, media proxy, or data URL) */
 export async function fetchImageBytes(
   url: string
 ): Promise<{ bytes: Uint8Array; type: "png" | "jpg" } | null> {
-  try {
-    let fetchUrl = url;
-    if (url.startsWith("/api/media") || (url.startsWith("/") && !url.startsWith("//"))) {
-      const base = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : process.env.NEXT_PUBLIC_APP_URL || "https://buildforge-construction.vercel.app";
-      fetchUrl = `${base}${url}`;
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+
+  // data:image/png;base64,....
+  if (trimmed.startsWith("data:")) {
+    try {
+      const m = trimmed.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/i);
+      if (!m) return null;
+      const mime = m[1].toLowerCase();
+      const b64 = m[3];
+      const bytes = new Uint8Array(Buffer.from(b64, "base64"));
+      const type: "png" | "jpg" = mime.includes("png") ? "png" : "jpg";
+      return { bytes, type };
+    } catch {
+      return null;
     }
-    const res = await fetch(fetchUrl, { cache: "no-store" });
-    if (!res.ok) return null;
+  }
+
+  let target = trimmed;
+  let useBlobAuth = false;
+
+  // /api/media?u=<encoded private blob url>
+  if (target.startsWith("/api/media") || target.includes("/api/media?")) {
+    try {
+      const q = target.includes("?") ? target.slice(target.indexOf("?") + 1) : "";
+      const params = new URLSearchParams(q);
+      const u = params.get("u");
+      if (u) {
+        target = decodeURIComponent(u);
+        useBlobAuth = true;
+      }
+    } catch {
+      /* keep target */
+    }
+  }
+
+  // Relative path → absolute
+  if (target.startsWith("/") && !target.startsWith("//")) {
+    const base = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL || "https://buildforge-construction.vercel.app";
+    target = `${base}${target}`;
+  }
+
+  // Private Vercel Blob needs Authorization
+  try {
+    const host = new URL(target).hostname;
+    if (host.includes("blob.vercel-storage.com") || host.includes("vercel-storage.com")) {
+      useBlobAuth = true;
+    }
+  } catch {
+    /* */
+  }
+
+  try {
+    const headers: Record<string, string> = {};
+    if (useBlobAuth) {
+      const token = getBlobToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+    const res = await fetch(target, { headers, cache: "no-store" });
+    if (!res.ok) {
+      console.error("fetchImageBytes status", res.status, target.slice(0, 80));
+      return null;
+    }
     const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length < 20) return null;
     const ct = (res.headers.get("content-type") || "").toLowerCase();
-    if (ct.includes("png") || url.toLowerCase().includes(".png")) {
+    // Sniff PNG magic bytes
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
+    if (isPng || ct.includes("png") || target.toLowerCase().includes(".png")) {
       return { bytes: buf, type: "png" };
     }
-    return { bytes: buf, type: "jpg" };
-  } catch {
+    if (isJpg || ct.includes("jpeg") || ct.includes("jpg") || target.toLowerCase().includes(".jpg")) {
+      return { bytes: buf, type: "jpg" };
+    }
+    // Default try PNG then caller may fail
+    return { bytes: buf, type: isPng ? "png" : "jpg" };
+  } catch (e) {
+    console.error("fetchImageBytes", e);
     return null;
   }
 }
@@ -39,10 +105,11 @@ export type AgreementPdfOpts = {
   cancelText?: string;
   contractNumber?: string;
   signatureUrl?: string | null;
+  /** Raw base64 PNG from client (preferred when available) */
+  signatureDataUrl?: string | null;
   allowUnsigned?: boolean;
 };
 
-/** Draw official-looking seal when PNG is not available */
 function drawVectorSeal(
   page: PDFPage,
   font: PDFFont,
@@ -54,10 +121,8 @@ function drawVectorSeal(
   const cx = x + size / 2;
   const cy = y + size / 2;
   const r = size / 2 - 2;
-  // Outer ring
   page.drawCircle({ x: cx, y: cy, size: r, borderColor: rgb(0.08, 0.1, 0.14), borderWidth: 2.2 });
   page.drawCircle({ x: cx, y: cy, size: r - 6, borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
-  // Accent arc suggestion via small marks
   page.drawText("HAMA", {
     x: cx - 16,
     y: cy + 6,
@@ -104,7 +169,6 @@ async function stampSeal(
   drawVectorSeal(page, font, bold, x, y, size);
 }
 
-/** Build installment agreement PDF with company seal + client signature */
 export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Promise<{
   bytes: Uint8Array;
   hasSignature: boolean;
@@ -117,7 +181,6 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
   const margin = 50;
   let y = height - margin;
 
-  // Top-right company seal
   await stampSeal(pdf, page, font, fontBold, width - margin - 78, height - margin - 78, 72);
 
   const draw = (text: string, size = 11, bold = false, color = rgb(0.1, 0.12, 0.16)) => {
@@ -184,21 +247,39 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
   draw("Client signature", 11, true);
 
   let hasSignature = false;
-  if (opts.signatureUrl) {
-    const img = await fetchImageBytes(opts.signatureUrl);
+  const sigSource = opts.signatureDataUrl || opts.signatureUrl;
+  if (sigSource) {
+    const img = await fetchImageBytes(sigSource);
     if (img) {
       try {
-        const embedded =
-          img.type === "png" ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
-        const maxW = 200;
-        const maxH = 70;
+        let embedded;
+        try {
+          embedded =
+            img.type === "png" ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
+        } catch {
+          // Try the other format if sniff was wrong
+          embedded =
+            img.type === "png" ? await pdf.embedJpg(img.bytes) : await pdf.embedPng(img.bytes);
+        }
+        const maxW = 220;
+        const maxH = 80;
         const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
-        const w = embedded.width * scale;
-        const h = embedded.height * scale;
-        y -= h + 4;
-        if (y < 100) y = 100;
+        const w = Math.max(40, embedded.width * scale);
+        const h = Math.max(20, embedded.height * scale);
+        y -= h + 8;
+        if (y < 110) y = 110;
+        // White background behind signature for visibility
+        page.drawRectangle({
+          x: margin - 2,
+          y: y - 2,
+          width: w + 4,
+          height: h + 4,
+          color: rgb(1, 1, 1),
+          borderColor: rgb(0.85, 0.87, 0.9),
+          borderWidth: 0.5,
+        });
         page.drawImage(embedded, { x: margin, y, width: w, height: h });
-        y -= 12;
+        y -= 14;
         hasSignature = true;
         draw(
           `Signed electronically · ${new Date().toLocaleDateString()}`,
@@ -206,9 +287,10 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
           false,
           rgb(0.35, 0.4, 0.45)
         );
-      } catch {
+      } catch (err) {
+        console.error("embed signature", err);
         draw(
-          "(Signature on file but image could not be embedded — re-save signature)",
+          "(Signature on file but could not be embedded — re-save as PNG and download again)",
           9,
           false,
           rgb(0.7, 0.2, 0.2)
@@ -216,7 +298,7 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
       }
     } else {
       draw(
-        "(Signature URL could not be loaded — re-save signature and download again)",
+        "(Signature saved but image could not be loaded — re-save signature and download again)",
         9,
         false,
         rgb(0.7, 0.2, 0.2)
@@ -238,7 +320,6 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
     );
   }
 
-  // Seal near signature block
   await stampSeal(pdf, page, font, fontBold, width - margin - 64, Math.max(36, y - 20), 56);
   page.drawText("Company seal", {
     x: width - margin - 64,
