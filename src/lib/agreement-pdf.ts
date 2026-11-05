@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 import { getCompanySealBytes, COMPANY_SEAL_RC } from "@/lib/company-seal";
 
 export async function fetchImageBytes(
@@ -6,11 +6,11 @@ export async function fetchImageBytes(
 ): Promise<{ bytes: Uint8Array; type: "png" | "jpg" } | null> {
   try {
     let fetchUrl = url;
-    if (url.startsWith("/api/media") || url.startsWith("/")) {
+    if (url.startsWith("/api/media") || (url.startsWith("/") && !url.startsWith("//"))) {
       const base = process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
         : process.env.NEXT_PUBLIC_APP_URL || "https://buildforge-construction.vercel.app";
-      fetchUrl = url.startsWith("http") ? url : `${base}${url}`;
+      fetchUrl = `${base}${url}`;
     }
     const res = await fetch(fetchUrl, { cache: "no-store" });
     if (!res.ok) return null;
@@ -42,6 +42,68 @@ export type AgreementPdfOpts = {
   allowUnsigned?: boolean;
 };
 
+/** Draw official-looking seal when PNG is not available */
+function drawVectorSeal(
+  page: PDFPage,
+  font: PDFFont,
+  bold: PDFFont,
+  x: number,
+  y: number,
+  size = 70
+) {
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  const r = size / 2 - 2;
+  // Outer ring
+  page.drawCircle({ x: cx, y: cy, size: r, borderColor: rgb(0.08, 0.1, 0.14), borderWidth: 2.2 });
+  page.drawCircle({ x: cx, y: cy, size: r - 6, borderColor: rgb(0.15, 0.18, 0.22), borderWidth: 1 });
+  // Accent arc suggestion via small marks
+  page.drawText("HAMA", {
+    x: cx - 16,
+    y: cy + 6,
+    size: 9,
+    font: bold,
+    color: rgb(0.1, 0.12, 0.16),
+  });
+  page.drawText("CONSTRUCTION", {
+    x: cx - 28,
+    y: cy - 6,
+    size: 6,
+    font: bold,
+    color: rgb(0.2, 0.22, 0.26),
+  });
+  page.drawText(COMPANY_SEAL_RC, {
+    x: cx - 22,
+    y: cy - 18,
+    size: 6,
+    font,
+    color: rgb(0.15, 0.15, 0.18),
+  });
+}
+
+async function stampSeal(
+  pdf: PDFDocument,
+  page: PDFPage,
+  font: PDFFont,
+  bold: PDFFont,
+  x: number,
+  y: number,
+  size: number
+) {
+  const bytes = getCompanySealBytes();
+  if (bytes) {
+    try {
+      const seal = await pdf.embedPng(bytes);
+      const h = (seal.height / seal.width) * size;
+      page.drawImage(seal, { x, y: y - (h - size) / 2, width: size, height: h });
+      return;
+    } catch {
+      /* fall through */
+    }
+  }
+  drawVectorSeal(page, font, bold, x, y, size);
+}
+
 /** Build installment agreement PDF with company seal + client signature */
 export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Promise<{
   bytes: Uint8Array;
@@ -55,20 +117,8 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
   const margin = 50;
   let y = height - margin;
 
-  try {
-    const sealBytes = getCompanySealBytes();
-    const seal = await pdf.embedPng(sealBytes);
-    const sealW = 72;
-    const sealH = (seal.height / seal.width) * sealW;
-    page.drawImage(seal, {
-      x: width - margin - sealW,
-      y: height - margin - sealH,
-      width: sealW,
-      height: sealH,
-    });
-  } catch {
-    /* seal optional if embed fails */
-  }
+  // Top-right company seal
+  await stampSeal(pdf, page, font, fontBold, width - margin - 78, height - margin - 78, 72);
 
   const draw = (text: string, size = 11, bold = false, color = rgb(0.1, 0.12, 0.16)) => {
     page.drawText(String(text).slice(0, 95), {
@@ -77,7 +127,7 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
       size,
       font: bold ? fontBold : font,
       color,
-      maxWidth: width - margin * 2 - 80,
+      maxWidth: width - margin * 2 - 90,
     });
     y -= size + 8;
   };
@@ -146,16 +196,31 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
         const w = embedded.width * scale;
         const h = embedded.height * scale;
         y -= h + 4;
-        if (y < 80) y = 80;
+        if (y < 100) y = 100;
         page.drawImage(embedded, { x: margin, y, width: w, height: h });
         y -= 12;
         hasSignature = true;
-        draw(`Signed electronically · ${new Date().toLocaleDateString()}`, 8, false, rgb(0.35, 0.4, 0.45));
+        draw(
+          `Signed electronically · ${new Date().toLocaleDateString()}`,
+          8,
+          false,
+          rgb(0.35, 0.4, 0.45)
+        );
       } catch {
-        draw("(Signature on file but image could not be embedded — re-save signature)", 9, false, rgb(0.7, 0.2, 0.2));
+        draw(
+          "(Signature on file but image could not be embedded — re-save signature)",
+          9,
+          false,
+          rgb(0.7, 0.2, 0.2)
+        );
       }
     } else {
-      draw("(Signature URL could not be loaded — re-save signature and download again)", 9, false, rgb(0.7, 0.2, 0.2));
+      draw(
+        "(Signature URL could not be loaded — re-save signature and download again)",
+        9,
+        false,
+        rgb(0.7, 0.2, 0.2)
+      );
     }
   } else {
     page.drawLine({
@@ -165,39 +230,34 @@ export async function buildInstallmentAgreementPdf(opts: AgreementPdfOpts): Prom
       color: rgb(0.6, 0.65, 0.7),
     });
     y -= 18;
-    draw("(No signature on file — draw or upload your signature in the app first)", 9, false, rgb(0.7, 0.2, 0.2));
+    draw(
+      "(No signature on file — draw or upload your signature in the app first)",
+      9,
+      false,
+      rgb(0.7, 0.2, 0.2)
+    );
   }
 
-  try {
-    const sealBytes = getCompanySealBytes();
-    const seal = await pdf.embedPng(sealBytes);
-    const sealW = 56;
-    const sealH = (seal.height / seal.width) * sealW;
-    page.drawImage(seal, {
-      x: width - margin - sealW - 10,
-      y: Math.max(40, y - 10),
-      width: sealW,
-      height: sealH,
-      opacity: 0.9,
-    });
-    page.drawText("Company seal", {
-      x: width - margin - sealW - 10,
-      y: Math.max(28, y - 22),
-      size: 7,
-      font,
-      color: rgb(0.45, 0.48, 0.52),
-    });
-  } catch {
-    /* */
-  }
-
-  page.drawText("This document is issued by Hama Construction. Unsigned agreements will be rejected.", {
-    x: margin,
-    y: 28,
-    size: 8,
+  // Seal near signature block
+  await stampSeal(pdf, page, font, fontBold, width - margin - 64, Math.max(36, y - 20), 56);
+  page.drawText("Company seal", {
+    x: width - margin - 64,
+    y: Math.max(24, y - 36),
+    size: 7,
     font,
-    color: rgb(0.4, 0.42, 0.45),
+    color: rgb(0.45, 0.48, 0.52),
   });
+
+  page.drawText(
+    "This document is issued by Hama Construction. Unsigned agreements will be rejected.",
+    {
+      x: margin,
+      y: 28,
+      size: 8,
+      font,
+      color: rgb(0.4, 0.42, 0.45),
+    }
+  );
 
   const bytes = await pdf.save();
   return { bytes, hasSignature };

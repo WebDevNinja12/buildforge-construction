@@ -10,46 +10,37 @@ import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientShell } from "@/components/ClientShell";
 import { ClientDocumentsList } from "@/components/ClientDocumentsList";
 import { ClientContracts } from "@/components/ClientContracts";
-import {
-  Building2,
-  Wrench,
-  Layers,
-  BadgeCheck,
-  Bell,
-  ArrowRight,
-} from "lucide-react";
+import { ArrowRight, BadgeCheck, Bell, Wrench } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await getSession();
-  if (!session) redirect("/login");
+  if (!session) redirect("/login?next=/dashboard");
   if (session.role === "ADMIN") redirect("/admin");
-
-  if (!["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "")) {
-    redirect("/pending-approval");
-  }
 
   await runMaintenance().catch(() => null);
 
   const user = await prisma.user.findUnique({
     where: { id: session.id },
-    select: { status: true, verificationStatus: true, verificationNote: true, name: true },
+    select: {
+      name: true,
+      verificationStatus: true,
+      verificationNote: true,
+      status: true,
+    },
   });
 
   const [reservations, rentals, activePlans, payments, notifications] = await Promise.all([
     prisma.reservation.count({
-      where: {
-        userId: session.id,
-        status: { in: ["PENDING", "CONFIRMED", "PARTIALLY_PAID", "INSTALLMENT_PLAN"] },
-      },
+      where: { userId: session.id, status: { in: ["PENDING", "CONFIRMED"] } },
     }),
-    prisma.toolRental.count({
-      where: { userId: session.id, status: { in: ["PENDING", "ACTIVE", "CONFIRMED"] } },
-    }),
+    prisma.toolRental.count({ where: { userId: session.id } }).catch(() => 0),
     prisma.reservation.count({
       where: {
         userId: session.id,
         paymentType: "INSTALLMENT",
-        status: { in: ["PENDING", "CONFIRMED", "PARTIALLY_PAID", "INSTALLMENT_PLAN"] },
+        status: { in: ["PENDING", "CONFIRMED"] },
       },
     }),
     prisma.payment.findMany({
@@ -71,9 +62,11 @@ export default async function DashboardPage() {
 
   return (
     <ClientShell name={session.name}>
-      <div className="mb-6 rounded-2xl bg-construction-dark text-white p-5 sm:p-6 shadow-md">
+      <div className="mb-6 rounded-3xl bg-gradient-to-br from-construction-dark via-slate-800 to-slate-900 text-white p-5 sm:p-7 shadow-lg border border-white/5">
         <p className="text-xs uppercase tracking-wider text-slate-300">Client dashboard</p>
-        <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {session.name.split(" ")[0]}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold mt-1">
+          Hello, {session.name.split(" ")[0]}
+        </h1>
         <p className="text-sm text-slate-300 mt-1">
           Manage reservations, installments, and documents in one place.
         </p>
@@ -122,120 +115,84 @@ export default async function DashboardPage() {
           {
             label: "Active reservations",
             value: reservations,
-            icon: Building2,
-            color: "bg-primary-100 text-primary-700",
             href: "#reservations",
+            hint: "Holds waiting for payment",
           },
           {
             label: "Tool rentals",
             value: rentals,
-            icon: Wrench,
-            color: "bg-orange-100 text-orange-700",
             href: "#reservations",
+            hint: "Equipment you hired",
           },
           {
             label: "Installment plans",
             value: activePlans,
-            icon: Layers,
-            color: "bg-amber-100 text-amber-800",
-            href: "#plans",
+            href: "#reservations",
+            hint: "Active payment schedules",
           },
-        ].map((s) => (
+        ].map((c) => (
           <a
-            key={s.label}
-            href={s.href}
-            className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:border-primary-300 hover:shadow transition-all"
+            key={c.label}
+            href={c.href}
+            className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow"
           >
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${s.color}`}>
-              <s.icon className="w-5 h-5" />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-construction-dark tabular-nums">{s.value}</p>
-            <p className="text-sm text-slate-500">{s.label}</p>
+            <p className="text-xs text-slate-500 font-medium">{c.label}</p>
+            <p className="text-2xl font-bold text-construction-dark mt-1">{c.value}</p>
+            <p className="text-[11px] text-slate-400 mt-1">{c.hint}</p>
           </a>
         ))}
       </div>
 
-      <div className="mb-4 flex flex-wrap justify-between items-center gap-2">
-        <h2 className="text-lg font-bold text-construction-dark" id="plans">
-          Plans & reservations
-        </h2>
-        <ClientHistoryActions />
-      </div>
-      <p className="text-sm text-slate-500 mb-4">
-        Reserve first on Services, then choose full or installment payment here.
-      </p>
       <div id="reservations" className="scroll-mt-24 mb-10">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="text-lg font-bold text-construction-dark">Plans & reservations</h2>
+          <ClientHistoryActions />
+        </div>
         <DashboardPlans />
       </div>
 
-      <section id="documents" className="mb-10 scroll-mt-24">
+      <section className="mb-10">
         <h2 className="text-lg font-bold text-construction-dark mb-3">My documents</h2>
         <ClientDocumentsList />
       </section>
 
-      <section id="contracts" className="mb-10 scroll-mt-24">
+      <section className="mb-10">
         <h2 className="text-lg font-bold text-construction-dark mb-3">My contracts</h2>
         <ClientContracts />
       </section>
 
       <section className="mb-10">
-        <h2 className="text-lg font-bold text-construction-dark mb-3">Start a project deal</h2>
+        <h2 className="text-lg font-bold text-construction-dark mb-3 flex items-center gap-2">
+          <Wrench className="w-5 h-5 text-primary-600" /> Project deal
+        </h2>
         <ClientProjectDeal />
       </section>
 
-      <section id="payments" className="mb-10 scroll-mt-24">
+      <section className="mb-10">
         <h2 className="text-lg font-bold text-construction-dark mb-3">Payment history</h2>
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           {payments.length === 0 ? (
-            <p className="p-6 text-sm text-slate-500 text-center">No payments yet.</p>
+            <p className="p-6 text-sm text-slate-500">No payments yet.</p>
           ) : (
-            <>
-              <ul className="md:hidden divide-y">
-                {payments.map((p) => (
-                  <li key={p.id} className="px-4 py-3 flex justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">{formatCurrency(p.amount)}</p>
-                      <p className="text-[11px] text-slate-500">
-                        {p.type} · {formatDate(p.createdAt)}
-                      </p>
-                    </div>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${
-                        statusBadgeClass(p.status)
-                      }`}
-                    >
-                      {p.status}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3">Type</th>
-                      <th className="px-4 py-3">Amount</th>
-                      <th className="px-4 py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payments.map((p) => (
-                      <tr key={p.id} className="border-t">
-                        <td className="px-4 py-3">{formatDate(p.createdAt)}</td>
-                        <td className="px-4 py-3">{p.type}</td>
-                        <td className="px-4 py-3 font-medium">{formatCurrency(p.amount)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(p.status)}`}>
-                            {p.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            <ul className="divide-y divide-slate-100">
+              {payments.map((p) => (
+                <li key={p.id} className="px-4 py-3 flex justify-between gap-3 text-sm">
+                  <div>
+                    <p className="font-medium">{formatCurrency(p.amount)}</p>
+                    <p className="text-xs text-slate-500">
+                      {p.type} · {formatDate(p.createdAt)}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${
+                      statusBadgeClass(p.status)
+                    }`}
+                  >
+                    {p.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </section>
