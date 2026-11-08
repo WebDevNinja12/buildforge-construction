@@ -37,9 +37,41 @@ export default function AdminReservationsPage() {
   }, [load]);
 
   async function act(id: string, action: "ACCEPT" | "REJECT") {
-    if (action === "REJECT" && !window.confirm("Reject this reservation and free the service?")) {
+    if (action === "REJECT") {
+      const reason =
+        window.prompt("Reason for cancelling this plan (optional):") ?? null;
+      if (reason === null) return;
+      if (!window.confirm("Cancel this reservation/plan and free the service if possible?")) {
+        return;
+      }
+      setBusyId(id);
+      try {
+        const res = await fetch("/api/admin/reservations", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            action: "REJECT",
+            status: "REJECTED",
+            reason: reason.trim() || "Cancelled by admin",
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast(data.error || data.detail || "Cancel failed", "err");
+          return;
+        }
+        toast("Plan cancelled");
+        await load();
+      } catch {
+        toast("Network error", "err");
+      } finally {
+        setBusyId(null);
+      }
       return;
     }
+
     setBusyId(id);
     try {
       const res = await fetch("/api/admin/reservations", {
@@ -49,7 +81,7 @@ export default function AdminReservationsPage() {
         body: JSON.stringify({
           id,
           action,
-          status: action === "ACCEPT" ? "APPROVED" : "REJECTED",
+          status: "APPROVED",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -57,7 +89,7 @@ export default function AdminReservationsPage() {
         toast(data.error || data.detail || "Action failed", "err");
         return;
       }
-      toast(action === "ACCEPT" ? "Reservation accepted" : "Reservation rejected");
+      toast("Reservation accepted");
       await load();
     } catch {
       toast("Network error", "err");
@@ -80,7 +112,10 @@ export default function AdminReservationsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-construction-dark">Reservations</h1>
-      <p className="text-sm text-slate-500">Accept or reject client holds. Reject frees the service listing.</p>
+      <p className="text-sm text-slate-500">
+        Accept pending holds, or cancel any active plan (pending or confirmed). Cancel frees the
+        service when no other hold exists.
+      </p>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
           value={q}
@@ -107,32 +142,37 @@ export default function AdminReservationsPage() {
         <p className="text-sm text-slate-500 bg-white border rounded-2xl p-6">No data yet.</p>
       ) : (
         <div className="space-y-3">
-          {filtered.map((r) => (
-            <div
-              key={r.id}
-              className="bg-white border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-            >
-              <div className="min-w-0">
-                <p className="font-semibold">{r?.asset?.title || "Service"}</p>
-                <p className="text-xs text-slate-500 truncate">
-                  {r?.user?.email || r?.userId}
-                  {r?.asset?.price != null ? ` · ${formatCurrency(Number(r.asset.price))}` : ""}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {formatDate(r.createdAt)}
-                  {r.expiresAt ? ` · expires ${formatDate(r.expiresAt)}` : ""}
-                </p>
-                <span
-                  className={`inline-block mt-1 text-[10px] font-semibold px-2 py-1 rounded-full ${
-                    statusBadgeClass(r.status)
-                  }`}
-                >
-                  {r.status}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                {r.status === "PENDING" && (
-                  <>
+          {filtered.map((r) => {
+            const active = ["PENDING", "CONFIRMED"].includes(String(r.status || ""));
+            return (
+              <div
+                key={r.id}
+                className="bg-white border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold">{r?.asset?.title || "Service"}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {r?.user?.email || r?.userId}
+                    {r?.asset?.price != null ? ` · ${formatCurrency(Number(r.asset.price))}` : ""}
+                    {r?.paymentType ? ` · ${r.paymentType}` : ""}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {formatDate(r.createdAt)}
+                    {r.expiresAt ? ` · expires ${formatDate(r.expiresAt)}` : ""}
+                  </p>
+                  {r.cancelReason && (
+                    <p className="text-xs text-red-600 mt-1">Cancel reason: {r.cancelReason}</p>
+                  )}
+                  <span
+                    className={`inline-block mt-1 text-[10px] font-semibold px-2 py-1 rounded-full ${statusBadgeClass(
+                      r.status
+                    )}`}
+                  >
+                    {r.status}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {r.status === "PENDING" && (
                     <button
                       type="button"
                       disabled={busyId === r.id}
@@ -141,19 +181,21 @@ export default function AdminReservationsPage() {
                     >
                       {busyId === r.id ? "…" : "Accept"}
                     </button>
+                  )}
+                  {active && (
                     <button
                       type="button"
                       disabled={busyId === r.id}
                       className="min-h-[44px] text-xs font-semibold bg-red-600 text-white px-4 py-2 rounded-lg disabled:opacity-50"
                       onClick={() => act(r.id, "REJECT")}
                     >
-                      Reject
+                      {busyId === r.id ? "…" : "Cancel plan"}
                     </button>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
