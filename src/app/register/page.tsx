@@ -3,31 +3,63 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { HardHat, UserPlus, FileText, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import {
+  HardHat,
+  UserPlus,
+  FileText,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  User,
+  Building2,
+} from "lucide-react";
 
 const RULES_SUMMARY = [
   "Admin must approve new accounts; auto-approval after 12 hours if not reviewed.",
-  "Reservations remove items from available stock immediately.",
-  "Unpaid reservations expire after 24 hours and inventory is released.",
-  "Provide accurate information; fraud leads to account removal.",
-  "Review booking details carefully before confirming any hire or reservation.",
+  "Provide accurate personal or company information and valid supporting documents.",
+  "Reservations are time-limited; pay before the hold expires or the listing is released.",
+  "Fraud or false documents may lead to account suspension.",
+  "Only the account holder (or authorized company contact) may manage bookings and payments.",
 ];
+
+type AccountType = "INDIVIDUAL" | "COMPANY";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [step, setStep] = useState<"rules" | "form">("rules");
+  const [step, setStep] = useState<"rules" | "type" | "form">("rules");
   const [agreed, setAgreed] = useState(false);
+  const [accountType, setAccountType] = useState<AccountType>("INDIVIDUAL");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
+    address: "",
+    nin: "",
+    bvn: "",
     password: "",
     confirm: "",
   });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+
+  const [co, setCo] = useState({
+    companyName: "",
+    companyRc: "",
+    companyTin: "",
+    companyEmail: "",
+    companyPhone: "",
+    companyAddress: "",
+    password: "",
+    confirm: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    directorName: "",
+    directorNin: "",
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,24 +68,81 @@ export default function RegisterPage() {
       setError("You must agree to the platform rules");
       return;
     }
-    if (form.password !== form.confirm) {
-      setError("Passwords do not match");
-      return;
-    }
     setLoading(true);
     try {
+      let payload: Record<string, unknown>;
+      if (accountType === "INDIVIDUAL") {
+        const name = form.name.trim();
+        const email = form.email.trim();
+        const phone = form.phone.trim();
+        const address = form.address.trim();
+        const nin = form.nin.trim().replace(/\D/g, "");
+        const bvn = form.bvn.trim().replace(/\D/g, "");
+        if (!name || !email || !phone || !address || !nin) {
+          throw new Error("Full name, email, phone, address and NIN are required");
+        }
+        if (nin.length !== 11) throw new Error("NIN must be exactly 11 digits");
+        if (bvn && bvn.length !== 11) throw new Error("BVN must be exactly 11 digits");
+        if (form.password.length < 6) throw new Error("Password must be at least 6 characters");
+        if (form.password !== form.confirm) throw new Error("Passwords do not match");
+        payload = {
+          clientType: "INDIVIDUAL",
+          name,
+          email,
+          phone,
+          address,
+          nin,
+          bvn: bvn || undefined,
+          password: form.password,
+          agreedTerms: true,
+          documents: [],
+        };
+      } else {
+        const companyName = co.companyName.trim();
+        const companyRc = co.companyRc.trim();
+        const companyTin = co.companyTin.trim();
+        const companyEmail = co.companyEmail.trim();
+        const companyPhone = co.companyPhone.trim();
+        const companyAddress = co.companyAddress.trim();
+        if (!companyName || !companyRc || !companyTin || !companyEmail || !companyPhone || !companyAddress) {
+          throw new Error("Company name, RC/CAC, TIN, email, phone and address are required");
+        }
+        if (!co.contactName.trim() || !co.contactPhone.trim()) {
+          throw new Error("Contact person name and phone are required");
+        }
+        if (!co.directorName.trim()) throw new Error("Add at least one director name");
+        if (co.password.length < 6) throw new Error("Password must be at least 6 characters");
+        if (co.password !== co.confirm) throw new Error("Passwords do not match");
+        payload = {
+          clientType: "COMPANY",
+          companyName,
+          companyRc,
+          companyTin,
+          companyEmail,
+          companyPhone,
+          companyAddress,
+          password: co.password,
+          agreedTerms: true,
+          contactPerson: {
+            name: co.contactName.trim(),
+            phone: co.contactPhone.trim(),
+            email: co.contactEmail.trim(),
+          },
+          directors: [
+            {
+              name: co.directorName.trim(),
+              nin: co.directorNin.trim().replace(/\D/g, "") || undefined,
+            },
+          ],
+          documents: [],
+        };
+      }
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          phone: form.phone || undefined,
-          password: form.password,
-          agreedTerms: true,
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Registration failed");
       router.push("/pending-approval");
       router.refresh();
@@ -102,30 +191,77 @@ export default function RegisterPage() {
           <button
             type="button"
             disabled={!agreed}
-            onClick={() => setStep("form")}
+            onClick={() => setStep("type")}
             className="mt-6 w-full bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors"
           >
-            Agree & continue to registration
+            Agree & continue
           </button>
           <p className="mt-4 text-center text-sm text-construction-gray">
             Already have an account?{" "}
-            <Link href="/login" className="text-primary-600 font-medium hover:underline">Sign in</Link>
+            <Link href="/login" className="text-primary-600 font-medium hover:underline">
+              Sign in
+            </Link>
           </p>
         </div>
       </div>
     );
   }
 
+  if (step === "type") {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4 py-12 bg-slate-50">
+        <div className="w-full max-w-lg">
+          <h1 className="text-2xl font-bold text-construction-dark text-center mb-2">Account type</h1>
+          <p className="text-sm text-slate-500 text-center mb-6">Choose how you will use Hama Construction</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={() => {
+                setAccountType("INDIVIDUAL");
+                setStep("form");
+              }}
+              className="min-h-[120px] bg-white border-2 border-slate-200 hover:border-accent-500 rounded-2xl p-5 text-left transition shadow-sm"
+            >
+              <User className="w-8 h-8 text-accent-500 mb-3" />
+              <p className="font-bold text-construction-dark">Individual</p>
+              <p className="text-xs text-slate-500 mt-1">Personal account — NIN, address & ID</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAccountType("COMPANY");
+                setStep("form");
+              }}
+              className="min-h-[120px] bg-white border-2 border-slate-200 hover:border-primary-500 rounded-2xl p-5 text-left transition shadow-sm"
+            >
+              <Building2 className="w-8 h-8 text-primary-600 mb-3" />
+              <p className="font-bold text-construction-dark">Company</p>
+              <p className="text-xs text-slate-500 mt-1">Business — CAC, TIN & directors</p>
+            </button>
+          </div>
+          <button type="button" onClick={() => setStep("rules")} className="mt-6 w-full text-sm text-slate-500 underline">
+            Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-[70vh] flex items-center justify-center px-4 py-16 bg-slate-50">
+    <div className="min-h-[70vh] flex items-center justify-center px-4 py-12 bg-slate-50">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-accent-500 rounded-xl mb-4">
             <HardHat className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-construction-dark">Create your account</h1>
-          <p className="mt-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-            Rules accepted. After signup, admin approval is required (auto-approved after 12 hours).
+          <h1 className="text-2xl font-bold text-construction-dark">
+            {accountType === "COMPANY" ? "Company registration" : "Create your account"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            {accountType === "COMPANY" ? "Company" : "Individual"} ·{" "}
+            <button type="button" className="text-primary-600 underline" onClick={() => setStep("type")}>
+              change type
+            </button>
           </p>
         </div>
 
@@ -134,54 +270,139 @@ export default function RegisterPage() {
             <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Full Name *</label>
-            <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="John Doe" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Email *</label>
-            <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="you@example.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
-            <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password *</label>
-            <div className="relative">
-              <input type={showPassword ? "text" : "password"} required minLength={6} value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
-              <button type="button" onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                aria-label={showPassword ? "Hide password" : "Show password"}>
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirm Password *</label>
-            <div className="relative">
-              <input type={showConfirm ? "text" : "password"} required value={form.confirm}
-                onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-                className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
-              <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                aria-label={showConfirm ? "Hide password" : "Show password"}>
-                {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
+          {accountType === "INDIVIDUAL" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Full Name *</label>
+                <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="John Doe" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Email *</label>
+                <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="you@example.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone *</label>
+                <input type="tel" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="08012345678" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Address *</label>
+                <input type="text" required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="Street, city, state" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">NIN (11 digits) *</label>
+                <input type="text" required inputMode="numeric" maxLength={11} value={form.nin}
+                  onChange={(e) => setForm({ ...form, nin: e.target.value.replace(/\D/g, "").slice(0, 11) })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="12345678901" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">BVN (optional)</label>
+                <input type="text" inputMode="numeric" maxLength={11} value={form.bvn}
+                  onChange={(e) => setForm({ ...form, bvn: e.target.value.replace(/\D/g, "").slice(0, 11) })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="11 digits" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Password *</label>
+                <div className="relative">
+                  <input type={showPassword ? "text" : "password"} required minLength={6} value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirm Password *</label>
+                <div className="relative">
+                  <input type={showConfirm ? "text" : "password"} required value={form.confirm}
+                    onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+                    className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+                  <button type="button" onClick={() => setShowConfirm(!showConfirm)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {accountType === "COMPANY" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Company name *</label>
+                <input required value={co.companyName} onChange={(e) => setCo({ ...co, companyName: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">RC / CAC *</label>
+                  <input required value={co.companyRc} onChange={(e) => setCo({ ...co, companyRc: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" placeholder="RC123456" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">TIN *</label>
+                  <input required value={co.companyTin} onChange={(e) => setCo({ ...co, companyTin: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Company email *</label>
+                <input type="email" required value={co.companyEmail} onChange={(e) => setCo({ ...co, companyEmail: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Company phone *</label>
+                <input type="tel" required value={co.companyPhone} onChange={(e) => setCo({ ...co, companyPhone: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Company address *</label>
+                <input required value={co.companyAddress} onChange={(e) => setCo({ ...co, companyAddress: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none" />
+              </div>
+              <div className="border-t pt-3">
+                <p className="text-sm font-semibold text-construction-dark mb-2">Contact person</p>
+                <input required placeholder="Full name *" value={co.contactName} onChange={(e) => setCo({ ...co, contactName: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 mb-2 outline-none" />
+                <input required placeholder="Phone *" value={co.contactPhone} onChange={(e) => setCo({ ...co, contactPhone: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 mb-2 outline-none" />
+                <input type="email" placeholder="Email" value={co.contactEmail} onChange={(e) => setCo({ ...co, contactEmail: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 outline-none" />
+              </div>
+              <div className="border-t pt-3">
+                <p className="text-sm font-semibold text-construction-dark mb-2">Director (at least one)</p>
+                <input required placeholder="Director full name *" value={co.directorName} onChange={(e) => setCo({ ...co, directorName: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 mb-2 outline-none" />
+                <input placeholder="Director NIN (optional)" value={co.directorNin}
+                  onChange={(e) => setCo({ ...co, directorNin: e.target.value.replace(/\D/g, "").slice(0, 11) })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Password *</label>
+                <input type={showPassword ? "text" : "password"} required minLength={6} value={co.password}
+                  onChange={(e) => setCo({ ...co, password: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirm Password *</label>
+                <input type={showConfirm ? "text" : "password"} required value={co.confirm}
+                  onChange={(e) => setCo({ ...co, confirm: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 outline-none" />
+              </div>
+            </>
+          )}
 
           <button type="submit" disabled={loading}
             className="w-full flex items-center justify-center gap-2 bg-accent-500 hover:bg-accent-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors mt-2">
             {loading ? "Creating account..." : (<><UserPlus className="w-4 h-4" /> Create Account</>)}
           </button>
-          <button type="button" onClick={() => setStep("rules")} className="w-full text-sm text-slate-500 hover:text-slate-700">
-            ← Back to rules
+          <button type="button" onClick={() => setStep("type")} className="w-full text-sm text-slate-500 hover:text-slate-700">
+            ← Back
           </button>
         </form>
       </div>
