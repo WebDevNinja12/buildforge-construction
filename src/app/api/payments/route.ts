@@ -76,6 +76,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (toolRentalId) {
+      const rental = await prisma.toolRental.findUnique({ where: { id: toolRentalId } });
+      if (!rental) return NextResponse.json({ error: "Tool rental not found" }, { status: 404 });
+      if (session.role !== "ADMIN" && rental.userId !== session.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (["CANCELLED", "EXPIRED"].includes(String(rental.status))) {
+        return NextResponse.json({ error: "Tool rental is not active" }, { status: 400 });
+      }
+    }
+
+    if (hireRequestId) {
+      const hire = await prisma.hireRequest.findUnique({ where: { id: hireRequestId } });
+      if (!hire) return NextResponse.json({ error: "Hire request not found" }, { status: 404 });
+      if (session.role !== "ADMIN" && hire.userId !== session.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (["CANCELLED", "EXPIRED", "REJECTED"].includes(String(hire.status))) {
+        return NextResponse.json({ error: "Hire request is not active" }, { status: 400 });
+      }
+    }
+
     const payment = await prisma.payment.create({
       data: {
         userId: session.id,
