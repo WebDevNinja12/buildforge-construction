@@ -3,7 +3,26 @@
 import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { HardHat, Eye, EyeOff, Loader2, User } from "lucide-react";
+import {
+  HardHat,
+  Eye,
+  EyeOff,
+  Loader2,
+  User,
+  AlertTriangle,
+  CheckCircle2,
+  X,
+  ShieldAlert,
+} from "lucide-react";
+
+const FALLBACK_RULES = [
+  "Provide accurate personal or company information and valid supporting documents.",
+  "Reservations are time-limited; pay before the hold expires or the listing is released.",
+  "Installment plans follow the rules published per category; late payments may incur deductions.",
+  "Do not misuse the platform, submit fraudulent documents, or share your account.",
+  "Only the account holder (or authorized company contact) may manage bookings and payments.",
+  "Hama Construction may suspend accounts that violate these rules pending review.",
+];
 
 function ClientLoginForm() {
   const router = useRouter();
@@ -15,6 +34,10 @@ function ClientLoginForm() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [suspendOpen, setSuspendOpen] = useState(false);
+  const [suspendNote, setSuspendNote] = useState<string | null>(null);
+  const [rules, setRules] = useState<string[]>(FALLBACK_RULES);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,6 +54,13 @@ function ClientLoginForm() {
       if (!res.ok) {
         if (data.code === "USE_ADMIN_PORTAL") {
           setError("Administrators must sign in on the staff login page.");
+          return;
+        }
+        if (data.code === "ACCOUNT_SUSPENDED" || data.status === "SUSPENDED") {
+          setRules(Array.isArray(data.rules) && data.rules.length ? data.rules : FALLBACK_RULES);
+          setSuspendNote(data.verificationNote || null);
+          setSuspendOpen(true);
+          setError("");
           return;
         }
         setError(data.error || "Invalid email or password");
@@ -154,6 +184,85 @@ function ClientLoginForm() {
           </p>
         </div>
       </div>
+
+      {suspendOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="suspend-title"
+        >
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="bg-red-600 text-white px-5 py-4 flex items-start gap-3">
+              <ShieldAlert className="w-6 h-6 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h2 id="suspend-title" className="font-bold text-lg">
+                  Account suspended
+                </h2>
+                <p className="text-sm text-red-50 mt-1">
+                  You cannot sign in because this account has been suspended for violating platform
+                  rules.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSuspendOpen(false)}
+                className="text-white/80 hover:text-white p-1"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 overflow-y-auto space-y-4">
+              <div className="flex gap-2 items-start bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-950">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Rule violation</p>
+                  <p className="mt-0.5">
+                    {suspendNote
+                      ? suspendNote
+                      : "Our review found that one or more of the platform rules below were not followed. Access will stay blocked until an administrator lifts the suspension."}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-bold text-construction-dark mb-2">Platform rules</p>
+                <ul className="space-y-2">
+                  {rules.map((r) => (
+                    <li key={r} className="flex gap-2 text-sm text-slate-700">
+                      <CheckCircle2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                If you believe this is a mistake, contact support with your registered email so we
+                can review your case.
+              </p>
+            </div>
+
+            <div className="px-5 py-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
+              <Link
+                href="/terms"
+                className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Read full terms
+              </Link>
+              <button
+                type="button"
+                onClick={() => setSuspendOpen(false)}
+                className="flex-1 min-h-[44px] rounded-xl bg-construction-dark text-white text-sm font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
