@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(
         {
           error: "id and action required",
-          hint: 'action: ACCEPT|REJECT (or status APPROVED|REJECTED)',
+          hint: 'action: ACCEPT|REJECT|CANCEL (or status APPROVED|REJECTED)',
         },
         { status: 400 }
       );
@@ -124,12 +124,22 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, message: "Reservation accepted", status: "CONFIRMED" });
     }
 
-    // REJECT
+    if (!["PENDING", "CONFIRMED"].includes(reservation.status)) {
+      return NextResponse.json(
+        { error: `Cannot cancel a reservation with status ${reservation.status}` },
+        { status: 400 }
+      );
+    }
+
+    const cancelReason = body.reason
+      ? String(body.reason).slice(0, 500)
+      : "Cancelled by admin";
+
     await prisma.reservation.update({
       where: { id },
       data: {
         status: "CANCELLED",
-        cancelReason: body.reason ? String(body.reason).slice(0, 500) : "Rejected by admin",
+        cancelReason,
       },
     });
     await prisma.payment.updateMany({
@@ -160,9 +170,10 @@ export async function PATCH(req: NextRequest) {
       .create({
         data: {
           userId: reservation.userId,
-          title: "Reservation rejected",
-          body: "Your reservation was rejected. The service is available again.",
+          title: "Plan cancelled",
+          body: `Your plan was cancelled by admin. ${cancelReason}`,
           type: "RESERVATION",
+          link: "/dashboard#plans",
         },
       })
       .catch(() => null);
@@ -171,16 +182,16 @@ export async function PATCH(req: NextRequest) {
       adminId: admin.id,
       adminEmail: admin.email,
       adminName: admin.name,
-      action: "RESERVATION_REJECT",
+      action: "RESERVATION_CANCEL",
       entity: "Reservation",
       entityId: id,
-      details: { assetId: reservation.assetId },
+      details: { assetId: reservation.assetId, reason: cancelReason },
       alsoNotifyEmails: user?.email ? [user.email] : [],
     });
 
     return NextResponse.json({
       ok: true,
-      message: "Reservation rejected — asset returned to available listings",
+      message: "Plan cancelled — asset returned to available listings if free",
       status: "CANCELLED",
     });
   } catch (e) {
