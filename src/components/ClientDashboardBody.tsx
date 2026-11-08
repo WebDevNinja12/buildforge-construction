@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { DashboardPlans } from "@/components/DashboardPlans";
+import { ClientOtherBookings } from "@/components/ClientOtherBookings";
 import { ClientDocumentsList } from "@/components/ClientDocumentsList";
 import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
@@ -325,17 +326,18 @@ export function ClientDashboardBody({
       )}
 
       {section === "plans" && (
-        <div id="plans" className="scroll-mt-24 space-y-3">
+        <div id="plans" className="scroll-mt-24 space-y-6">
           <div className="flex items-center justify-between gap-2">
             <div>
               <h2 className="text-lg font-bold text-construction-dark">Plans & reservations</h2>
               <p className="text-xs text-slate-500">
-                Active installment plans and holds appear here — not on the overview.
+                Asset/installment plans, tool rentals, and worker hires — pay and manage here.
               </p>
             </div>
             <ClientHistoryActions />
           </div>
           <DashboardPlans />
+          <ClientOtherBookings />
         </div>
       )}
 
