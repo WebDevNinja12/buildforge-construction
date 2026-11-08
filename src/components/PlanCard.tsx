@@ -39,6 +39,10 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const isInstallment = paymentMethod === "INSTALLMENT";
   const docsApproved = docsOverall === "APPROVED";
   const firstInstallmentGate = isInstallment && paid <= 0 && !docsApproved;
+  const statusUpper = String(plan?.status || "").toUpperCase();
+  const canCancel = !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"].includes(
+    statusUpper
+  );
 
   const installments = Array.isArray(plan?.installments)
     ? plan.installments
@@ -104,6 +108,41 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Failed");
     } finally {
+      setBusy("");
+    }
+  }
+
+  async function cancelPlan() {
+    setBusy("CANCEL_QUOTE");
+    setMsg("");
+    try {
+      const quoteRes = await fetch(`/api/plans/${plan.id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "CANCEL_QUOTE" }),
+      });
+      const quote = await readJson(quoteRes);
+      const note = quote.message || "Cancellation may apply a fee on amounts already paid.";
+      const reason =
+        window.prompt(`${note}\n\nOptional reason for cancelling this plan:`) ?? null;
+      if (reason === null) {
+        setBusy("");
+        return;
+      }
+      if (
+        !window.confirm(
+          "Cancel this plan permanently? Pending payments will be voided and the service may be released."
+        )
+      ) {
+        setBusy("");
+        return;
+      }
+      await act("CANCEL_CONFIRM", {
+        reason: reason.trim() || "Cancelled by client",
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Cancel failed");
       setBusy("");
     }
   }
@@ -292,6 +331,19 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               className="w-full min-h-[44px] rounded-xl border text-sm font-semibold disabled:opacity-50"
             >
               Pay remaining balance
+            </button>
+          </div>
+        )}
+
+        {canCancel && (
+          <div className="border-t pt-3">
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={cancelPlan}
+              className="w-full min-h-[44px] rounded-xl border border-red-200 text-red-700 text-sm font-semibold disabled:opacity-50 hover:bg-red-50"
+            >
+              {busy === "CANCEL_CONFIRM" ? "Cancelling…" : "Cancel this plan"}
             </button>
           </div>
         )}
