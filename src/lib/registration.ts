@@ -1,6 +1,13 @@
-/** Registration helpers: account types, validation, default registration documents */
+/** Account-type registration helpers (Individual vs Company) */
 
 export type AccountType = "INDIVIDUAL" | "COMPANY";
+
+export type ContactPerson = {
+  name: string;
+  position?: string;
+  phone: string;
+  email?: string;
+};
 
 export type DirectorInput = {
   name: string;
@@ -10,119 +17,109 @@ export type DirectorInput = {
   email?: string;
 };
 
-export type ContactPerson = {
-  name: string;
-  position?: string;
-  phone?: string;
-  email?: string;
-};
-
-export type RegistrationDocDef = {
+export type RegDocDef = {
   key: string;
   label: string;
   instruction: string;
   required: boolean;
-  accountTypes: AccountType[];
 };
 
-/** Docs collected at signup (not installment-only) */
-export const DEFAULT_REGISTRATION_DOCS: RegistrationDocDef[] = [
+const INDIVIDUAL_REG_DOCS: RegDocDef[] = [
   {
     key: "valid_id",
     label: "Valid ID",
-    instruction: "National ID, passport or driver’s licence (PDF/JPG/PNG).",
+    instruction: "National ID, international passport or driver’s licence (clear photo or PDF).",
     required: true,
-    accountTypes: ["INDIVIDUAL"],
   },
   {
     key: "passport_photo",
     label: "Passport photograph",
     instruction: "Recent passport-size photo on a plain background.",
     required: true,
-    accountTypes: ["INDIVIDUAL"],
   },
   {
     key: "proof_of_address",
     label: "Proof of address",
-    instruction: "Utility bill or bank letter not older than 3 months.",
+    instruction: "Utility bill, bank statement or tenancy letter not older than 3 months.",
     required: true,
-    accountTypes: ["INDIVIDUAL"],
   },
+];
+
+const COMPANY_REG_DOCS: RegDocDef[] = [
   {
     key: "cac_certificate",
     label: "CAC certificate",
-    instruction: "Certificate of incorporation from CAC.",
+    instruction: "Company registration certificate from the Corporate Affairs Commission.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
   {
     key: "cac_status_report",
-    label: "CAC status report / Forms CO7 & CO2",
-    instruction: "Recent CAC status report or Forms CO7 and CO2.",
+    label: "CAC status report / Forms CO2 & CO7",
+    instruction: "Current CAC status report or certified Forms CO2 and CO7.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
   {
     key: "company_proof_of_address",
     label: "Proof of company address",
-    instruction: "Utility bill or lease in company name (not older than 3 months).",
+    instruction: "Utility bill or lease agreement not older than 3 months.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
   {
-    key: "director_id",
-    label: "Director valid ID(s)",
-    instruction: "Valid ID for each director listed (can be a combined PDF).",
+    key: "directors_ids",
+    label: "Directors’ valid IDs",
+    instruction: "Valid ID for each director listed on the application.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
   {
-    key: "director_passport_photo",
-    label: "Director passport photograph(s)",
-    instruction: "Passport photos for each director.",
+    key: "directors_photos",
+    label: "Directors’ passport photographs",
+    instruction: "Recent passport photo for each director.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
   {
     key: "board_resolution",
     label: "Board resolution / authorization letter",
-    instruction: "Letter authorizing this account holder to act for the company.",
+    instruction: "Resolution or letter authorizing the contact person to register and transact.",
     required: true,
-    accountTypes: ["COMPANY"],
   },
 ];
 
-export function docsForAccountType(type: AccountType) {
-  return DEFAULT_REGISTRATION_DOCS.filter((d) => d.accountTypes.includes(type));
+export function docsForAccountType(type: AccountType): RegDocDef[] {
+  return type === "COMPANY" ? COMPANY_REG_DOCS : INDIVIDUAL_REG_DOCS;
 }
 
-export function normalizeDigits(v: string) {
-  return String(v || "").replace(/\D/g, "");
-}
-
-export function isValidNin(nin: string) {
-  const d = normalizeDigits(nin);
-  return d.length === 11;
-}
-
-export function isValidBvn(bvn: string) {
-  if (!bvn || !String(bvn).trim()) return true; // optional at registration
-  const d = normalizeDigits(bvn);
-  return d.length === 11;
-}
-
-export function isValidRc(rc: string) {
-  const s = String(rc || "").trim().toUpperCase();
-  // e.g. RC123456, BN123456, or digits
-  return s.length >= 5 && s.length <= 20 && /^[A-Z0-9\-\/]+$/.test(s);
-}
-
-export function isValidTin(tin: string) {
-  const s = String(tin || "").trim();
-  const d = normalizeDigits(s);
-  return d.length >= 8 && d.length <= 14;
-}
-
-export function isValidEmail(email: string) {
+export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
+
+export function isValidNin(nin: string): boolean {
+  const v = String(nin || "").replace(/\s/g, "");
+  if (!v) return false;
+  return /^\d{11}$/.test(v);
+}
+
+export function isValidBvn(bvn: string): boolean {
+  const v = String(bvn || "").replace(/\s/g, "");
+  if (!v) return true;
+  return /^\d{11}$/.test(v);
+}
+
+export function isValidRc(rc: string): boolean {
+  const v = String(rc || "").trim().toUpperCase().replace(/\s/g, "");
+  if (!v) return false;
+  return /^(RC)?\d{5,10}$/.test(v) || /^BN\d{5,10}$/.test(v);
+}
+
+export function isValidTin(tin: string): boolean {
+  const v = String(tin || "").replace(/[\s-]/g, "");
+  if (!v) return false;
+  return /^\d{8,14}$/.test(v);
+}
+
+export const ALLOWED_REG_MIME = [
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+];
+export const MAX_REG_BYTES = 5 * 1024 * 1024;
