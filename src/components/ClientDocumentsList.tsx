@@ -11,9 +11,35 @@ export function ClientDocumentsList() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/installment-docs", { credentials: "include" });
-        const data = await res.json().catch(() => ({}));
-        setDocs(Array.isArray(data?.documents) ? data.documents : []);
+        const [instRes, profileRes] = await Promise.all([
+          fetch("/api/installment-docs", { credentials: "include" }),
+          fetch("/api/profile", { credentials: "include" }).catch(() => null),
+        ]);
+        const inst = await instRes.json().catch(() => ({}));
+        const installmentDocs = Array.isArray(inst?.documents) ? inst.documents : [];
+
+        let regDocs: any[] = [];
+        if (profileRes && profileRes.ok) {
+          const profile = await profileRes.json().catch(() => ({}));
+          const list = profile?.documents || profile?.userDocuments || [];
+          if (Array.isArray(list)) {
+            regDocs = list.map((d: any) => ({
+              ...d,
+              label: d.label || d.type,
+              source: "REGISTRATION",
+            }));
+          }
+        }
+
+        const merged = [...installmentDocs, ...regDocs];
+        const seen = new Set<string>();
+        const unique = merged.filter((d) => {
+          const k = String(d.id || `${d.type}-${d.fileUrl}`);
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        setDocs(unique);
       } catch {
         setDocs([]);
       } finally {
