@@ -22,7 +22,6 @@ function parseSchedule(json: string | null | undefined) {
   }
 }
 
-/** Normalize UI payloads: status APPROVED|REJECTED or action APPROVE|REJECT */
 function normalizeAction(body: Record<string, unknown>): "APPROVE" | "REJECT" | null {
   const raw = String(body.action || body.status || "")
     .trim()
@@ -101,7 +100,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payments);
   } catch (e) {
     console.error(e);
-    // Fallback without nested includes if Asset columns missing
     try {
       const payments = await prisma.payment.findMany({
         where: status && status !== "ALL" ? { status } : undefined,
@@ -127,7 +125,12 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const id = String(body.id || "").trim();
     const action = normalizeAction(body);
-    const reason = body.reason != null ? String(body.reason) : body.rejectReason != null ? String(body.rejectReason) : null;
+    const reason =
+      body.reason != null
+        ? String(body.reason)
+        : body.rejectReason != null
+          ? String(body.rejectReason)
+          : null;
 
     if (!id || !action) {
       return NextResponse.json(
@@ -166,6 +169,23 @@ export async function PATCH(req: NextRequest) {
 
       if (payment.reservationId) {
         await applyPaymentToReservation(payment.amount, payment.reservationId);
+      }
+
+      if (payment.toolRentalId) {
+        await prisma.toolRental
+          .update({
+            where: { id: payment.toolRentalId },
+            data: { status: "CONFIRMED", expiresAt: null },
+          })
+          .catch(() => null);
+      }
+      if (payment.hireRequestId) {
+        await prisma.hireRequest
+          .update({
+            where: { id: payment.hireRequestId },
+            data: { status: "CONFIRMED", expiresAt: null },
+          })
+          .catch(() => null);
       }
 
       if (payment.userId) {
@@ -216,11 +236,17 @@ export async function PATCH(req: NextRequest) {
         reason,
         client: payment.user?.email,
         reservationId: payment.reservationId,
+        toolRentalId: payment.toolRentalId,
+        hireRequestId: payment.hireRequestId,
       },
       alsoNotifyEmails: payment.user?.email ? [payment.user.email] : [],
     });
 
-    return NextResponse.json({ ok: true, action, status: action === "APPROVE" ? "APPROVED" : "REJECTED" });
+    return NextResponse.json({
+      ok: true,
+      action,
+      status: action === "APPROVE" ? "APPROVED" : "REJECTED",
+    });
   } catch (e) {
     console.error(e);
     return NextResponse.json(
