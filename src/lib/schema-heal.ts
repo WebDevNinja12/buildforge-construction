@@ -17,6 +17,10 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "agreedTermsAt" TIMESTAMP(3)`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verificationNote" TEXT`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "clientType" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyRc" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyTin" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyProfileJson" TEXT`,
     // Asset
     `ALTER TABLE "Asset" ADD COLUMN IF NOT EXISTS "image" TEXT`,
     `ALTER TABLE "Asset" ADD COLUMN IF NOT EXISTS "images" TEXT`,
@@ -48,7 +52,7 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reservationId" TEXT`,
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT`,
     `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3)`,
-    // HireRequest — caused client profile 500
+    // HireRequest
     `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "total" DOUBLE PRECISION`,
     `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "notes" TEXT`,
     `ALTER TABLE "HireRequest" ADD COLUMN IF NOT EXISTS "location" TEXT`,
@@ -60,6 +64,15 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "total" DOUBLE PRECISION`,
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "startDate" TIMESTAMP(3)`,
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "endDate" TIMESTAMP(3)`,
+    // SiteSetting — registration cooldown / platform keys
+    `CREATE TABLE IF NOT EXISTS "SiteSetting" (
+      "id" TEXT PRIMARY KEY,
+      "key" TEXT NOT NULL UNIQUE,
+      "value" TEXT NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP`,
+    `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "value" TEXT`,
   ];
 
   for (const sql of stmts) {
