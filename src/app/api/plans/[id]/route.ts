@@ -110,7 +110,6 @@ export async function POST(
     const { total, paid, balance } = totals(plan);
     const price = Number(plan.asset?.price ?? total ?? 0);
 
-    // —— SET_PAYMENT_METHOD ——
     if (action === "SET_PAYMENT_METHOD") {
       const method = String(body.paymentMethod || "").toUpperCase();
       if (method !== "FULL" && method !== "INSTALLMENT") {
@@ -141,7 +140,6 @@ export async function POST(
         });
       }
 
-      // INSTALLMENT
       const frequency = (String(body.paymentFrequency || "MONTHLY").toUpperCase() ||
         "MONTHLY") as Frequency;
       let months = 6;
@@ -190,8 +188,9 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
+        redirectToDocs: true,
         message:
-          "Installment selected. Upload required documents if asked, then pay the first deposit.",
+          "Installment selected. Upload all required documents now. After admin approval you can make the first installment payment.",
         plan: updated ? shapePlan(updated) : null,
       });
     }
@@ -234,7 +233,6 @@ export async function POST(
       return NextResponse.json({ ok: true, message: "Reservation cancelled." });
     }
 
-    // —— Submit payment for admin approval ——
     if (
       action === "PAY_REMAINING" ||
       action === "EXTRA_PAYMENT" ||
@@ -249,27 +247,27 @@ export async function POST(
         );
       }
 
-      if (
-        plan.paymentType === "INSTALLMENT" &&
-        plan.docsStatus &&
-        ["INCOMPLETE", "UNDER_REVIEW", "ACTION_NEEDED", "REJECTED"].includes(plan.docsStatus) &&
-        action !== "EXTRA_PAYMENT"
-      ) {
-        // Allow first flow if docs not configured (no required types)
-        const requiredCount = await prisma.requiredDocumentType
-          .count({
-            where: {
-              category: plan.asset?.type || undefined,
-              required: true,
-            },
-          })
-          .catch(() => 0);
-        if (requiredCount > 0) {
+      if (plan.paymentType === "INSTALLMENT" && action !== "EXTRA_PAYMENT") {
+        const docsStatus = String(plan.docsStatus || "INCOMPLETE").toUpperCase();
+        const isFirstPayment = Number(plan.installmentPaid || 0) <= 0;
+        const blocked =
+          isFirstPayment &&
+          docsStatus !== "APPROVED" &&
+          ["INCOMPLETE", "UNDER_REVIEW", "PENDING", "ACTION_NEEDED", "REJECTED", ""].includes(
+            docsStatus
+          );
+
+        if (blocked) {
           return NextResponse.json(
             {
               error:
-                "Complete and get approval for installment documents before paying.",
-              docsStatus: plan.docsStatus,
+                docsStatus === "UNDER_REVIEW" || docsStatus === "PENDING"
+                  ? "Your documents are under review. Wait for admin approval before the first installment payment."
+                  : docsStatus === "REJECTED" || docsStatus === "ACTION_NEEDED"
+                    ? "Some documents were rejected. Update them and wait for approval before paying."
+                    : "Upload all required installment documents and wait for admin approval before the first payment.",
+              code: "DOCS_REQUIRED",
+              docsStatus,
             },
             { status: 400 }
           );
@@ -295,7 +293,6 @@ export async function POST(
         return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
       }
 
-      // Cap at remaining balance
       if (balance > 0 && amount > balance) amount = balance;
 
       const type =
