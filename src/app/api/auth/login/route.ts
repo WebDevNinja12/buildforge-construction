@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loginUser, setSession, ensureAdminFromEnv } from "@/lib/auth";
+import {
+  loginUser,
+  setSession,
+  ensureAdminFromEnv,
+  AccountBlockedError,
+} from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+const PLATFORM_RULES = [
+  "Provide accurate personal or company information and valid supporting documents.",
+  "Reservations are time-limited; pay before the hold expires or the listing is released.",
+  "Installment plans follow the rules published per category; late payments may incur deductions.",
+  "Do not misuse the platform, submit fraudulent documents, or share your account.",
+  "Only the account holder (or authorized company contact) may manage bookings and payments.",
+  "Hama Construction may suspend accounts that violate these rules pending review.",
+];
 
 async function healUserColumns() {
   for (const sql of [
@@ -9,6 +23,7 @@ async function healUserColumns() {
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nextOfKinJson" TEXT`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verificationNote" TEXT`,
   ]) {
     try {
       await prisma.$executeRawUnsafe(sql);
@@ -35,7 +50,6 @@ export async function POST(req: NextRequest) {
     await healUserColumns();
     await ensureAdminFromEnv().catch(() => false);
 
-    // Block admin accounts on the client login page
     try {
       const user = await loginUser(email, password, { requireRole: "CLIENT" });
       await setSession({ id: user.id, role: user.role });
@@ -54,6 +68,22 @@ export async function POST(req: NextRequest) {
         redirect,
       });
     } catch (error) {
+      if (error instanceof AccountBlockedError) {
+        return NextResponse.json(
+          {
+            error: error.message,
+            code: error.code,
+            status: error.status,
+            verificationNote: error.verificationNote || null,
+            rules: PLATFORM_RULES,
+            message:
+              error.code === "ACCOUNT_SUSPENDED"
+                ? "Your account has been suspended because you violated one or more platform rules."
+                : error.message,
+          },
+          { status: 403 }
+        );
+      }
       const message = error instanceof Error ? error.message : "Login failed";
       if (message.includes("Administrators must sign in")) {
         return NextResponse.json(
@@ -61,6 +91,19 @@ export async function POST(req: NextRequest) {
             error: "Administrators must sign in at the staff login page.",
             code: "USE_ADMIN_PORTAL",
             adminLogin: "/admin/login",
+          },
+          { status: 403 }
+        );
+      }
+      if (message.toLowerCase().includes("suspended")) {
+        return NextResponse.json(
+          {
+            error: message,
+            code: "ACCOUNT_SUSPENDED",
+            status: "SUSPENDED",
+            rules: PLATFORM_RULES,
+            message:
+              "Your account has been suspended because you violated one or more platform rules.",
           },
           { status: 403 }
         );
