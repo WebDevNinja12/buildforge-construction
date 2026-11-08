@@ -302,6 +302,24 @@ export async function registerUser(
   return user;
 }
 
+export class AccountBlockedError extends Error {
+  code: "ACCOUNT_SUSPENDED" | "ACCOUNT_REJECTED";
+  status: string;
+  verificationNote?: string | null;
+  constructor(
+    code: "ACCOUNT_SUSPENDED" | "ACCOUNT_REJECTED",
+    message: string,
+    status: string,
+    verificationNote?: string | null
+  ) {
+    super(message);
+    this.name = "AccountBlockedError";
+    this.code = code;
+    this.status = status;
+    this.verificationNote = verificationNote;
+  }
+}
+
 export async function loginUser(
   email: string,
   password: string,
@@ -318,6 +336,7 @@ export async function loginUser(
       role: true,
       status: true,
       deletedAt: true,
+      verificationNote: true,
     },
   });
   if (!user) throw new Error("Invalid email or password");
@@ -326,11 +345,20 @@ export async function loginUser(
   if (!valid) throw new Error("Invalid email or password");
   if (user.deletedAt) throw new Error("Invalid email or password");
 
-  if (user.status === "REJECTED" || user.status === "SUSPENDED") {
-    throw new Error(
-      user.status === "SUSPENDED"
-        ? "Your account is suspended. Contact support."
-        : "Your account was not approved. Contact support."
+  if (user.status === "SUSPENDED") {
+    throw new AccountBlockedError(
+      "ACCOUNT_SUSPENDED",
+      "Your account is suspended because platform rules were violated.",
+      "SUSPENDED",
+      (user as { verificationNote?: string | null }).verificationNote
+    );
+  }
+  if (user.status === "REJECTED") {
+    throw new AccountBlockedError(
+      "ACCOUNT_REJECTED",
+      "Your account was not approved. Contact support.",
+      "REJECTED",
+      (user as { verificationNote?: string | null }).verificationNote
     );
   }
 
