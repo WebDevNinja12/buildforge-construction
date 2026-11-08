@@ -8,6 +8,8 @@ import {
   AlertCircle,
   Upload,
   Camera,
+  CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { SignaturePad } from "@/components/SignaturePad";
 
@@ -29,6 +31,7 @@ type DocRow = {
   metaJson?: string | null;
   rejectReason?: string | null;
   required?: boolean;
+  reused?: boolean;
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -54,15 +57,13 @@ export function InstallmentDocumentsSection({
   const [defs, setDefs] = useState<ReqDef[]>([]);
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [overall, setOverall] = useState("INCOMPLETE");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [msg, setMsg] = useState("");
   const [textDraft, setTextDraft] = useState<Record<string, string>>({});
-  const [guarantor, setGuarantor] = useState<
-    Record<string, { name: string; phone: string; address: string; relationship: string }>
-  >({});
-  const [kin, setKin] = useState({ name: "", phone: "", address: "", relationship: "" });
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+  const [showReplace, setShowReplace] = useState<Record<string, boolean>>({});
 
   const byType = useMemo(() => {
     const m = new Map<string, DocRow>();
@@ -87,6 +88,7 @@ export function InstallmentDocumentsSection({
       if (docRes.ok) {
         setDocs(docData.documents || []);
         setOverall(docData.overall || "INCOMPLETE");
+        if (docData.message) setInfo(docData.message);
         onOverallChange?.(
           docData.overall || "INCOMPLETE",
           docData.overall === "APPROVED"
@@ -150,6 +152,8 @@ export function InstallmentDocumentsSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed");
+      setShowReplace((s) => ({ ...s, [key]: false }));
+      setMsg(data.message || "Document uploaded for review");
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Upload failed");
@@ -182,6 +186,7 @@ export function InstallmentDocumentsSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed");
+      setShowReplace((s) => ({ ...s, [key]: false }));
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Save failed");
@@ -191,7 +196,11 @@ export function InstallmentDocumentsSection({
   }
 
   const requiredTotal = defs.filter((d) => d.required).length;
-  const requiredDone = defs.filter((d) => d.required && byType.get(d.key)?.status && byType.get(d.key)?.status !== "NOT_UPLOADED" && byType.get(d.key)?.status !== "REJECTED").length;
+  const requiredDone = defs.filter((d) => {
+    if (!d.required) return false;
+    const row = byType.get(d.key);
+    return row?.status === "APPROVED" || row?.status === "UNDER_REVIEW" || row?.status === "PENDING";
+  }).length;
 
   if (loading) {
     return (
@@ -210,7 +219,8 @@ export function InstallmentDocumentsSection({
             Installment documents
           </h3>
           <p className="text-sm text-slate-500 mt-1">
-            Upload required files after agreeing to installment rules, before your first payment.
+            Approved documents from earlier plans are reused automatically. Only upload again if you
+            need to update a file.
           </p>
         </div>
         <span
@@ -221,6 +231,20 @@ export function InstallmentDocumentsSection({
           {overall.replace(/_/g, " ")}
         </span>
       </div>
+
+      {info && (
+        <div className="text-xs text-green-800 bg-green-50 border border-green-100 rounded-xl px-3 py-2 flex gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+          {info}
+        </div>
+      )}
+
+      {overall === "APPROVED" && (
+        <div className="text-xs text-slate-600 bg-slate-50 border rounded-xl px-3 py-2">
+          All required documents are approved for this plan. You can pay the first deposit. Use
+          <span className="font-semibold"> Update</span> on any item only if you need a newer file.
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 items-center">
         <label className="text-xs font-medium text-slate-600">Client type</label>
@@ -245,7 +269,8 @@ export function InstallmentDocumentsSection({
         <div className="min-w-0 flex-1 text-xs text-slate-600">
           <p className="font-semibold text-construction-dark">Official company seal (RC - 8827959)</p>
           <p className="mt-0.5">
-            The Hama Construction seal is stamped on every installment agreement PDF. Your signature is applied automatically when saved below.
+            The Hama Construction seal is stamped on every installment agreement PDF. Your signature
+            is applied automatically when saved below.
           </p>
         </div>
       </div>
@@ -253,35 +278,57 @@ export function InstallmentDocumentsSection({
       <SignaturePad existingUrl={signatureUrl} onSaved={(url) => setSignatureUrl(url)} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <a
-          href={`/api/installment-docs/agreement?reservationId=${encodeURIComponent(reservationId)}${
-            signatureUrl ? "&requireSignature=1" : ""
-          }`}
+        <button
+          type="button"
           className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg ${
             signatureUrl ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-500"
           }`}
-          onClick={(e) => {
+          onClick={async () => {
             if (!signatureUrl) {
-              e.preventDefault();
               setMsg("Save your signature first so it can be stamped on the agreement.");
+              return;
+            }
+            setMsg("Generating agreement PDF…");
+            try {
+              let signatureDataUrl: string | null = null;
+              try {
+                signatureDataUrl = sessionStorage.getItem("hama_sig_data");
+              } catch {
+                /* */
+              }
+              const res = await fetch("/api/installment-docs/agreement", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reservationId, signatureDataUrl }),
+              });
+              if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                throw new Error(d.error || "Could not generate PDF");
+              }
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "hama-installment-agreement.pdf";
+              a.click();
+              URL.revokeObjectURL(url);
+              setMsg("Agreement downloaded with your signature and company seal.");
+            } catch (e) {
+              setMsg(e instanceof Error ? e.message : "Download failed");
             }
           }}
         >
           <Download className="w-3.5 h-3.5" />
           Download agreement PDF
           {signatureUrl ? " (seal + signature)" : " (signature required)"}
-        </a>
-        {!signatureUrl && (
-          <span className="text-[11px] text-amber-700">
-            Agreements without a signature are rejected by admin. Draw or upload your signature first.
-          </span>
-        )}
+        </button>
       </div>
 
       <div>
         <div className="flex justify-between text-xs text-slate-600 mb-1">
           <span>
-            {requiredDone} of {requiredTotal} required documents uploaded
+            {requiredDone} of {requiredTotal} required documents ready
           </span>
         </div>
         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -305,6 +352,9 @@ export function InstallmentDocumentsSection({
           const row = byType.get(def.key);
           const status = row?.status || "NOT_UPLOADED";
           const busy = busyKey === def.key;
+          const approved = status === "APPROVED";
+          const replacing = showReplace[def.key] === true;
+          const needsUpload = !approved || replacing || status === "REJECTED";
 
           return (
             <div key={def.key} className="border rounded-xl p-3 sm:p-4 space-y-2">
@@ -321,6 +371,17 @@ export function InstallmentDocumentsSection({
                     </span>
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{def.instruction}</p>
+                  {approved && row?.reused && (
+                    <p className="text-[11px] text-green-700 mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Reused from a previous approved plan — no re-upload needed
+                    </p>
+                  )}
+                  {approved && !row?.reused && (
+                    <p className="text-[11px] text-green-700 mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Approved
+                    </p>
+                  )}
                 </div>
                 <span
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
@@ -337,7 +398,32 @@ export function InstallmentDocumentsSection({
                 </p>
               )}
 
-              {def.inputType === "TEXT" && (
+              {approved && !replacing && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  {row?.fileUrl && (
+                    <a
+                      href={row.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-primary-600 underline"
+                    >
+                      View file
+                    </a>
+                  )}
+                  {row?.textValue && (
+                    <span className="text-xs text-slate-600">Saved: {row.textValue}</span>
+                  )}
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 border px-2.5 py-1.5 rounded-lg"
+                    onClick={() => setShowReplace((s) => ({ ...s, [def.key]: true }))}
+                  >
+                    <RefreshCw className="w-3 h-3" /> Update document
+                  </button>
+                </div>
+              )}
+
+              {needsUpload && def.inputType === "TEXT" && (
                 <div className="flex flex-wrap gap-2">
                   <input
                     value={textDraft[def.key] ?? row?.textValue ?? ""}
@@ -351,34 +437,48 @@ export function InstallmentDocumentsSection({
                     onClick={() => saveText(def.key, def.label, !!def.required)}
                     className="text-xs font-semibold bg-primary-600 text-white px-3 py-2 rounded-lg"
                   >
-                    {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                    {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : approved ? "Update" : "Save"}
                   </button>
+                  {replacing && (
+                    <button
+                      type="button"
+                      className="text-xs border px-3 py-2 rounded-lg"
+                      onClick={() => setShowReplace((s) => ({ ...s, [def.key]: false }))}
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               )}
 
-              {(def.inputType === "FILE" || !def.inputType) && (
-                <label className="inline-flex items-center gap-2 text-xs font-semibold text-primary-700 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" />
-                  {busy ? "Uploading…" : row?.fileUrl ? "Replace file" : "Upload file"}
-                  <input
-                    type="file"
-                    accept="image/*,.pdf,application/pdf"
-                    capture="environment"
-                    className="hidden"
-                    disabled={busy}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) uploadFile(def.key, def.label, !!def.required, f);
-                    }}
-                  />
-                  <Camera className="w-3.5 h-3.5 text-slate-400" />
-                </label>
-              )}
-
-              {row?.fileUrl && (
-                <a href={row.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-600 underline">
-                  View uploaded
-                </a>
+              {needsUpload && (def.inputType === "FILE" || !def.inputType) && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-primary-700 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    {busy ? "Uploading…" : approved ? "Upload new version" : row?.fileUrl ? "Replace file" : "Upload file"}
+                    <input
+                      type="file"
+                      accept="image/*,.pdf,application/pdf"
+                      capture="environment"
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadFile(def.key, def.label, !!def.required, f);
+                      }}
+                    />
+                    <Camera className="w-3.5 h-3.5 text-slate-400" />
+                  </label>
+                  {replacing && (
+                    <button
+                      type="button"
+                      className="text-xs border px-3 py-1.5 rounded-lg"
+                      onClick={() => setShowReplace((s) => ({ ...s, [def.key]: false }))}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           );
