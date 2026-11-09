@@ -86,6 +86,49 @@ export function ClientOtherBookings() {
     }
   }
 
+  async function extendBooking(kind: "TOOL" | "WORKER", id: string) {
+    const raw = window.prompt("How many extra days? (1–30)", "3");
+    if (raw == null) return;
+    const days = Math.floor(Number(raw));
+    if (!(days >= 1 && days <= 30)) {
+      setMsg("Enter between 1 and 30 days");
+      return;
+    }
+    setBusyId(`ext-${id}`);
+    setMsg("");
+    try {
+      const quoteRes = await fetch("/api/client/extend", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, id, extraDays: days, action: "QUOTE" }),
+      });
+      const quote = await quoteRes.json().catch(() => ({}));
+      if (
+        !window.confirm(
+          `${quote.message || quote.note || "Confirm extension"}\nFee: ${quote.fee ?? "—"}\n\nSubmit?`
+        )
+      ) {
+        setBusyId("");
+        return;
+      }
+      const res = await fetch("/api/client/extend", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, id, extraDays: days, action: "CONFIRM" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Extension failed");
+      setMsg(data.message || "Extension submitted");
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Extension failed");
+    } finally {
+      setBusyId("");
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-6">
@@ -162,7 +205,22 @@ export function ClientOtherBookings() {
                   {pendingPay && (
                     <p className="text-xs text-amber-700 font-medium">Payment pending admin approval</p>
                   )}
-                  {paid && <p className="text-xs text-green-700 font-medium">Payment approved</p>}
+                  {paid && (
+                    <>
+                      <p className="text-xs text-green-700 font-medium">Payment approved</p>
+                      <button
+                        type="button"
+                        disabled={busyId === `ext-${r.id}`}
+                        onClick={() => extendBooking("TOOL", r.id)}
+                        className="w-full min-h-[40px] rounded-xl border border-primary-600 text-primary-700 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {busyId === `ext-${r.id}` ? "…" : "Extend hire period"}
+                      </button>
+                      <p className="text-[10px] text-slate-400">
+                        Extension fees are separate from installment rules.
+                      </p>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -220,13 +278,28 @@ export function ClientOtherBookings() {
                       className="w-full min-h-[44px] rounded-xl bg-accent-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
                     >
                       {busyId === h.id && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Submit payment
+                      Submit full payment
                     </button>
                   )}
                   {pendingPay && (
                     <p className="text-xs text-amber-700 font-medium">Payment pending admin approval</p>
                   )}
-                  {paid && <p className="text-xs text-green-700 font-medium">Payment approved</p>}
+                  {paid && (
+                    <>
+                      <p className="text-xs text-green-700 font-medium">Payment approved</p>
+                      <button
+                        type="button"
+                        disabled={busyId === `ext-${h.id}`}
+                        onClick={() => extendBooking("WORKER", h.id)}
+                        className="w-full min-h-[40px] rounded-xl border border-primary-600 text-primary-700 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {busyId === `ext-${h.id}` ? "…" : "Extend hire period"}
+                      </button>
+                      <p className="text-[10px] text-slate-400">
+                        Workers: full payment only (no installment). Extend after payment.
+                      </p>
+                    </>
+                  )}
                 </div>
               );
             })}
