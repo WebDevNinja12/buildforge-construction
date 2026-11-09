@@ -4,9 +4,8 @@ import { getSession } from "@/lib/auth";
 
 /**
  * Project deals:
- * - Client opens a deal (status DEAL_PENDING) from dashboard — not published on public page
- * - Admin accepts / rejects; on accept uses client contact to connect offline
- * - Public /projects page uses FinishedProject (admin only)
+ * - Client opens a deal (status DEAL_PENDING)
+ * - Admin accepts / rejects
  */
 export async function GET(req: NextRequest) {
   try {
@@ -22,7 +21,6 @@ export async function GET(req: NextRequest) {
       const projects = await prisma.project.findMany({
         where: status ? { status } : undefined,
         include: {
-          milestones: true,
           client: {
             select: {
               id: true,
@@ -46,7 +44,6 @@ export async function GET(req: NextRequest) {
         ...(status ? { status } : {}),
       },
       include: {
-        milestones: true,
         client: { select: { name: true, email: true, phone: true } },
         manager: { select: { name: true, email: true } },
       },
@@ -86,37 +83,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Clients can only open a deal for review — never publish to public projects page
     if (session.role !== "ADMIN") {
-      if (!["APPROVED", "UNDER_REVIEW", "VERIFIED"].includes(session.status || "")) {
+      const st = String(session.status || "").toUpperCase();
+      if (["REJECTED", "SUSPENDED", "ARCHIVED", "PENDING_APPROVAL", "PENDING"].includes(st)) {
         return NextResponse.json(
-          { error: "Account must be approved to open a project deal" },
+          { error: "Account must be active/approved to open a project deal" },
           { status: 403 }
         );
       }
 
+      const extraNote = [
+        startDate ? `Start: ${startDate}` : "",
+        endDate ? `End: ${endDate}` : "",
+        contactPhone || contactEmail || preferredContact
+          ? `Contact prefs — Phone: ${contactPhone || session.phone || "-"} | Email: ${contactEmail || session.email} | Preferred: ${preferredContact || "any"}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
       const deal = await prisma.project.create({
         data: {
           title: String(title).trim(),
-          description:
-            String(description).trim() +
-            (contactPhone || contactEmail || preferredContact
-              ? `\n\n[Client contact prefs]\nPhone: ${contactPhone || session.phone || "-"}\nEmail: ${contactEmail || session.email}\nPreferred: ${preferredContact || "any"}`
-              : ""),
+          description: String(description).trim() + (extraNote ? `\n\n${extraNote}` : ""),
           clientId: session.id,
           budget: Number(budget),
           location: String(location).trim(),
-          startDate: startDate ? new Date(startDate) : null,
-          endDate: endDate ? new Date(endDate) : null,
           status: "DEAL_PENDING",
-          progress: 0,
+          contactNote: extraNote || null,
         },
         include: {
           client: { select: { name: true, email: true, phone: true } },
         },
       });
 
-      // Notify all admins
       const admins = await prisma.user.findMany({
         where: { role: "ADMIN" },
         select: { id: true },
@@ -155,7 +155,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Admin can create an internal project (already accepted client work)
+    const adminNote = [
+      startDate ? `Start: ${startDate}` : "",
+      endDate ? `End: ${endDate}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
     const project = await prisma.project.create({
       data: {
         title: String(title).trim(),
@@ -164,24 +170,23 @@ export async function POST(req: NextRequest) {
         managerId: session.id,
         budget: Number(budget),
         location: String(location).trim(),
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
         status: body.status || "PLANNING",
-        progress: 0,
+        adminNote: adminNote || null,
+        contactNote: adminNote || null,
       },
     });
 
     return NextResponse.json(project, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Failed to create project" }, { status: 500 });
+    console.error("projects POST", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      { error: "Failed to create project", detail: msg },
+      { status: 500 }
+    );
   }
 }
 
-/**
- * Admin: accept / reject deal, or update status
- * body: { id, action: "ACCEPT" | "REJECT" | "UPDATE", rejectReason?, status?, progress? }
- */
 export async function PATCH(req: NextRequest) {
   try {
     const session = await getSession();
@@ -206,51 +211,61 @@ export async function PATCH(req: NextRequest) {
     if (action === "ACCEPT") {
       data.status = "DEAL_ACCEPTED";
       data.managerId = managerId || session.id;
-      await prisma.notification.create({
-        data: {
-          userId: existing.clientId,
-          title: "Project deal accepted",
-          body: `Your deal "${existing.title}" was accepted. Hama Construction will contact you soon using your registered details.`,
-          type: "PROJECT",
-          link: "/dashboard",
-        },
-      });
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: session.id,
-          action: "ACCEPT_PROJECT_DEAL",
-          entity: "Project",
-          entityId: id,
-          details: JSON.stringify({
-            client: existing.client,
-            title: existing.title,
-          }),
-        },
-      });
+      if (existing.clientId) {
+        await prisma.notification.create({
+          data: {
+            userId: existing.clientId,
+            title: "Project deal accepted",
+            body: `Your deal "${existing.title}" was accepted. Hama Construction will contact you soon using your registered details.`,
+            type: "PROJECT",
+            link: "/dashboard",
+          },
+        });
+      }
+      await prisma.adminActivityLog
+        .create({
+          data: {
+            adminId: session.id,
+            action: "ACCEPT_PROJECT_DEAL",
+            entity: "Project",
+            entityId: id,
+            details: JSON.stringify({
+              client: existing.client,
+              title: existing.title,
+            }),
+          },
+        })
+        .catch(() => null);
     } else if (action === "REJECT") {
       data.status = "DEAL_REJECTED";
       const reason = rejectReason || "Not a fit at this time";
-      await prisma.notification.create({
-        data: {
-          userId: existing.clientId,
-          title: "Project deal not accepted",
-          body: `Your deal "${existing.title}" was not accepted. Reason: ${reason}`,
-          type: "PROJECT",
-          link: "/dashboard",
-        },
-      });
-      await prisma.adminActivityLog.create({
-        data: {
-          adminId: session.id,
-          action: "REJECT_PROJECT_DEAL",
-          entity: "Project",
-          entityId: id,
-          details: reason,
-        },
-      });
+      if (existing.clientId) {
+        await prisma.notification.create({
+          data: {
+            userId: existing.clientId,
+            title: "Project deal not accepted",
+            body: `Your deal "${existing.title}" was not accepted. Reason: ${reason}`,
+            type: "PROJECT",
+            link: "/dashboard",
+          },
+        });
+      }
+      await prisma.adminActivityLog
+        .create({
+          data: {
+            adminId: session.id,
+            action: "REJECT_PROJECT_DEAL",
+            entity: "Project",
+            entityId: id,
+            details: reason,
+          },
+        })
+        .catch(() => null);
     } else if (action === "UPDATE") {
       if (status) data.status = status;
-      if (progress != null) data.progress = Number(progress);
+      if (progress != null) {
+        data.adminNote = `Progress: ${Number(progress)}%`;
+      }
       if (managerId) data.managerId = managerId;
     } else {
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
@@ -270,13 +285,13 @@ export async function PATCH(req: NextRequest) {
       ...project,
       message:
         action === "ACCEPT"
-          ? `Accepted. Contact client: ${project.client.name} · ${project.client.email} · ${project.client.phone || "no phone"}`
+          ? `Accepted. Contact client: ${project.client?.name || "—"} · ${project.client?.email || ""} · ${project.client?.phone || "no phone"}`
           : action === "REJECT"
             ? "Deal rejected. Client notified."
             : "Updated",
     });
   } catch (error) {
-    console.error(error);
+    console.error("projects PATCH", error);
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
 }
