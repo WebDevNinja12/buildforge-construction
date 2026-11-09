@@ -1,133 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession, verifyToken, SESSION_COOKIE } from "@/lib/auth";
-import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
-import { healSchema } from "@/lib/schema-heal";
+import { getSession } from "@/lib/auth";
+import { getExpiryHours } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 
-type AssetRow = {
-  id: string;
-  title: string;
-  description: string | null;
-  type: string;
-  price: number;
-  location: string | null;
-  status: string;
-  active: boolean | null;
-  reservationHours: number | null;
-};
-
-async function resolveSession(req: NextRequest) {
-  const fromCookie = await getSession();
-  if (fromCookie) return fromCookie;
-
-  const auth = req.headers.get("authorization") || "";
-  const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  const cookieHeader = req.headers.get("cookie") || "";
-  const match =
-    cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`)) ||
-    cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
-  const rawCookie = match?.[1] ? decodeURIComponent(match[1]) : "";
-  const token = bearer || rawCookie;
-  if (!token) return null;
-
-  const claims = await verifyToken(token);
-  if (!claims?.sub) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { id: claims.sub },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      status: true,
-      deletedAt: true,
-    },
-  });
-  if (!user || user.deletedAt) return null;
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    status: user.status,
-  };
-}
-
-async function loadAsset(id: string): Promise<AssetRow | null> {
+async function loadAsset(id: string) {
   try {
-    const rows = await prisma.$queryRaw<AssetRow[]>`
-      SELECT id, title, description, type, price, location, status,
-             COALESCE(active, true) AS active,
-             "reservationHours"
-      FROM "Asset" WHERE id = ${id} LIMIT 1
-    `;
-    return rows[0] || null;
+    return await prisma.asset.findUnique({ where: { id } });
   } catch {
-    try {
-      const rows = await prisma.$queryRaw<AssetRow[]>`
-        SELECT id, title, description, type, price, location, status
-        FROM "Asset" WHERE id = ${id} LIMIT 1
-      `;
-      if (!rows[0]) return null;
-      return { ...rows[0], active: true, reservationHours: null };
-    } catch {
-      return null;
-    }
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        title: string;
+        description: string;
+        type: string;
+        price: number;
+        location: string | null;
+        status: string;
+        active: boolean | null;
+        reservationHours: number | null;
+      }>
+    >`SELECT id, title, description, type, price, location, status, active, "reservationHours"
+      FROM "Asset" WHERE id = ${id} LIMIT 1`;
+    return rows[0] || null;
   }
 }
 
 export async function GET(req: NextRequest) {
   try {
-    await healSchema().catch(() => null);
-    await runMaintenance().catch(() => null);
-    const session = await resolveSession(req);
+    const session = await getSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const where = session.role === "ADMIN" ? {} : { userId: session.id };
-    try {
-      const reservations = await prisma.reservation.findMany({
-        where,
+    if (session.role === "ADMIN") {
+      const list = await prisma.reservation.findMany({
         include: {
           asset: true,
           user: { select: { id: true, name: true, email: true } },
           payments: { orderBy: { createdAt: "desc" }, take: 20 },
         },
         orderBy: { createdAt: "desc" },
+        take: 200,
       });
-      return NextResponse.json(reservations);
-    } catch {
-      // Fallback without nested asset if columns still mismatch
-      const reservations = await prisma.reservation.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-      });
-      return NextResponse.json(reservations);
+      return NextResponse.json(list);
     }
-  } catch (error) {
-    console.error("reservations GET", error);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch",
-        detail: error instanceof Error ? error.message : String(error),
+
+    const list = await prisma.reservation.findMany({
+      where: { userId: session.id },
+      include: {
+        asset: true,
+        payments: { orderBy: { createdAt: "desc" }, take: 20 },
       },
-      { status: 500 }
-    );
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(list);
+  } catch (e) {
+    console.error("reservations GET", e);
+    return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    // Critical: add Asset.image etc. before any Prisma Asset read
-    await healSchema().catch(() => null);
-    await runMaintenance().catch(() => null);
-
-    const session = await resolveSession(req);
-    if (!session) {
-      return NextResponse.json({ error: "Please login to reserve" }, { status: 401 });
-    }
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Please login to reserve" }, { status: 401 });
 
     const status = (session.status || "").toUpperCase();
     if (["REJECTED", "SUSPENDED", "ARCHIVED"].includes(status)) {
@@ -149,7 +85,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const assetId = String(body.assetId || body.id || "").trim();
     const confirmed = body.confirmed === true || body.confirmed === "true";
-    const notes = body.notes ? String(body.notes).slice(0, 500) : null;
+    let notes = body.notes ? String(body.notes).slice(0, 500) : null;
+    const checkInRaw = body.checkIn ? String(body.checkIn).slice(0, 32) : "";
+    const checkOutRaw = body.checkOut ? String(body.checkOut).slice(0, 32) : "";
+    const nightsBody = Number(body.nights || body.stayNights || 0);
 
     if (!assetId) {
       return NextResponse.json({ error: "Asset ID required" }, { status: 400 });
@@ -177,6 +116,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const assetType = String(asset.type || "").toUpperCase();
+    const nightlyRate = Number(asset.price) || 0;
+    let stayNights = 0;
+    let checkIn: Date | null = null;
+    let checkOut: Date | null = null;
+    let stayTotal = nightlyRate;
+
+    if (assetType === "HOTEL") {
+      if (checkInRaw && checkOutRaw) {
+        checkIn = new Date(checkInRaw);
+        checkOut = new Date(checkOutRaw);
+        if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+          return NextResponse.json({ error: "Invalid check-in or check-out date" }, { status: 400 });
+        }
+        if (checkOut <= checkIn) {
+          return NextResponse.json({ error: "Check-out must be after check-in" }, { status: 400 });
+        }
+        stayNights = Math.max(
+          1,
+          Math.ceil((checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000))
+        );
+      } else if (nightsBody >= 1) {
+        stayNights = Math.floor(nightsBody);
+        checkIn = new Date();
+        checkIn.setHours(14, 0, 0, 0);
+        checkOut = new Date(checkIn);
+        checkOut.setDate(checkOut.getDate() + stayNights);
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "For hotels, choose check-in and check-out (or number of nights) so the fee can be calculated.",
+          },
+          { status: 400 }
+        );
+      }
+      stayTotal = Math.round(nightlyRate * stayNights * 100) / 100;
+      const stayNote = `HOTEL_STAY nights=${stayNights} checkIn=${checkIn!.toISOString().slice(0, 10)} checkOut=${checkOut!.toISOString().slice(0, 10)} nightly=${nightlyRate}`;
+      notes = notes ? `${stayNote} | ${notes}`.slice(0, 500) : stayNote;
+    }
+
     let hours = 48;
     try {
       hours = await getExpiryHours(asset.type, asset.reservationHours);
@@ -187,12 +167,9 @@ export async function POST(req: NextRequest) {
 
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
     const resId =
-      "c" +
-      Date.now().toString(36) +
-      Math.random().toString(36).slice(2, 10);
+      "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     const now = new Date();
 
-    // Transaction via raw SQL so missing optional columns never block create
     try {
       await prisma.$executeRaw`
         UPDATE "Asset" SET status = 'RESERVED', "updatedAt" = ${now}
@@ -212,12 +189,11 @@ export async function POST(req: NextRequest) {
           "createdAt", "updatedAt"
         ) VALUES (
           ${resId}, ${session.id}, ${asset.id}, 'PENDING', NULL, ${expiresAt},
-          ${Number(asset.price)}, 0, 'INCOMPLETE', ${notes},
+          ${stayTotal}, 0, 'INCOMPLETE', ${notes},
           ${now}, ${now}
         )
       `;
     } catch (e) {
-      // Rollback asset if insert failed
       await prisma.$executeRaw`
         UPDATE "Asset" SET status = 'AVAILABLE', "updatedAt" = ${now}
         WHERE id = ${asset.id} AND status = 'RESERVED'
@@ -230,7 +206,10 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Reservation created",
-          body: `"${asset.title}" is held for ${hours} hours. Open Dashboard to choose payment before the hold expires.`,
+          body:
+            assetType === "HOTEL"
+              ? `"${asset.title}" held for ${hours}h. Stay ${stayNights} night(s) — total ${stayTotal}. Pay from Dashboard.`
+              : `"${asset.title}" is held for ${hours} hours. Open Dashboard to choose payment before the hold expires.`,
           type: "RESERVATION",
         },
       });
@@ -245,8 +224,18 @@ export async function POST(req: NextRequest) {
         assetId: asset.id,
         status: "PENDING",
         expiresAt,
-        installmentTotal: Number(asset.price),
+        installmentTotal: stayTotal,
         installmentPaid: 0,
+        stay:
+          assetType === "HOTEL"
+            ? {
+                nights: stayNights,
+                checkIn: checkIn?.toISOString() || null,
+                checkOut: checkOut?.toISOString() || null,
+                nightlyRate,
+                total: stayTotal,
+              }
+            : null,
         asset: {
           id: asset.id,
           title: asset.title,
@@ -255,7 +244,10 @@ export async function POST(req: NextRequest) {
           location: asset.location,
           status: "RESERVED",
         },
-        message: `Reserved for ${hours} hours. Go to Dashboard to choose payment and complete payment.`,
+        message:
+          assetType === "HOTEL"
+            ? `Hotel held for ${hours}h. Stay ${stayNights} night(s) — total ${stayTotal}. Pay from Dashboard.`
+            : `Reserved for ${hours} hours. Go to Dashboard to choose payment and complete payment.`,
         expiryHours: hours,
         nextStep: "/dashboard",
       },
