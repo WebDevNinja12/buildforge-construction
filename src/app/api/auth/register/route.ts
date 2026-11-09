@@ -10,6 +10,7 @@ import {
   type AccountType,
 } from "@/lib/registration";
 import { assertRegistrationAllowed } from "@/lib/registration-cooldown";
+import { assertRegistrationAllowedBySite } from "@/lib/site-mode";
 
 function str(v: unknown): string {
   return String(v ?? "").trim();
@@ -17,6 +18,18 @@ function str(v: unknown): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const siteAccess = await assertRegistrationAllowedBySite();
+    if (!siteAccess.ok) {
+      return NextResponse.json(
+        {
+          error: siteAccess.message,
+          code: "MAINTENANCE",
+          maintenance: true,
+        },
+        { status: 503 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const password = str(body.password);
     const agreedTerms = Boolean(body.agreedTerms);
