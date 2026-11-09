@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { assertClientLoginAllowed } from "@/lib/site-mode";
+import { healSchema } from "@/lib/schema-heal";
 
 const PLATFORM_RULES = [
   "Provide accurate personal or company information and valid supporting documents.",
@@ -18,6 +19,7 @@ const PLATFORM_RULES = [
 ];
 
 async function healUserColumns() {
+  await healSchema().catch(() => null);
   for (const sql of [
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT`,
@@ -25,6 +27,9 @@ async function healUserColumns() {
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verificationNote" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "clientType" TEXT`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT`,
+    `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP`,
   ]) {
     try {
       await prisma.$executeRawUnsafe(sql);
@@ -32,6 +37,17 @@ async function healUserColumns() {
       /* ignore */
     }
   }
+}
+
+function isSchemaDriftError(message: string) {
+  const m = message.toLowerCase();
+  return (
+    m.includes("does not exist") ||
+    m.includes("unknown column") ||
+    m.includes("column `") ||
+    m.includes("no such column") ||
+    (m.includes("prisma") && m.includes("column"))
+  );
 }
 
 /** Client portal login only — admins must use /api/auth/admin-login */
@@ -48,6 +64,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await healUserColumns();
+
     const access = await assertClientLoginAllowed();
     if (!access.ok) {
       return NextResponse.json(
@@ -60,7 +78,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await healUserColumns();
     await ensureAdminFromEnv().catch(() => false);
 
     try {
@@ -125,12 +142,13 @@ export async function POST(req: NextRequest) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed";
-    if (message.includes("column") || message.includes("nin") || message.includes("prisma")) {
+    if (isSchemaDriftError(message)) {
       await healUserColumns();
       return NextResponse.json(
         {
           error:
             "Database was missing columns and is being fixed. Wait 10 seconds and try again.",
+          code: "SCHEMA_HEALING",
         },
         { status: 503 }
       );
