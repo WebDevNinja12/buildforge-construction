@@ -1,9 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { KeyRound, Shield, Mail, Loader2, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { KeyRound, Shield, Mail, Loader2, Trash2, Lock, Unlock } from "lucide-react";
 
 export default function AdminSettingsPage() {
+  const [maint, setMaint] = useState({
+    maintenanceMode: false,
+    lockClientLogin: false,
+    lockRegistration: false,
+    message: "",
+  });
+  const [maintBusy, setMaintBusy] = useState(false);
+  const [maintMsg, setMaintMsg] = useState("");
+  const [maintErr, setMaintErr] = useState("");
+  const [maintLoading, setMaintLoading] = useState(true);
+
   const [ownMsg, setOwnMsg] = useState("");
   const [ownErr, setOwnErr] = useState("");
   const [ownBusy, setOwnBusy] = useState(false);
@@ -27,6 +38,60 @@ export default function AdminSettingsPage() {
   const [purgeMsg, setPurgeMsg] = useState("");
   const [purgeErr, setPurgeErr] = useState("");
   const [purgeBusy, setPurgeBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/site-mode", { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setMaint({
+            maintenanceMode: Boolean(data.maintenanceMode),
+            lockClientLogin: Boolean(data.lockClientLogin),
+            lockRegistration: Boolean(data.lockRegistration),
+            message: String(data.message || ""),
+          });
+        }
+      } catch {
+        /* */
+      } finally {
+        setMaintLoading(false);
+      }
+    })();
+  }, []);
+
+  async function saveSiteMode(patch: Partial<typeof maint>) {
+    setMaintBusy(true);
+    setMaintMsg("");
+    setMaintErr("");
+    try {
+      const next = { ...maint, ...patch };
+      const res = await fetch("/api/admin/site-mode", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update");
+      setMaint({
+        maintenanceMode: Boolean(data.maintenanceMode),
+        lockClientLogin: Boolean(data.lockClientLogin),
+        lockRegistration: Boolean(data.lockRegistration),
+        message: String(data.message || next.message || ""),
+      });
+      setMaintMsg(
+        data.message ||
+          (data.maintenanceMode
+            ? "Maintenance ON — client login/register locked."
+            : "Site access updated.")
+      );
+    } catch (e) {
+      setMaintErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setMaintBusy(false);
+    }
+  }
 
   async function changeOwn(e: React.FormEvent) {
     e.preventDefault();
@@ -109,7 +174,7 @@ export default function AdminSettingsPage() {
       )
     )
       return;
-    const typed = window.prompt('Type CLEAR CATALOG to confirm');
+    const typed = window.prompt("Type CLEAR CATALOG to confirm");
     if (typed !== "CLEAR CATALOG") {
       alert("Cancelled");
       return;
@@ -128,9 +193,7 @@ export default function AdminSettingsPage() {
       if (!res.ok) throw new Error(data.error || "Purge failed");
       setPurgeMsg(
         data.message +
-          (data.counts
-            ? ` Removed: ${JSON.stringify(data.counts)}`
-            : "")
+          (data.counts ? ` Removed: ${JSON.stringify(data.counts)}` : "")
       );
     } catch (e) {
       setPurgeErr(e instanceof Error ? e.message : "Failed");
@@ -144,10 +207,123 @@ export default function AdminSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-construction-dark">Settings</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Password security and data cleanup. Listings must be real — add them under Services, Tools, and
-          Workers.
+          Maintenance lock, password security, and data cleanup. Admin login always works even when the
+          site is locked.
         </p>
       </div>
+
+      <section
+        className={`border rounded-2xl p-4 sm:p-5 space-y-3 ${
+          maint.maintenanceMode ? "bg-amber-50 border-amber-200" : "bg-white border-slate-200"
+        }`}
+      >
+        <h2 className="font-semibold text-construction-dark flex items-center gap-2">
+          {maint.maintenanceMode || maint.lockClientLogin ? (
+            <Lock className="w-4 h-4 text-amber-700" />
+          ) : (
+            <Unlock className="w-4 h-4 text-emerald-600" />
+          )}
+          Site maintenance — lock / unlock client access
+        </h2>
+        <p className="text-xs text-slate-600">
+          When locked, clients cannot log in or create accounts. <strong>Admin login is never blocked.</strong>
+        </p>
+        {maintLoading ? (
+          <Loader2 className="w-5 h-5 animate-spin text-primary-600" />
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={maintBusy}
+                onClick={() =>
+                  saveSiteMode({
+                    maintenanceMode: true,
+                    lockClientLogin: true,
+                    lockRegistration: true,
+                  })
+                }
+                className="min-h-[44px] px-4 rounded-xl bg-amber-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                {maintBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+                Lock site (maintenance ON)
+              </button>
+              <button
+                type="button"
+                disabled={maintBusy}
+                onClick={() =>
+                  saveSiteMode({
+                    maintenanceMode: false,
+                    lockClientLogin: false,
+                    lockRegistration: false,
+                  })
+                }
+                className="min-h-[44px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                Unlock site (open for clients)
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2 text-sm">
+              <label className="flex items-center gap-2 bg-white/80 border rounded-xl px-3 py-2 min-h-[44px]">
+                <input
+                  type="checkbox"
+                  checked={maint.lockClientLogin}
+                  disabled={maintBusy}
+                  onChange={(e) => saveSiteMode({ lockClientLogin: e.target.checked })}
+                />
+                Block client login
+              </label>
+              <label className="flex items-center gap-2 bg-white/80 border rounded-xl px-3 py-2 min-h-[44px]">
+                <input
+                  type="checkbox"
+                  checked={maint.lockRegistration}
+                  disabled={maintBusy}
+                  onChange={(e) => saveSiteMode({ lockRegistration: e.target.checked })}
+                />
+                Block new account registration
+              </label>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Message shown to users</label>
+              <textarea
+                rows={3}
+                className="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                value={maint.message}
+                onChange={(e) => setMaint({ ...maint, message: e.target.value })}
+                placeholder="Site under maintenance…"
+              />
+              <button
+                type="button"
+                disabled={maintBusy}
+                onClick={() => saveSiteMode({ message: maint.message })}
+                className="mt-2 min-h-[40px] px-3 rounded-lg border text-xs font-semibold disabled:opacity-50"
+              >
+                Save message
+              </button>
+            </div>
+            <p className="text-xs font-medium">
+              Status:{" "}
+              <span
+                className={
+                  maint.maintenanceMode || maint.lockClientLogin || maint.lockRegistration
+                    ? "text-amber-800"
+                    : "text-emerald-700"
+                }
+              >
+                {maint.maintenanceMode
+                  ? "Maintenance ON"
+                  : maint.lockClientLogin || maint.lockRegistration
+                    ? "Partial lock"
+                    : "Open"}
+              </span>
+              {maint.lockClientLogin ? " · login locked" : ""}
+              {maint.lockRegistration ? " · registration locked" : ""}
+            </p>
+            {maintMsg && <p className="text-sm text-emerald-700">{maintMsg}</p>}
+            {maintErr && <p className="text-sm text-red-600">{maintErr}</p>}
+          </>
+        )}
+      </section>
 
       <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
         <h2 className="font-semibold text-construction-dark flex items-center gap-2">
