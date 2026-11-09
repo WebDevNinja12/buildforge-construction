@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Menu, X, HardHat, LogIn, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MaintenanceModal } from "@/components/MaintenanceModal";
 
 interface NavbarProps {
   user?: { name: string; role: string } | null;
 }
 
-/** Public nav: Home, About, Projects, Services, Contact + Login or Dashboard icon */
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About" },
@@ -21,10 +21,39 @@ const navLinks = [
 
 export default function Navbar({ user }: NavbarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [maintOpen, setMaintOpen] = useState(false);
+  const [maintMessage, setMaintMessage] = useState("");
+
+  async function goLogin(e?: React.MouseEvent) {
+    e?.preventDefault();
+    setMobileOpen(false);
+    try {
+      const res = await fetch("/api/site-status");
+      const d = await res.json().catch(() => ({}));
+      if (d?.lockClientLogin || d?.maintenanceMode) {
+        setMaintMessage(
+          d.message ||
+            "Hama Construction is under maintenance. Login is temporarily unavailable."
+        );
+        setMaintOpen(true);
+        return;
+      }
+    } catch {
+      /* allow navigation if status check fails */
+    }
+    router.push("/login");
+  }
 
   return (
     <header className="sticky top-0 z-50 bg-construction-dark/95 backdrop-blur-md border-b border-slate-700">
+      <MaintenanceModal
+        open={maintOpen}
+        message={maintMessage}
+        title="Login unavailable — maintenance"
+        onClose={() => setMaintOpen(false)}
+      />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2 group">
@@ -53,7 +82,6 @@ export default function Navbar({ user }: NavbarProps) {
             ))}
           </nav>
 
-          {/* Logged out → Login icon | Logged in → Dashboard icon (logout is on dashboard) */}
           <div className="hidden md:flex items-center">
             {user ? (
               <Link
@@ -70,14 +98,15 @@ export default function Navbar({ user }: NavbarProps) {
                 <LayoutDashboard className="w-5 h-5" />
               </Link>
             ) : (
-              <Link
-                href="/login"
+              <button
+                type="button"
                 title="Login"
                 aria-label="Login"
+                onClick={goLogin}
                 className="p-2.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
               >
                 <LogIn className="w-5 h-5" />
-              </Link>
+              </button>
             )}
           </div>
 
@@ -118,13 +147,13 @@ export default function Navbar({ user }: NavbarProps) {
                 <LayoutDashboard className="w-4 h-4" /> Dashboard
               </Link>
             ) : (
-              <Link
-                href="/login"
-                onClick={() => setMobileOpen(false)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+              <button
+                type="button"
+                onClick={goLogin}
+                className="flex w-full items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
               >
                 <LogIn className="w-4 h-4" /> Login
-              </Link>
+              </button>
             )}
           </div>
         </div>
