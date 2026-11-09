@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   X,
   ShieldAlert,
 } from "lucide-react";
+import { MaintenanceModal } from "@/components/MaintenanceModal";
 
 const FALLBACK_RULES = [
   "Provide accurate personal or company information and valid supporting documents.",
@@ -38,12 +39,37 @@ function ClientLoginForm() {
   const [suspendOpen, setSuspendOpen] = useState(false);
   const [suspendNote, setSuspendNote] = useState<string | null>(null);
   const [rules, setRules] = useState<string[]>(FALLBACK_RULES);
+  const [maintenanceBanner, setMaintenanceBanner] = useState<string | null>(null);
+  const [maintOpen, setMaintOpen] = useState(false);
+  const [maintMessage, setMaintMessage] = useState("");
+
+  useEffect(() => {
+    fetch("/api/site-status")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.lockClientLogin || d?.maintenanceMode) {
+          const msg =
+            d.message || "Site is under maintenance. Login is temporarily closed.";
+          setMaintenanceBanner(msg);
+          setMaintMessage(msg);
+          setMaintOpen(true);
+        }
+      })
+      .catch(() => null);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
+      if (maintenanceBanner) {
+        setMaintMessage(maintenanceBanner);
+        setMaintOpen(true);
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -52,6 +78,17 @@ function ClientLoginForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.code === "MAINTENANCE" || data.maintenance) {
+          const msg =
+            data.error ||
+            data.message ||
+            "Site is under maintenance. Login is temporarily closed.";
+          setMaintMessage(msg);
+          setMaintenanceBanner(msg);
+          setMaintOpen(true);
+          setError("");
+          return;
+        }
         if (data.code === "USE_ADMIN_PORTAL") {
           setError("Administrators must sign in on the staff login page.");
           return;
@@ -101,6 +138,16 @@ function ClientLoginForm() {
               Reserve services, pay, and manage your projects
             </p>
           </div>
+
+          {maintenanceBanner && (
+            <div className="mb-3 text-sm text-amber-950 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+              <div>
+                <p className="font-semibold">Site under maintenance</p>
+                <p className="mt-0.5 text-xs">{maintenanceBanner}</p>
+              </div>
+            </div>
+          )}
 
           <form
             onSubmit={onSubmit}
@@ -170,9 +217,29 @@ function ClientLoginForm() {
 
             <p className="text-center text-sm text-slate-500">
               New client?{" "}
-              <Link href="/register" className="text-primary-600 font-semibold">
+              <button
+                type="button"
+                className="text-primary-600 font-semibold"
+                onClick={async () => {
+                  try {
+                    const r = await fetch("/api/site-status");
+                    const d = await r.json().catch(() => ({}));
+                    if (d?.lockRegistration || d?.maintenanceMode) {
+                      setMaintMessage(
+                        d.message ||
+                          "New account registration is temporarily closed for maintenance."
+                      );
+                      setMaintOpen(true);
+                      return;
+                    }
+                  } catch {
+                    /* */
+                  }
+                  router.push("/register");
+                }}
+              >
                 Create an account
-              </Link>
+              </button>
             </p>
           </form>
 
@@ -184,6 +251,13 @@ function ClientLoginForm() {
           </p>
         </div>
       </div>
+
+      <MaintenanceModal
+        open={maintOpen}
+        message={maintMessage}
+        title="Login unavailable — maintenance"
+        onClose={() => setMaintOpen(false)}
+      />
 
       {suspendOpen && (
         <div
