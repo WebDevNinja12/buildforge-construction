@@ -14,6 +14,7 @@ import {
   Check,
   X,
   RefreshCw,
+  Database,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
@@ -67,6 +68,31 @@ export function AdminOverview() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function runSeed() {
+    if (
+      !confirm(
+        "Seed / refresh category defaults (holds, cancel %, installment rules) and ensure admin account?"
+      )
+    )
+      return;
+    setBusy("seed");
+    try {
+      const res = await fetch("/api/setup/seed", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Seed failed");
+      toast(data.message || "Seed completed successfully");
+      load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Seed failed", "err");
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function reviewPayment(id: string, status: "APPROVED" | "REJECTED") {
     setBusy(id + status);
@@ -141,13 +167,28 @@ export function AdminOverview() {
           <h1 className="text-2xl sm:text-3xl font-bold text-construction-dark">Admin dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">Overview and items that need your attention</p>
         </div>
-        <button
-          type="button"
-          onClick={() => load()}
-          className="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-xl border bg-white text-sm font-medium"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy === "seed"}
+            onClick={() => runSeed()}
+            className="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-xl border border-primary-200 bg-primary-50 text-primary-800 text-sm font-medium disabled:opacity-50"
+          >
+            {busy === "seed" ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Database className="w-4 h-4" />
+            )}
+            Seed data
+          </button>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-xl border bg-white text-sm font-medium"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
@@ -256,7 +297,10 @@ export function AdminOverview() {
                 ))}
               </ul>
             )}
-            <Link href="/admin/clients" className="text-xs text-primary-600 font-semibold mt-2 inline-block min-h-[44px] leading-[44px]">
+            <Link
+              href="/admin/clients"
+              className="text-xs text-primary-600 font-semibold mt-2 inline-block min-h-[44px] leading-[44px]"
+            >
               Manage clients →
             </Link>
           </div>
