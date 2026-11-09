@@ -6,6 +6,7 @@ import {
   AccountBlockedError,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { assertClientLoginAllowed } from "@/lib/site-mode";
 
 const PLATFORM_RULES = [
   "Provide accurate personal or company information and valid supporting documents.",
@@ -44,6 +45,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Email and password are required" },
         { status: 400 }
+      );
+    }
+
+    const access = await assertClientLoginAllowed();
+    if (!access.ok) {
+      return NextResponse.json(
+        {
+          error: access.message,
+          code: "MAINTENANCE",
+          maintenance: true,
+        },
+        { status: 503 }
       );
     }
 
