@@ -144,13 +144,12 @@ export async function POST(req: NextRequest) {
         checkOut = new Date(checkIn);
         checkOut.setDate(checkOut.getDate() + stayNights);
       } else {
-        return NextResponse.json(
-          {
-            error:
-              "For hotels, choose check-in and check-out (or number of nights) so the fee can be calculated.",
-          },
-          { status: 400 }
-        );
+        // Default 1 night when UI omitted dates (still calculate fee)
+        stayNights = 1;
+        checkIn = new Date();
+        checkIn.setHours(14, 0, 0, 0);
+        checkOut = new Date(checkIn);
+        checkOut.setDate(checkOut.getDate() + stayNights);
       }
       stayTotal = Math.round(nightlyRate * stayNights * 100) / 100;
       const stayNote = `HOTEL_STAY nights=${stayNights} checkIn=${checkIn!.toISOString().slice(0, 10)} checkOut=${checkOut!.toISOString().slice(0, 10)} nightly=${nightlyRate}`;
