@@ -31,8 +31,14 @@ const FAQS = [
 export default function FaqPage() {
   return (
     <div className="bg-white min-h-screen">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-16">
-        <div className="max-w-3xl mx-auto px-4 text-center">
+      <section className="relative text-white py-16 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/banners/workers.jpeg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
+        <div className="relative max-w-3xl mx-auto px-4 text-center">
           <HelpCircle className="w-12 h-12 text-accent-400 mx-auto mb-4" />
           <h1 className="text-3xl sm:text-4xl font-bold">Frequently asked questions</h1>
           <p className="mt-3 text-slate-300">Quick answers about Hama Construction services.</p>
