@@ -20,6 +20,7 @@ import {
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
 import { ToastProvider } from "@/components/Toast";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -145,7 +146,10 @@ export function ClientShell({
             <p className="font-semibold text-construction-dark text-sm truncate">My account</p>
             {name && <p className="text-[11px] text-slate-500 truncate lg:hidden">{name}</p>}
           </div>
-          <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/login" />
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/login" />
+          </div>
         </div>
 
         {open && (
