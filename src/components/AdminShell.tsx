@@ -26,7 +26,6 @@ import {
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
 import { ToastProvider } from "@/components/Toast";
-import { NotificationBell } from "@/components/NotificationBell";
 
 const PRIMARY = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -139,8 +138,7 @@ export function AdminShell({
                 <p className="text-[11px] text-slate-400 hidden sm:block">Manage your construction platform</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <NotificationBell />
+            <div className="flex items-center gap-2 shrink-0">
               <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/admin/login" />
             </div>
           </div>
