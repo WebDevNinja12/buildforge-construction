@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { HardHat, Phone, Mail, MapPin } from "lucide-react";
+import Image from "next/image";
+import { Phone, Mail, MapPin } from "lucide-react";
 
 export default function Footer() {
   return (
@@ -7,10 +8,14 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-4">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="bg-accent-500 p-1.5 rounded-lg">
-                <HardHat className="w-5 h-5 text-white" />
-              </div>
+            <Link href="/" className="flex items-center gap-2.5">
+              <Image
+                src="/logo.svg"
+                alt="Hama Construction"
+                width={36}
+                height={36}
+                className="h-9 w-9 object-contain"
+              />
               <span className="text-lg font-bold text-white">
                 Hama <span className="text-accent-500">Construction</span>
               </span>
