@@ -9,9 +9,8 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-/** Uploaded About page banner (repo root) */
-const ABOUT_BANNER =
-  "https://raw.githubusercontent.com/WebDevNinja12/buildforge-construction/main/%23civilengineering%20%23civil%20%23engineering.jpeg";
+/** Uploaded About page banner (copied to public/banners on build) */
+const ABOUT_BANNER = "/banners/about.jpeg";
 
 const values = [
   {
