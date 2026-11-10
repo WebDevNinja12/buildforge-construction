@@ -106,7 +106,7 @@ export function ClientDashboardBody({
             <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {firstName}</h1>
           </div>
           <div className="shrink-0">
-            <NotificationBell />
+            <NotificationBell light />
           </div>
         </div>
         <p className="text-sm text-slate-300 mt-1 max-w-xl">
