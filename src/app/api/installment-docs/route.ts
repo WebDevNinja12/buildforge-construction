@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { healSchema } from "@/lib/schema-heal";
 
 export const dynamic = "force-dynamic";
 
@@ -19,17 +20,12 @@ async function findReusableApproved(userId: string, type: string) {
   return rows.find((d) => isNotExpired(d.expiresAt)) || null;
 }
 
-/**
- * For a new installment reservation, attach previously approved docs
- * so the client does not re-upload unless they choose to update.
- */
 async function autoAttachApprovedDocs(userId: string, reservationId: string) {
   const existing = await prisma.installmentDocument.findMany({
     where: { userId, reservationId },
   });
   const have = new Set(existing.map((d) => d.type));
 
-  // All approved docs for this user (any reservation)
   const approved = await prisma.installmentDocument.findMany({
     where: { userId, status: "APPROVED" },
     orderBy: { createdAt: "desc" },
@@ -45,7 +41,6 @@ async function autoAttachApprovedDocs(userId: string, reservationId: string) {
   const created: typeof existing = [];
   for (const [type, src] of bestByType) {
     if (have.has(type)) continue;
-    // Skip empty shells
     if (!src.fileUrl && !src.textValue && !src.metaJson) continue;
     try {
       const row = await prisma.installmentDocument.create({
@@ -62,7 +57,7 @@ async function autoAttachApprovedDocs(userId: string, reservationId: string) {
           required: src.required !== false,
           status: "APPROVED",
           expiresAt: src.expiresAt,
-          previousFileUrl: src.id, // track source id for audit
+          previousFileUrl: src.id,
         },
       });
       created.push(row);
@@ -87,12 +82,12 @@ function computeOverall(docs: { required?: boolean | null; status: string }[]) {
 
 export async function GET(req: NextRequest) {
   try {
+    await healSchema().catch(() => null);
     const session = await getSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const reservationId = req.nextUrl.searchParams.get("reservationId");
 
-    // Auto-reuse approved docs onto this reservation for clients
     if (reservationId && session.role !== "ADMIN") {
       const owns = await prisma.reservation.findFirst({
         where: { id: reservationId, userId: session.id },
@@ -120,7 +115,6 @@ export async function GET(req: NextRequest) {
       take: 200,
     });
 
-    // Deduplicate by type (keep newest)
     const byType = new Map<string, (typeof docs)[0]>();
     for (const d of docs) {
       if (!byType.has(d.type)) byType.set(d.type, d);
@@ -129,7 +123,6 @@ export async function GET(req: NextRequest) {
 
     const overall = reservationId ? computeOverall(unique) : "INCOMPLETE";
 
-    // Sync reservation docsStatus when everything is already approved via reuse
     if (reservationId && overall === "APPROVED" && session.role !== "ADMIN") {
       try {
         await prisma.reservation.update({
@@ -155,13 +148,24 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     console.error(e);
+    const message = e instanceof Error ? e.message : "Failed";
+    if (/previousFileUrl|does not exist|column `/i.test(message)) {
+      await healSchema().catch(() => null);
+      return NextResponse.json(
+        {
+          error:
+            "Database was missing document columns and is being fixed. Wait 5 seconds and try again.",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "Failed to load documents" }, { status: 500 });
   }
 }
 
-/** Upsert one document (file or text/guarantor meta) — replace/update only when client uploads new data */
 export async function POST(req: NextRequest) {
   try {
+    await healSchema().catch(() => null);
     const session = await getSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -195,7 +199,6 @@ export async function POST(req: NextRequest) {
 
     const userId = session.role === "ADMIN" ? reservation.userId : session.id;
 
-    // Explicit reuse of an already-approved document of this type
     if (reuse || (!fileUrl && !textValue && !meta)) {
       const existingApproved = await findReusableApproved(userId, key);
       if (existingApproved) {
@@ -259,8 +262,6 @@ export async function POST(req: NextRequest) {
     });
 
     const metaJson = meta ? JSON.stringify(meta) : undefined;
-
-    // Updating a document → goes back under review
     const nextStatus = "UNDER_REVIEW";
 
     if (existing) {
@@ -322,9 +323,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(created, { status: 201 });
   } catch (e) {
     console.error(e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Save failed" },
-      { status: 500 }
-    );
+    const message = e instanceof Error ? e.message : "Save failed";
+    if (/previousFileUrl|does not exist|column `/i.test(message)) {
+      await healSchema().catch(() => null);
+      return NextResponse.json(
+        {
+          error:
+            "Database was missing document columns and is being fixed. Wait 5 seconds and upload again.",
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
