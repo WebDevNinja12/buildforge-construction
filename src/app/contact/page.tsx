@@ -39,7 +39,7 @@ export default function ContactPage() {
       <section className="relative text-white py-20 overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/banners/about.jpeg')" }}
+          style={{ backgroundImage: "url('/banners/contact.jpeg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
