@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Menu, X, HardHat, LogIn, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogIn, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MaintenanceModal } from "@/components/MaintenanceModal";
 
@@ -56,10 +57,15 @@ export default function Navbar({ user }: NavbarProps) {
       />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="bg-accent-500 p-1.5 rounded-lg group-hover:bg-accent-400 transition-colors">
-              <HardHat className="w-6 h-6 text-white" />
-            </div>
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <Image
+              src="/logo.png"
+              alt="Hama Construction"
+              width={40}
+              height={40}
+              className="h-10 w-10 object-contain"
+              priority
+            />
             <span className="text-xl font-bold text-white tracking-tight">
               Hama <span className="text-accent-500">Construction</span>
             </span>
@@ -71,10 +77,10 @@ export default function Navbar({ user }: NavbarProps) {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                  "px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                   pathname === link.href
-                    ? "bg-primary-600 text-white"
-                    : "text-slate-300 hover:text-white hover:bg-slate-700/50"
+                    ? "bg-white/10 text-white"
+                    : "text-slate-300 hover:text-white hover:bg-white/5"
                 )}
               >
                 {link.label}
@@ -82,57 +88,49 @@ export default function Navbar({ user }: NavbarProps) {
             ))}
           </nav>
 
-          <div className="hidden md:flex items-center">
+          <div className="hidden md:flex items-center gap-2">
             {user ? (
               <Link
-                href="/dashboard"
-                title="Dashboard"
-                aria-label="Dashboard"
-                className={cn(
-                  "p-2.5 rounded-lg transition-colors",
-                  pathname === "/dashboard" || pathname.startsWith("/dashboard")
-                    ? "bg-primary-600 text-white"
-                    : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                )}
+                href={user.role === "ADMIN" ? "/admin" : "/dashboard"}
+                className="inline-flex items-center gap-2 min-h-[40px] px-4 rounded-xl bg-accent-500 hover:bg-accent-400 text-white text-sm font-semibold"
               >
-                <LayoutDashboard className="w-5 h-5" />
+                <LayoutDashboard className="w-4 h-4" />
+                Dashboard
               </Link>
             ) : (
               <button
                 type="button"
-                title="Login"
-                aria-label="Login"
                 onClick={goLogin}
-                className="p-2.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                className="inline-flex items-center gap-2 min-h-[40px] px-4 rounded-xl bg-accent-500 hover:bg-accent-400 text-white text-sm font-semibold"
               >
-                <LogIn className="w-5 h-5" />
+                <LogIn className="w-4 h-4" />
+                Login
               </button>
             )}
           </div>
 
           <button
-            className="md:hidden text-slate-300 hover:text-white p-2"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Toggle menu"
+            type="button"
+            className="md:hidden min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-600 text-white"
+            onClick={() => setMobileOpen((v) => !v)}
+            aria-label="Menu"
           >
-            {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
-      </div>
 
-      {mobileOpen && (
-        <div className="md:hidden bg-construction-dark border-t border-slate-700">
-          <div className="px-4 py-3 space-y-1">
+        {mobileOpen && (
+          <div className="md:hidden pb-4 space-y-1 border-t border-slate-700 pt-3">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
                 className={cn(
-                  "block px-4 py-2.5 rounded-lg text-sm font-medium",
+                  "block px-3 py-2.5 rounded-lg text-sm font-medium",
                   pathname === link.href
-                    ? "bg-primary-600 text-white"
-                    : "text-slate-300 hover:bg-slate-700/50"
+                    ? "bg-white/10 text-white"
+                    : "text-slate-300 hover:bg-white/5"
                 )}
               >
                 {link.label}
@@ -140,24 +138,24 @@ export default function Navbar({ user }: NavbarProps) {
             ))}
             {user ? (
               <Link
-                href="/dashboard"
+                href={user.role === "ADMIN" ? "/admin" : "/dashboard"}
                 onClick={() => setMobileOpen(false)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+                className="block px-3 py-2.5 rounded-lg text-sm font-semibold text-accent-400"
               >
-                <LayoutDashboard className="w-4 h-4" /> Dashboard
+                Dashboard
               </Link>
             ) : (
               <button
                 type="button"
                 onClick={goLogin}
-                className="flex w-full items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-slate-300 hover:bg-slate-700/50"
+                className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold text-accent-400"
               >
-                <LogIn className="w-4 h-4" /> Login
+                Login
               </button>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </header>
   );
 }
