@@ -133,20 +133,23 @@ export function ClientShell({
           <div className="p-4 border-t text-xs text-slate-500 truncate">{name}</div>
         </aside>
 
-        <div className="fixed top-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-b px-4 h-14 flex items-center justify-between lg:left-64">
-          <button
-            type="button"
-            className="lg:hidden min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200"
-            onClick={() => setOpen(true)}
-            aria-label="Menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="min-w-0">
-            <p className="font-semibold text-construction-dark text-sm truncate">My account</p>
-            {name && <p className="text-[11px] text-slate-500 truncate lg:hidden">{name}</p>}
+        {/* Top bar: left title + right actions (bell always visible) */}
+        <div className="fixed top-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-b px-3 sm:px-4 h-14 flex items-center gap-2 lg:left-64">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              type="button"
+              className="lg:hidden min-h-[44px] min-w-[44px] shrink-0 inline-flex items-center justify-center rounded-xl border border-slate-200"
+              onClick={() => setOpen(true)}
+              aria-label="Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <p className="font-semibold text-construction-dark text-sm truncate">My account</p>
+              {name && <p className="text-[11px] text-slate-500 truncate lg:hidden">{name}</p>}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
             <NotificationBell />
             <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/login" />
           </div>
