@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell, CheckCheck, Loader2 } from "lucide-react";
+import { Bell, CheckCheck, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Note = {
@@ -13,8 +13,8 @@ type Note = {
   createdAt: string;
 };
 
-/** SVG notification control for dashboard pages (not nav bar). */
-export function NotificationBell() {
+/** Mobile-friendly SVG notification control for dashboard pages. */
+export function NotificationBell({ light = false }: { light?: boolean }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Note[]>([]);
   const [unread, setUnread] = useState(0);
@@ -40,12 +40,27 @@ export function NotificationBell() {
   }, [load]);
 
   useEffect(() => {
-    function onDoc(e: MouseEvent) {
+    function onDoc(e: MouseEvent | TouchEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("touchstart", onDoc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    if (typeof window !== "undefined" && window.innerWidth < 640) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   async function markAll() {
     setLoading(true);
@@ -72,16 +87,21 @@ export function NotificationBell() {
     await load();
   }
 
+  const btnClass = light
+    ? "relative min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-white/30 bg-white/15 hover:bg-white/25 text-white shadow-sm backdrop-blur-sm"
+    : "relative min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border-2 border-primary-200 bg-white hover:bg-primary-50 text-primary-700 shadow-sm";
+
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative z-20" ref={rootRef}>
       <button
         type="button"
         onClick={() => {
           setOpen((v) => !v);
           if (!open) load();
         }}
-        className="relative min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border-2 border-primary-200 bg-white hover:bg-primary-50 text-primary-700 shadow-sm"
+        className={btnClass}
         aria-label="Notifications"
+        aria-expanded={open}
         title="Notifications"
       >
         <Bell className="w-5 h-5" strokeWidth={2} aria-hidden />
@@ -93,57 +113,92 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-2xl z-[100] overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2.5 border-b bg-slate-50">
-            <p className="text-sm font-semibold text-construction-dark inline-flex items-center gap-1.5">
-              <Bell className="w-4 h-4 text-primary-600" aria-hidden />
-              Notifications
-            </p>
-            <button
-              type="button"
-              disabled={loading || unread === 0}
-              onClick={markAll}
-              className="text-[11px] font-medium text-primary-600 disabled:opacity-40 inline-flex items-center gap-1"
-            >
-              {loading ? (
-                <Loader2 className="w-3 h-3 animate-spin" aria-hidden />
-              ) : (
-                <CheckCheck className="w-3.5 h-3.5" aria-hidden />
-              )}
-              Mark all read
-            </button>
-          </div>
-          <div className="max-h-80 overflow-y-auto">
-            {items.length === 0 ? (
-              <p className="text-sm text-slate-500 p-4 text-center">No notifications yet.</p>
-            ) : (
-              items.map((n) => (
+        <>
+          <div
+            className="fixed inset-0 z-[90] bg-black/40 sm:hidden"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
+
+          <div
+            className={cn(
+              "z-[100] bg-white border border-slate-200 shadow-2xl overflow-hidden flex flex-col",
+              "fixed inset-x-0 bottom-0 max-h-[min(75vh,32rem)] rounded-t-2xl",
+              "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:bottom-auto sm:left-auto",
+              "sm:w-[min(22rem,calc(100vw-2rem))] sm:max-h-96 sm:rounded-2xl"
+            )}
+            role="dialog"
+            aria-label="Notifications"
+          >
+            <div className="flex items-center justify-between gap-2 px-3 py-3 border-b bg-slate-50 shrink-0">
+              <p className="text-sm font-semibold text-construction-dark inline-flex items-center gap-1.5">
+                <Bell className="w-4 h-4 text-primary-600" aria-hidden />
+                Notifications
+                {unread > 0 && (
+                  <span className="ml-1 text-[11px] font-bold text-white bg-red-500 rounded-full px-1.5 py-0.5">
+                    {unread}
+                  </span>
+                )}
+              </p>
+              <div className="flex items-center gap-1">
                 <button
-                  key={n.id}
                   type="button"
-                  onClick={() => !n.read && markOne(n.id)}
-                  className={cn(
-                    "w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50",
-                    !n.read && "bg-sky-50/60"
-                  )}
+                  disabled={loading || unread === 0}
+                  onClick={markAll}
+                  className="text-[11px] font-medium text-primary-600 disabled:opacity-40 inline-flex items-center gap-1 min-h-[40px] px-2 rounded-lg hover:bg-primary-50"
                 >
-                  <p
+                  {loading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <CheckCheck className="w-3.5 h-3.5" aria-hidden />
+                  )}
+                  <span>Read all</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 sm:hidden"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
+              {items.length === 0 ? (
+                <p className="text-sm text-slate-500 p-6 text-center">No notifications yet.</p>
+              ) : (
+                items.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => !n.read && markOne(n.id)}
                     className={cn(
-                      "text-sm",
-                      !n.read ? "font-semibold text-construction-dark" : "font-medium text-slate-700"
+                      "w-full text-left px-3 py-3 border-b border-slate-100 hover:bg-slate-50 active:bg-slate-100",
+                      !n.read && "bg-sky-50/70"
                     )}
                   >
-                    {n.title}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    {new Date(n.createdAt).toLocaleString()}
-                  </p>
-                </button>
-              ))
-            )}
+                    <p
+                      className={cn(
+                        "text-sm leading-snug",
+                        !n.read ? "font-semibold text-construction-dark" : "font-medium text-slate-700"
+                      )}
+                    >
+                      {n.title}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-3 leading-relaxed">{n.body}</p>
+                    <p className="text-[10px] text-slate-400 mt-1.5">
+                      {new Date(n.createdAt).toLocaleString()}
+                    </p>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="pb-[env(safe-area-inset-bottom,0px)] sm:hidden shrink-0" />
           </div>
-        </div>
+        </>
       )}
     </div>
   );
