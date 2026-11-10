@@ -41,7 +41,6 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const statusUpper = String(plan?.status || "").toUpperCase();
   const fullyPaid =
     (total > 0 && paid >= total) || ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
-  /** Full payment completed → cannot cancel */
   const canCancel =
     !fullyPaid &&
     !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"].includes(statusUpper);
@@ -102,7 +101,10 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
       }
 
       if (action === "SET_PAYMENT_METHOD" && extra.paymentMethod === "INSTALLMENT") {
-        setMsg("Installment selected. Opening Documents section to upload required files…");
+        setMsg(
+          data.message ||
+            "Installment selected. Opening Documents section to upload required files…"
+        );
         goDocuments();
       } else {
         setMsg(data.message || "Updated");
@@ -254,16 +256,37 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               >
                 Installment payment
               </button>
-              <p className="text-[11px] text-slate-500">
-                After choosing installment you will be taken to <strong>Documents</strong> to upload
-                required files. Payment unlocks after admin approval.
-              </p>
+              <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] text-sky-950 space-y-1">
+                <p className="font-semibold">Installment structure</p>
+                <p>
+                  First payment <strong>40%</strong> of the plan total, then <strong>20%</strong>{" "}
+                  each until fully paid (typically 4 payments).
+                </p>
+                <p>
+                  House / building / land: <strong>5%</strong> plan administration fee on the listed
+                  price. Other installment services: <strong>1%</strong>.{" "}
+                  <strong>This is not interest</strong> — it covers document handling and plan
+                  management.
+                </p>
+                <p>
+                  Frequency only sets due dates. Cancel: 10% deduction, refund within 7 days. Upload
+                  documents before the first payment.
+                </p>
+              </div>
             </div>
           </div>
         )}
 
         {isInstallment && (
           <div ref={docsRef} className="border-t pt-3 space-y-2">
+            <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-xs text-sky-950">
+              <p className="font-semibold">How this installment plan works</p>
+              <p className="mt-0.5">
+                First installment = <strong>40%</strong> of plan total; each later installment ={" "}
+                <strong>20%</strong> until paid off. Any plan administration fee already included in
+                the total is <strong>not interest</strong>.
+              </p>
+            </div>
             <div className="flex items-start gap-2 rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5">
               <FileText className="w-4 h-4 text-primary-700 shrink-0 mt-0.5" />
               <div className="text-xs text-primary-900">
