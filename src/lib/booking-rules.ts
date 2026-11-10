@@ -4,12 +4,15 @@
  * HOUSE / BUILDING / LAND:
  *   - Reservation hold: 7 days
  *   - Installment: WEEKLY | MONTHLY | QUARTERLY | YEARLY (user choice)
+ *   - 5% plan administration fee on list price (NOT interest)
  *
  * Other services except WORKERS:
  *   - Reservation hold: 60 hours
  *   - Installment only within reservation window
  *   - Choosing installment extends hold by +24 hours
+ *   - 1% plan administration fee (NOT interest)
  *
+ * Installment structure: 40% first payment, then 20% each until paid off
  * WORKERS: full payment only
  * Cancel: 10% deduction; refund within 7 days
  */
@@ -50,6 +53,12 @@ export const INSTALLMENT_FREQUENCIES = [
 
 export type InstallmentFrequency = (typeof INSTALLMENT_FREQUENCIES)[number];
 
+/** Plan admin fee on choosing installment — NOT interest */
+export const INSTALLMENT_ADMIN_FEE = {
+  LONG_HOLD_PERCENT: 5,
+  SHORT_HOLD_PERCENT: 1,
+} as const;
+
 export function normalizeCategory(categoryOrType: string | null | undefined): string {
   return String(categoryOrType || "").toUpperCase().trim();
 }
@@ -80,6 +89,38 @@ export function allowsInstallment(categoryOrType: string | null | undefined): bo
   const c = normalizeCategory(categoryOrType);
   if (!c || isWorkerCategory(c)) return false;
   return isLongHoldCategory(c) || isShortHoldCategory(c);
+}
+
+export function installmentAdminFeePercent(categoryOrType: string | null | undefined): number {
+  if (isWorkerCategory(categoryOrType)) return 0;
+  if (isLongHoldCategory(categoryOrType)) return INSTALLMENT_ADMIN_FEE.LONG_HOLD_PERCENT;
+  if (allowsInstallment(categoryOrType)) return INSTALLMENT_ADMIN_FEE.SHORT_HOLD_PERCENT;
+  return 0;
+}
+
+/**
+ * Apply installment plan fee to list price.
+ * Fee is a plan administration charge — clearly not interest.
+ */
+export function applyInstallmentAdminFee(
+  listPrice: number,
+  categoryOrType: string | null | undefined
+): {
+  listPrice: number;
+  feePercent: number;
+  feeAmount: number;
+  planTotal: number;
+  disclosure: string;
+} {
+  const base = Math.max(0, Number(listPrice) || 0);
+  const feePercent = installmentAdminFeePercent(categoryOrType);
+  const feeAmount = Math.round(base * (feePercent / 100) * 100) / 100;
+  const planTotal = Math.round((base + feeAmount) * 100) / 100;
+  const disclosure =
+    feePercent > 0
+      ? `Installment plan includes a ${feePercent}% plan administration fee (₦${feeAmount.toLocaleString()}). This is not interest — it covers document handling and plan management.`
+      : "No installment administration fee applies.";
+  return { listPrice: base, feePercent, feeAmount, planTotal, disclosure };
 }
 
 export function installmentAllowedForStatus(
