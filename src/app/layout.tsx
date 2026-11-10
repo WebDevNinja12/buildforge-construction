@@ -27,8 +27,8 @@ export const metadata: Metadata = {
     description: "Building innovation through quality and trust.",
   },
   icons: {
-    icon: "/logo.svg",
-    apple: "/logo.svg",
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
   robots: { index: true, follow: true },
 };
