@@ -58,7 +58,6 @@ export function ClientShell({
     return () => window.removeEventListener("hashchange", sync);
   }, [pathname]);
 
-  /** Only one sidebar item active — hash items on /dashboard are exclusive */
   function active(href: string) {
     const [base, frag] = href.split("#");
     const path = pathname || "";
@@ -120,8 +119,14 @@ export function ClientShell({
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100/80 flex overflow-x-hidden">
         <aside className="hidden lg:flex lg:w-64 flex-col bg-white border-r border-slate-200 fixed inset-y-0 left-0 z-20 shadow-sm">
           <div className="px-5 py-5 border-b bg-construction-dark text-white">
-            <p className="font-bold tracking-wide">Hama Construction</p>
-            <p className="text-[11px] text-slate-300 mt-0.5">Client portal</p>
+            <div className="flex items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.svg" alt="Hama" className="h-9 w-9 object-contain" />
+              <div>
+                <p className="font-bold tracking-wide leading-tight">Hama Construction</p>
+                <p className="text-[11px] text-slate-300 mt-0.5">Client portal</p>
+              </div>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto px-3 py-4">{links}</div>
           <div className="p-4 border-t text-xs text-slate-500 truncate">{name}</div>
