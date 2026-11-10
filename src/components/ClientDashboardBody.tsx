@@ -20,6 +20,7 @@ import { ClientInstallmentDocUploads } from "@/components/ClientInstallmentDocUp
 import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientHistoryActions } from "@/components/HistoryActions";
+import { NotificationBell } from "@/components/NotificationBell";
 import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
 
 type Section = "overview" | "plans" | "documents" | "payments" | "contracts" | "deal";
@@ -99,8 +100,15 @@ export function ClientDashboardBody({
   return (
     <div className="space-y-6">
       <div className="rounded-3xl bg-gradient-to-br from-construction-dark via-slate-800 to-slate-900 text-white p-5 sm:p-7 shadow-lg border border-white/5">
-        <p className="text-xs uppercase tracking-wider text-slate-300">Client portal</p>
-        <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {firstName}</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-wider text-slate-300">Client portal</p>
+            <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {firstName}</h1>
+          </div>
+          <div className="shrink-0">
+            <NotificationBell />
+          </div>
+        </div>
         <p className="text-sm text-slate-300 mt-1 max-w-xl">
           Overview of your account. Plans, documents, and payments live in their own sections.
         </p>
@@ -203,7 +211,7 @@ export function ClientDashboardBody({
                 value: stats.documents,
                 icon: FileText,
                 action: () => go("documents"),
-                hint: "ID & installment files",
+                hint: "ID and installment files",
               },
               {
                 label: "Tool rentals",
@@ -226,7 +234,7 @@ export function ClientDashboardBody({
                     <Icon className="w-4 h-4 text-primary-600" />
                   </div>
                   <p className="text-2xl font-bold text-construction-dark mt-1">{c.value}</p>
-                  <p className="text-[11px] text-primary-700 font-medium mt-1">{c.hint} →</p>
+                  <p className="text-[11px] text-primary-700 font-medium mt-1">{c.hint}</p>
                 </button>
               );
             })}
@@ -326,7 +334,7 @@ export function ClientDashboardBody({
         <div id="plans" className="scroll-mt-24 space-y-6">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-lg font-bold text-construction-dark">Plans & reservations</h2>
+              <h2 className="text-lg font-bold text-construction-dark">Plans and reservations</h2>
               <p className="text-xs text-slate-500">
                 Asset/installment plans, tool rentals, and worker hires — pay and manage here.
               </p>
