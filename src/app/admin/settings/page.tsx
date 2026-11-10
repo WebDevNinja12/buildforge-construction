@@ -170,7 +170,7 @@ export default function AdminSettingsPage() {
   async function purgeCatalog() {
     if (
       !confirm(
-        "Delete ALL services, tools, workers, and related reservations/payments? Only keep real users/admin. This cannot be undone."
+        "Delete ALL demo services, tools, workers, and reservations? Payment history is kept. Admin login is kept. This cannot be undone."
       )
     )
       return;
@@ -450,8 +450,8 @@ export default function AdminSettingsPage() {
           Remove demo / sample catalog
         </h2>
         <p className="text-sm text-red-900/80">
-          Deletes all services, tools, workers, reservations, and payments so the site only shows what you add
-          for real. Your admin login is kept.
+          Deletes demo services, tools, workers, and reservations so the site only shows what you add
+          for real. <strong>Payment records are kept.</strong> Your admin login is kept.
         </p>
         <button
           type="button"
@@ -460,7 +460,7 @@ export default function AdminSettingsPage() {
           className="min-h-[44px] px-4 rounded-xl bg-red-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
         >
           {purgeBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-          Clear all listings & transactions
+          Clear demo listings (keep payments)
         </button>
         {purgeMsg && <p className="text-sm text-emerald-800">{purgeMsg}</p>}
         {purgeErr && <p className="text-sm text-red-700">{purgeErr}</p>}
