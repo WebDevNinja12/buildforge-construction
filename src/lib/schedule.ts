@@ -4,7 +4,7 @@ export type Frequency = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
 
 export function parseFrequencies(raw?: string | null): Frequency[] {
   try {
-    const arr = JSON.parse(raw || "[\"MONTHLY\"]");
+    const arr = JSON.parse(raw || '["MONTHLY"]');
     if (Array.isArray(arr) && arr.length) return arr as Frequency[];
   } catch { /* */ }
   return ["MONTHLY"];
@@ -43,38 +43,68 @@ export function countPaymentsUntil(start: Date, end: Date, freq: Frequency): num
   return Math.max(1, n);
 }
 
-/** Build equal installment rows for remaining balance */
+/**
+ * Installment structure (of plan total after any admin fee):
+ *   - 1st payment: 40%
+ *   - each following payment: 20% until fully paid (typically 4 payments: 40+20+20+20)
+ * Frequency only controls due dates, not the split.
+ */
+export const FIRST_INSTALLMENT_PERCENT = 40;
+export const NEXT_INSTALLMENT_PERCENT = 20;
+
 export function buildSchedule(opts: {
   totalAmount: number;
   amountAlreadyPaid?: number;
   frequency: Frequency;
   startDate?: Date;
-  planDeadline: Date;
+  planDeadline?: Date;
   firstIsDeposit?: boolean;
   depositPercent?: number;
-}): { sequence: number; amount: number; dueDate: Date }[] {
-  const paid = opts.amountAlreadyPaid || 0;
-  const remaining = Math.max(0, opts.totalAmount - paid);
+}): { sequence: number; amount: number; dueDate: Date; percentOfTotal: number }[] {
+  const total = Math.max(0, Number(opts.totalAmount) || 0);
+  const paid = Math.max(0, Number(opts.amountAlreadyPaid) || 0);
+  const remaining = Math.max(0, Math.round((total - paid) * 100) / 100);
   const start = opts.startDate || new Date();
-  const count = countPaymentsUntil(start, opts.planDeadline, opts.frequency);
-  const rows: { sequence: number; amount: number; dueDate: Date }[] = [];
+  const rows: { sequence: number; amount: number; dueDate: Date; percentOfTotal: number }[] = [];
 
-  if (remaining <= 0) return rows;
+  if (remaining <= 0 || total <= 0) return rows;
 
-  const each = Math.round((remaining / count) * 100) / 100;
-  let allocated = 0;
-  for (let i = 0; i < count; i++) {
-    const isLast = i === count - 1;
-    const amount = isLast
-      ? Math.round((remaining - allocated) * 100) / 100
-      : each;
-    allocated += amount;
+  const firstTarget = Math.round(total * (FIRST_INSTALLMENT_PERCENT / 100) * 100) / 100;
+  const nextTarget = Math.round(total * (NEXT_INSTALLMENT_PERCENT / 100) * 100) / 100;
+
+  let still = remaining;
+  let seq = 0;
+  let dueOffset = 0;
+
+  if (paid <= 0) {
+    const amount = Math.min(still, firstTarget);
+    still = Math.round((still - amount) * 100) / 100;
+    seq++;
     rows.push({
-      sequence: i + 1,
+      sequence: seq,
       amount,
-      dueDate: addFrequency(start, opts.frequency, i + 1),
+      dueDate: addFrequency(start, opts.frequency, dueOffset),
+      percentOfTotal: FIRST_INSTALLMENT_PERCENT,
     });
+    dueOffset = 1;
   }
+
+  while (still > 0.009 && seq < 50) {
+    seq++;
+    const isLast = still <= nextTarget + 0.01 || seq >= 49;
+    const amount = isLast
+      ? Math.round(still * 100) / 100
+      : Math.min(still, nextTarget);
+    still = Math.round((still - amount) * 100) / 100;
+    rows.push({
+      sequence: seq,
+      amount,
+      dueDate: addFrequency(start, opts.frequency, dueOffset),
+      percentOfTotal: Math.round((amount / total) * 1000) / 10,
+    });
+    dueOffset++;
+  }
+
   return rows;
 }
 
