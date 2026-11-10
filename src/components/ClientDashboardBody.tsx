@@ -16,6 +16,7 @@ import {
 import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientOtherBookings } from "@/components/ClientOtherBookings";
 import { ClientDocumentsList } from "@/components/ClientDocumentsList";
+import { ClientInstallmentDocUploads } from "@/components/ClientInstallmentDocUploads";
 import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientHistoryActions } from "@/components/HistoryActions";
@@ -297,9 +298,7 @@ export function ClientDashboardBody({
             >
               <Layers className="w-5 h-5 text-primary-600 mb-2" />
               <p className="font-semibold text-sm text-construction-dark">Installment plans</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Active schedules, balances, and next due dates
-              </p>
+              <p className="text-xs text-slate-500 mt-1">Active schedules, balances, and next due dates</p>
             </button>
             <button
               type="button"
@@ -308,9 +307,7 @@ export function ClientDashboardBody({
             >
               <FileText className="w-5 h-5 text-primary-600 mb-2" />
               <p className="font-semibold text-sm text-construction-dark">Documents</p>
-              <p className="text-xs text-slate-500 mt-1">
-                IDs and files uploaded for installment verification
-              </p>
+              <p className="text-xs text-slate-500 mt-1">Upload installment files and view submitted docs</p>
             </button>
             <button
               type="button"
@@ -342,13 +339,15 @@ export function ClientDashboardBody({
       )}
 
       {section === "documents" && (
-        <div id="documents" className="scroll-mt-24 space-y-3">
+        <div id="documents" className="scroll-mt-24 space-y-4">
           <div>
             <h2 className="text-lg font-bold text-construction-dark">My documents</h2>
             <p className="text-xs text-slate-500">
-              Registration and installment uploads are listed here after you submit them on a plan.
+              Upload installment documents here (required before first installment payment). Submitted
+              files are listed below.
             </p>
           </div>
+          <ClientInstallmentDocUploads />
           <ClientDocumentsList />
         </div>
       )}
