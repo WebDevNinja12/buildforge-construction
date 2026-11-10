@@ -21,7 +21,6 @@ import {
   Menu,
   X,
   MoreHorizontal,
-  Shield,
   QrCode,
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
@@ -104,13 +103,11 @@ export function AdminShell({
   return (
     <ToastProvider>
       <div className="min-h-screen bg-[#f1f5f9] flex overflow-x-hidden">
-        {/* Desktop sidebar */}
         <aside className="hidden lg:flex lg:w-64 xl:w-72 flex-col bg-construction-dark text-white fixed inset-y-0 left-0 z-30 shadow-xl">
           <div className="px-5 py-5 border-b border-white/10">
             <Link href="/admin" className="flex items-center gap-2.5">
-              <span className="bg-accent-500 p-1.5 rounded-lg">
-                <Shield className="w-5 h-5 text-white" />
-              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.svg" alt="Hama" className="h-9 w-9 object-contain" />
               <div>
                 <p className="font-bold text-sm tracking-wide leading-tight">Hama Construction</p>
                 <p className="text-[11px] text-slate-400">Admin console</p>
@@ -125,7 +122,6 @@ export function AdminShell({
           )}
         </aside>
 
-        {/* Top bar */}
         <div className="fixed top-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 lg:left-64 xl:left-72">
           <div className="h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
@@ -146,7 +142,6 @@ export function AdminShell({
           </div>
         </div>
 
-        {/* Mobile drawer */}
         {drawer && (
           <div className="lg:hidden fixed inset-0 z-50">
             <div className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} />
@@ -162,7 +157,6 @@ export function AdminShell({
           </div>
         )}
 
-        {/* Mobile bottom bar */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-1 py-1 flex justify-around safe-pb">
           {PRIMARY.map((item) => {
             const Icon = item.icon;
