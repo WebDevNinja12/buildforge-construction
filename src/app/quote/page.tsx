@@ -69,8 +69,14 @@ export default function QuotePage() {
 
   return (
     <div className="bg-slate-50 min-h-screen">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-16">
-        <div className="max-w-3xl mx-auto px-4">
+      <section className="relative text-white py-16 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/banners/quote.jpeg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
+        <div className="relative max-w-3xl mx-auto px-4">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-slate-300 hover:text-white mb-4">
             <ArrowLeft className="w-4 h-4" /> Home
           </Link>
@@ -192,7 +198,7 @@ export default function QuotePage() {
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 className="mt-1 w-full border rounded-lg px-3 py-2"
-                placeholder="Scope, size, materials, special requirements…"
+                placeholder="Scope, size, materials, special requirements"
               />
             </div>
             <button
