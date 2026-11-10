@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -163,11 +164,12 @@ export function AdminOverview() {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl sm:text-3xl font-bold text-construction-dark">Admin dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">Overview and items that need your attention</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <NotificationBell />
           <button
             type="button"
             disabled={busy === "seed"}
@@ -301,7 +303,7 @@ export function AdminOverview() {
               href="/admin/clients"
               className="text-xs text-primary-600 font-semibold mt-2 inline-block min-h-[44px] leading-[44px]"
             >
-              Manage clients →
+              Manage clients
             </Link>
           </div>
 
