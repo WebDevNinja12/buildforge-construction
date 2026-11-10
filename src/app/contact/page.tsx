@@ -36,8 +36,14 @@ export default function ContactPage() {
 
   return (
     <div className="bg-white">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="relative text-white py-20 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/banners/about.jpeg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Contact Us</h1>
             <p className="mt-6 text-lg text-slate-300 leading-relaxed">
@@ -82,8 +88,8 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-construction-dark">Email</h3>
-                    <a href="mailto:info@buildforge.com" className="text-sm text-primary-600 hover:underline mt-1 block">info@buildforge.com</a>
-                    <a href="mailto:support@buildforge.com" className="text-sm text-primary-600 hover:underline block">support@buildforge.com</a>
+                    <a href="mailto:info@hamaconstruction.com" className="text-sm text-primary-600 hover:underline mt-1 block">info@hamaconstruction.com</a>
+                    <a href="mailto:support@hamaconstruction.com" className="text-sm text-primary-600 hover:underline block">support@hamaconstruction.com</a>
                   </div>
                 </div>
               </div>
@@ -118,7 +124,7 @@ export default function ContactPage() {
                       <div>
                         <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
                         <input id="phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                          className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" placeholder="+1 234 567 890" />
+                          className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition" placeholder="+234..." />
                       </div>
                       <div>
                         <label htmlFor="subject" className="block text-sm font-medium text-slate-700 mb-1.5">Subject *</label>
