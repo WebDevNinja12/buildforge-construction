@@ -30,8 +30,14 @@ export default function ProjectsPage() {
 
   return (
     <div className="bg-white min-h-screen">
-      <section className="bg-gradient-to-br from-construction-dark to-primary-900 text-white py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="relative text-white py-16 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/banners/projects.jpeg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Finished Projects</h1>
           <p className="mt-4 text-lg text-slate-300 max-w-2xl">
             Recent completed work by Hama Construction — residential, commercial, and infrastructure.
