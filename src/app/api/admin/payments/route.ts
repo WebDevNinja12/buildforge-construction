@@ -33,7 +33,7 @@ function normalizeAction(body: Record<string, unknown>): "APPROVE" | "REJECT" | 
 
 async function applyPaymentToReservation(amount: number, reservationId: string) {
   const reservation = await prisma.reservation.findUnique({ where: { id: reservationId } });
-  if (!reservation) return;
+  if (!reservation) return null;
 
   const total = Number(reservation.installmentTotal ?? 0);
   const prevPaid = Number(reservation.installmentPaid ?? 0);
@@ -60,6 +60,12 @@ async function applyPaymentToReservation(amount: number, reservationId: string) 
     scheduleJson = JSON.stringify(schedule);
   }
 
+  const nextStatus = fullyPaid
+    ? "FULLY_PAID"
+    : reservation.status === "PENDING"
+      ? "CONFIRMED"
+      : reservation.status;
+
   await prisma.reservation.update({
     where: { id: reservationId },
     data: {
@@ -67,10 +73,7 @@ async function applyPaymentToReservation(amount: number, reservationId: string) 
       scheduleJson,
       nextDueAt,
       paidAt: fullyPaid ? new Date() : reservation.paidAt,
-      status:
-        fullyPaid || reservation.status === "PENDING"
-          ? "CONFIRMED"
-          : reservation.status,
+      status: nextStatus,
     },
   });
 
@@ -80,6 +83,14 @@ async function applyPaymentToReservation(amount: number, reservationId: string) 
       WHERE id = ${reservation.assetId}
     `.catch(() => null);
   }
+
+  return {
+    installmentPaid: newPaid,
+    installmentTotal: total,
+    balance: Math.max(0, total - newPaid),
+    fullyPaid,
+    status: nextStatus,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -167,25 +178,59 @@ export async function PATCH(req: NextRequest) {
         },
       });
 
+      let balanceNote = "";
       if (payment.reservationId) {
-        await applyPaymentToReservation(payment.amount, payment.reservationId);
+        const result = await applyPaymentToReservation(payment.amount, payment.reservationId);
+        if (result) {
+          balanceNote = result.fullyPaid
+            ? ` Plan fully paid (₦${Number(result.installmentPaid).toLocaleString("en-NG")}). Service completed.`
+            : ` Paid so far ₦${Number(result.installmentPaid).toLocaleString("en-NG")}; remaining balance ₦${Number(result.balance).toLocaleString("en-NG")}.`;
+        }
       }
 
       if (payment.toolRentalId) {
+        const rental = await prisma.toolRental.findUnique({ where: { id: payment.toolRentalId } });
+        const total = Number(rental?.total || 0);
+        const approvedSum = await prisma.payment
+          .aggregate({
+            where: { toolRentalId: payment.toolRentalId, status: "APPROVED" },
+            _sum: { amount: true },
+          })
+          .catch(() => ({ _sum: { amount: 0 } }));
+        const paid = Number(approvedSum._sum.amount || 0);
+        const done = total > 0 && paid >= total - 0.01;
         await prisma.toolRental
           .update({
             where: { id: payment.toolRentalId },
-            data: { status: "CONFIRMED", expiresAt: null },
+            data: {
+              status: done ? "COMPLETED" : "CONFIRMED",
+              expiresAt: done ? null : rental?.expiresAt,
+            },
           })
           .catch(() => null);
+        if (done) balanceNote = " Tool hire fully paid and completed.";
       }
       if (payment.hireRequestId) {
+        const hire = await prisma.hireRequest.findUnique({ where: { id: payment.hireRequestId } });
+        const total = Number(hire?.total || 0);
+        const approvedSum = await prisma.payment
+          .aggregate({
+            where: { hireRequestId: payment.hireRequestId, status: "APPROVED" },
+            _sum: { amount: true },
+          })
+          .catch(() => ({ _sum: { amount: 0 } }));
+        const paid = Number(approvedSum._sum.amount || 0);
+        const done = total > 0 && paid >= total - 0.01;
         await prisma.hireRequest
           .update({
             where: { id: payment.hireRequestId },
-            data: { status: "CONFIRMED", expiresAt: null },
+            data: {
+              status: done ? "COMPLETED" : "CONFIRMED",
+              expiresAt: done ? null : hire?.expiresAt,
+            },
           })
           .catch(() => null);
+        if (done) balanceNote = " Worker hire fully paid and completed.";
       }
 
       if (payment.userId) {
@@ -194,7 +239,7 @@ export async function PATCH(req: NextRequest) {
             data: {
               userId: payment.userId,
               title: "Payment approved",
-              body: `Your payment of ${payment.amount} was approved.`,
+              body: `Your payment of ₦${Number(payment.amount).toLocaleString("en-NG")} was approved.${balanceNote}`,
               type: "PAYMENT",
             },
           })
