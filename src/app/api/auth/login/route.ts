@@ -5,7 +5,6 @@ import {
   ensureAdminFromEnv,
   AccountBlockedError,
 } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { assertClientLoginAllowed } from "@/lib/site-mode";
 import { healSchema } from "@/lib/schema-heal";
 
@@ -20,23 +19,6 @@ const PLATFORM_RULES = [
 
 async function healUserColumns() {
   await healSchema().catch(() => null);
-  for (const sql of [
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nextOfKinJson" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "signatureUrl" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "historyClearedAt" TIMESTAMP(3)`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "verificationNote" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "clientType" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT`,
-    `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP`,
-  ]) {
-    try {
-      await prisma.$executeRawUnsafe(sql);
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 function isSchemaDriftError(message: string) {
