@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { healSchema } from "@/lib/schema-heal";
 import type { AccountType, ContactPerson, DirectorInput } from "@/lib/registration";
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -158,21 +159,7 @@ export type RegisterExtra = {
 };
 
 async function healRegistrationColumns() {
-  for (const sql of [
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "clientType" TEXT DEFAULT 'INDIVIDUAL'`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "address" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "nin" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bvn" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyRc" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyTin" TEXT`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "companyProfileJson" TEXT`,
-  ]) {
-    try {
-      await prisma.$executeRawUnsafe(sql);
-    } catch {
-      /* */
-    }
-  }
+  await healSchema().catch(() => null);
 }
 
 export async function registerUser(
