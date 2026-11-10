@@ -121,7 +121,7 @@ export function ClientShell({
           <div className="px-5 py-5 border-b bg-construction-dark text-white">
             <div className="flex items-center gap-2.5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.svg" alt="Hama" className="h-9 w-9 object-contain" />
+              <img src="/logo.png" alt="Hama" className="h-9 w-9 object-contain" />
               <div>
                 <p className="font-bold tracking-wide leading-tight">Hama Construction</p>
                 <p className="text-[11px] text-slate-300 mt-0.5">Client portal</p>
