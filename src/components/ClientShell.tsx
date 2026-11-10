@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   User,
@@ -49,11 +49,36 @@ export function ClientShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [hash, setHash] = useState("");
 
+  useEffect(() => {
+    const sync = () => setHash((window.location.hash || "").replace(/^#/, "").toLowerCase());
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [pathname]);
+
+  /** Only one sidebar item active — hash items on /dashboard are exclusive */
   function active(href: string) {
-    const base = href.split("#")[0];
-    if (base === "/dashboard") return pathname === "/dashboard";
-    return pathname === base || pathname.startsWith(base + "/");
+    const [base, frag] = href.split("#");
+    const path = pathname || "";
+    if (frag) {
+      if (path !== base && path !== base + "/") return false;
+      const h = hash || "";
+      if (frag === "reservations" || frag === "plans") {
+        return h === "plans" || h === "reservations" || h === "reservation";
+      }
+      if (frag === "documents" || frag === "docs") return h === "documents" || h === "docs";
+      if (frag === "payments") return h === "payments" || h === "payment";
+      return h === frag.toLowerCase();
+    }
+    if (base === "/dashboard") {
+      if (path !== "/dashboard" && path !== "/dashboard/") return false;
+      return !hash || hash === "overview";
+    }
+    if (path === base) return true;
+    if (path.startsWith(base + "/")) return true;
+    return false;
   }
 
   const links = (
@@ -136,7 +161,6 @@ export function ClientShell({
           </div>
         )}
 
-        {/* Mobile bottom nav */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 flex justify-around px-1 py-1">
           {BOTTOM.map((item) => {
             const Icon = item.icon;
