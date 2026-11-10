@@ -107,7 +107,7 @@ export function AdminShell({
           <div className="px-5 py-5 border-b border-white/10">
             <Link href="/admin" className="flex items-center gap-2.5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.svg" alt="Hama" className="h-9 w-9 object-contain" />
+              <img src="/logo.png" alt="Hama" className="h-9 w-9 object-contain" />
               <div>
                 <p className="font-bold text-sm tracking-wide leading-tight">Hama Construction</p>
                 <p className="text-[11px] text-slate-400">Admin console</p>
