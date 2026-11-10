@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
           extraDays,
           fee,
           note,
-          message: `Extend hotel stay by ${extraDays} day(s). Fee: ${fee}.`,
+          message: `Extend hotel stay by ${extraDays} day(s). Fee: ₦${fee.toLocaleString("en-NG")}.`,
         });
       }
 
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           amount: fee,
-          currency: "USD",
+          currency: "NGN",
           type: "EXTENSION",
           method: "MANUAL",
           status: "PENDING",
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
           data: {
             userId: session.id,
             title: "Hotel extension requested",
-            body: `You requested +${extraDays} day(s). Extension fee ${fee} is pending admin approval. Proposed new end: ${newEnd.toISOString().slice(0, 10)}.`,
+            body: `You requested +${extraDays} day(s). Extension fee ₦${fee.toLocaleString("en-NG")} is pending admin approval. Proposed new end: ${newEnd.toISOString().slice(0, 10)}.`,
             type: "RESERVATION",
             link: "/dashboard#plans",
           },
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
           extraDays,
           fee,
           note,
-          message: `Extend tool hire by ${extraDays} day(s). Fee: ${fee}.`,
+          message: `Extend tool hire by ${extraDays} day(s). Fee: ₦${fee.toLocaleString("en-NG")}.`,
         });
       }
 
@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           amount: fee,
-          currency: "USD",
+          currency: "NGN",
           type: "EXTENSION",
           method: "MANUAL",
           status: "PENDING",
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
           data: {
             userId: session.id,
             title: "Tool hire extended",
-            body: `Hire extended by ${extraDays} day(s) to ${newEnd.toISOString().slice(0, 10)}. Extension fee ${fee} pending approval.`,
+            body: `Hire extended by ${extraDays} day(s) to ${newEnd.toISOString().slice(0, 10)}. Extension fee ₦${fee.toLocaleString("en-NG")} pending approval.`,
             type: "PAYMENT",
             link: "/dashboard#plans",
           },
@@ -252,7 +252,7 @@ export async function POST(req: NextRequest) {
         extraDays,
         fee,
         note,
-        message: `Extend worker hire by ${extraDays} day(s). Fee: ${fee}.`,
+        message: `Extend worker hire by ${extraDays} day(s). Fee: ₦${fee.toLocaleString("en-NG")}.`,
       });
     }
 
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
       data: {
         userId: session.id,
         amount: fee,
-        currency: "USD",
+        currency: "NGN",
         type: "EXTENSION",
         method: "MANUAL",
         status: "PENDING",
@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Worker hire extended",
-          body: `Hire extended by ${extraDays} day(s) to ${newEnd.toISOString().slice(0, 10)}. Extension fee ${fee} pending approval.`,
+          body: `Hire extended by ${extraDays} day(s) to ${newEnd.toISOString().slice(0, 10)}. Extension fee ₦${fee.toLocaleString("en-NG")} pending approval.`,
           type: "PAYMENT",
           link: "/dashboard#plans",
         },
