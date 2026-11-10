@@ -64,7 +64,7 @@ export async function healSchema(): Promise<string[]> {
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "total" DOUBLE PRECISION`,
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "startDate" TIMESTAMP(3)`,
     `ALTER TABLE "ToolRental" ADD COLUMN IF NOT EXISTS "endDate" TIMESTAMP(3)`,
-    // SiteSetting — registration cooldown / platform keys
+    // SiteSetting
     `CREATE TABLE IF NOT EXISTS "SiteSetting" (
       "id" TEXT PRIMARY KEY,
       "key" TEXT NOT NULL UNIQUE,
@@ -73,6 +73,38 @@ export async function healSchema(): Promise<string[]> {
     )`,
     `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP`,
     `ALTER TABLE "SiteSetting" ADD COLUMN IF NOT EXISTS "value" TEXT`,
+    // InstallmentDocument — missing previousFileUrl caused upload failures
+    `CREATE TABLE IF NOT EXISTS "InstallmentDocument" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "reservationId" TEXT,
+      "type" TEXT NOT NULL,
+      "label" TEXT,
+      "fileUrl" TEXT NOT NULL DEFAULT '',
+      "fileName" TEXT,
+      "textValue" TEXT,
+      "metaJson" TEXT,
+      "inputType" TEXT NOT NULL DEFAULT 'FILE',
+      "required" BOOLEAN NOT NULL DEFAULT true,
+      "status" TEXT NOT NULL DEFAULT 'PENDING',
+      "rejectReason" TEXT,
+      "previousFileUrl" TEXT,
+      "previousRejectReason" TEXT,
+      "expiresAt" TIMESTAMP(3),
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "previousFileUrl" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "previousRejectReason" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "textValue" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "metaJson" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "inputType" TEXT DEFAULT 'FILE'`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "label" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "fileName" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "required" BOOLEAN DEFAULT true`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "rejectReason" TEXT`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3)`,
+    `ALTER TABLE "InstallmentDocument" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP`,
   ];
 
   for (const sql of stmts) {
