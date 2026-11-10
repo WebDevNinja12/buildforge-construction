@@ -5,7 +5,6 @@ import { formatCurrency } from "@/lib/utils";
 import { Countdown } from "@/components/Countdown";
 import { ServiceImage } from "@/components/ServiceImage";
 import { FileText, Loader2, Lock, CheckCircle2 } from "lucide-react";
-import { InstallmentDocumentsSection } from "@/components/InstallmentDocumentsSection";
 
 async function readJson(res: Response) {
   const text = await res.text();
@@ -40,9 +39,12 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const docsApproved = docsOverall === "APPROVED";
   const firstInstallmentGate = isInstallment && paid <= 0 && !docsApproved;
   const statusUpper = String(plan?.status || "").toUpperCase();
-  const canCancel = !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"].includes(
-    statusUpper
-  );
+  const fullyPaid =
+    (total > 0 && paid >= total) || ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
+  /** Full payment completed → cannot cancel */
+  const canCancel =
+    !fullyPaid &&
+    !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"].includes(statusUpper);
 
   const installments = Array.isArray(plan?.installments)
     ? plan.installments
@@ -54,7 +56,12 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         }
       })();
   const next = installments.find((i: any) => (i.status || "PENDING") === "PENDING");
-  const category = String(plan?.asset?.type || plan?.assetType || "HOUSE").toUpperCase();
+
+  function goDocuments() {
+    if (typeof window !== "undefined") {
+      window.location.hash = "documents";
+    }
+  }
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -70,9 +77,9 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         !docsApproved
       ) {
         setMsg(
-          "Upload all required documents and wait for admin approval before making the first installment payment."
+          "Upload required documents in the Documents section first. Payment unlocks after admin approval."
         );
-        docsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        goDocuments();
         return;
       }
 
@@ -85,7 +92,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
       const data = await readJson(res);
       if (!res.ok) {
         if (data.docsStatus || String(data.error || "").toLowerCase().includes("document")) {
-          docsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+          goDocuments();
         }
         throw new Error(data.error || data.detail || "Request failed");
       }
@@ -95,12 +102,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
       }
 
       if (action === "SET_PAYMENT_METHOD" && extra.paymentMethod === "INSTALLMENT") {
-        setMsg(
-          "Installment selected. Upload the required documents below. After admin approval you can pay the first deposit."
-        );
-        setTimeout(() => {
-          docsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 200);
+        setMsg("Installment selected. Opening Documents section to upload required files…");
+        goDocuments();
       } else {
         setMsg(data.message || "Updated");
       }
@@ -113,6 +116,10 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   }
 
   async function cancelPlan() {
+    if (fullyPaid) {
+      setMsg("This plan is fully paid and cannot be cancelled.");
+      return;
+    }
     setBusy("CANCEL_QUOTE");
     setMsg("");
     try {
@@ -248,8 +255,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                 Installment payment
               </button>
               <p className="text-[11px] text-slate-500">
-                After choosing installment you must upload documents and wait for approval before the
-                first payment.
+                After choosing installment you will be taken to <strong>Documents</strong> to upload
+                required files. Payment unlocks after admin approval.
               </p>
             </div>
           </div>
@@ -262,8 +269,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               <div className="text-xs text-primary-900">
                 <p className="font-semibold">Step 1 — Documents</p>
                 <p className="mt-0.5">
-                  Upload every required file. An admin must approve them before you can pay the first
-                  installment (Step 2).
+                  Upload installment documents in the <strong>Documents</strong> section (not on this
+                  plan card). An admin must approve them before the first payment.
                 </p>
               </div>
             </div>
@@ -272,13 +279,10 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5 text-xs text-amber-950">
                 <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold">Payment locked</p>
+                  <p className="font-semibold">Payment locked until documents are approved</p>
                   <p className="mt-0.5">
-                    {docsOverall === "UNDER_REVIEW" || docsOverall === "PENDING"
-                      ? "Documents are under review. You can pay once they are approved."
-                      : docsOverall === "REJECTED" || docsOverall === "ACTION_NEEDED"
-                        ? "Some documents need updates. Fix them and resubmit for approval."
-                        : "Upload required documents below, then wait for approval."}
+                    Status: {docsOverall.replace(/_/g, " ")}. Open Documents to upload or update
+                    files.
                   </p>
                 </div>
               </div>
@@ -294,11 +298,14 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               </div>
             )}
 
-            <InstallmentDocumentsSection
-              reservationId={plan.id}
-              category={category}
-              onOverallChange={(overall) => setDocsOverall(String(overall || "INCOMPLETE").toUpperCase())}
-            />
+            {!docsApproved && (
+              <a
+                href="#documents"
+                className="w-full min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
+              >
+                <FileText className="w-4 h-4" /> Go to Documents to upload
+              </a>
+            )}
           </div>
         )}
 
@@ -346,6 +353,12 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               {busy === "CANCEL_CONFIRM" ? "Cancelling…" : "Cancel this plan"}
             </button>
           </div>
+        )}
+
+        {fullyPaid && (
+          <p className="text-[11px] text-green-700 font-medium border-t pt-3">
+            Fully paid — this service can no longer be cancelled.
+          </p>
         )}
 
         {msg && <p className="text-xs text-slate-600">{msg}</p>}
