@@ -20,7 +20,6 @@ import {
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
 import { ToastProvider } from "@/components/Toast";
-import { NotificationBell } from "@/components/NotificationBell";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -133,7 +132,6 @@ export function ClientShell({
           <div className="p-4 border-t text-xs text-slate-500 truncate">{name}</div>
         </aside>
 
-        {/* Top bar: left title + right actions (bell always visible) */}
         <div className="fixed top-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-b px-3 sm:px-4 h-14 flex items-center gap-2 lg:left-64">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
@@ -150,7 +148,6 @@ export function ClientShell({
             </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
-            <NotificationBell />
             <ProfileMenu name={name} profileHref="/profile" logoutRedirect="/login" />
           </div>
         </div>
