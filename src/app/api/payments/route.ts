@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       data: {
         userId: session.id,
         amount,
-        currency: String(body.currency || "USD"),
+        currency: String(body.currency || "NGN"),
         type,
         method: proofUrl ? "PROOF_UPLOAD" : "MANUAL",
         status: "PENDING",
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Payment submitted",
-          body: `Payment of ${amount} is pending admin approval.`,
+          body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
           type: "PAYMENT",
         },
       });
