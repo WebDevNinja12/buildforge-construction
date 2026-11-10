@@ -15,8 +15,7 @@ import {
 import FinishedProjectsShowcase from "@/components/FinishedProjectsShowcase";
 import { Testimonials } from "@/components/Testimonials";
 
-const HERO_BANNER =
-  "https://raw.githubusercontent.com/WebDevNinja12/buildforge-construction/main/construction%20(8).png";
+const HERO_BANNER = "/banners/home.png";
 
 const features = [
   {
