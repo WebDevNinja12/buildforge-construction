@@ -29,6 +29,7 @@ function sniffImageType(file: File, current: string): string {
   if (n.endsWith(".mp4")) return "video/mp4";
   if (n.endsWith(".webm")) return "video/webm";
   if (n.endsWith(".mov")) return "video/quicktime";
+  if (n.endsWith(".pdf")) return "application/pdf";
   if (type === "application/octet-stream" || !type) return "image/jpeg";
   return type;
 }
@@ -40,9 +41,6 @@ function toDisplayUrl(blobUrl: string) {
   return blobUrl;
 }
 
-/**
- * Direct Blob REST upload — works with private stores (SDK 0.27 only allows public).
- */
 async function blobPut(
   pathname: string,
   body: ArrayBuffer,
@@ -96,40 +94,60 @@ export async function POST(req: NextRequest) {
     }
 
     const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Login required to upload" }, { status: 401 });
-    }
-
     const form = await req.formData();
     const file = form.get("file");
     const folderRaw = String(form.get("folder") || "general");
+    const isDocFolder = [
+      "registration-docs",
+      "documents",
+      "installment",
+      "installment-docs",
+      "proofs",
+    ].includes(folderRaw);
+
+    if (!session && !isDocFolder) {
+      return NextResponse.json({ error: "Login required to upload" }, { status: 401 });
+    }
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Choose a file to upload" }, { status: 400 });
     }
 
-    const type = sniffImageType(file, file.type || "");
+    let type = sniffImageType(file, file.type || "");
+    const nameLower = (file.name || "").toLowerCase();
+    if (nameLower.endsWith(".pdf") || type === "application/pdf") {
+      type = "application/pdf";
+    }
+
     const allowed =
       ALLOWED_MEDIA_TYPES.includes(type as (typeof ALLOWED_MEDIA_TYPES)[number]) ||
-      type.startsWith("image/");
+      type.startsWith("image/") ||
+      type === "application/pdf";
 
     if (!allowed) {
       return NextResponse.json(
-        { error: `Unsupported type: ${type || "unknown"}. Use JPEG, PNG, WebP, or GIF.` },
+        {
+          error: `Unsupported type: ${type || "unknown"}. Use PDF, JPEG, PNG, WebP, or GIF.`,
+        },
         { status: 400 }
       );
     }
 
     const contentType =
-      type === "image/jpg"
-        ? "image/jpeg"
-        : isImageType(type) || type.startsWith("image/")
-          ? type.startsWith("image/") && !isImageType(type)
-            ? "image/jpeg"
-            : type
-          : type;
+      type === "application/pdf"
+        ? "application/pdf"
+        : type === "image/jpg"
+          ? "image/jpeg"
+          : isImageType(type) || type.startsWith("image/")
+            ? type.startsWith("image/") && !isImageType(type)
+              ? "image/jpeg"
+              : type
+            : type;
 
-    const max = maxBytesFor(contentType.startsWith("video/") ? contentType : "image/jpeg");
+    const max =
+      type === "application/pdf" || isDocFolder
+        ? 5 * 1024 * 1024
+        : maxBytesFor(contentType.startsWith("video/") ? contentType : "image/jpeg");
     if (file.size > max) {
       return NextResponse.json(
         {
@@ -139,23 +157,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const kind = isVideoType(contentType) ? "video" : "image";
+    const kind =
+      type === "application/pdf" ? "document" : isVideoType(contentType) ? "video" : "image";
     let scope = folderRaw;
-    if (session.role !== "ADMIN") {
-      const allowedFolders = ["documents", "proofs", "installment", "avatar", "profile", "services"];
+    if (!session) {
+      scope = "registration-docs";
+    } else if (session.role !== "ADMIN") {
+      const allowedFolders = [
+        "documents",
+        "proofs",
+        "installment",
+        "installment-docs",
+        "avatar",
+        "profile",
+        "services",
+        "registration-docs",
+      ];
       if (!allowedFolders.includes(folderRaw)) scope = "avatar";
     }
 
     const prefix = mediaFolder(kind as "image" | "video" | "document", scope);
+    const owner = session?.id?.slice(0, 8) || "reg";
     const safeName =
-      (file.name || `photo.${kind === "video" ? "mp4" : "jpg"}`)
+      (file.name || (kind === "document" ? "doc.pdf" : kind === "video" ? "clip.mp4" : "photo.jpg"))
         .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(0, 80) || "photo.jpg";
-    const pathname = `${prefix}/${session.id.slice(0, 8)}-${Date.now()}-${safeName}`;
+        .slice(0, 80) || "file.bin";
+    const pathname = `${prefix}/${owner}-${Date.now()}-${safeName}`;
 
     const buffer = await file.arrayBuffer();
 
-    // Prefer private (this store is private); fall back to public if store is switched
     let blob: { url: string; pathname: string; contentType?: string } | null = null;
     let usedAccess: "public" | "private" = "private";
     let lastMsg = "";
@@ -183,10 +213,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!blob?.url) {
-      return NextResponse.json(
-        { error: lastMsg || "Upload failed" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: lastMsg || "Upload failed" }, { status: 400 });
     }
 
     return NextResponse.json({
