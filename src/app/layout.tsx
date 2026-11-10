@@ -26,6 +26,10 @@ export const metadata: Metadata = {
     title: "Hama Construction",
     description: "Building innovation through quality and trust.",
   },
+  icons: {
+    icon: "/logo.svg",
+    apple: "/logo.svg",
+  },
   robots: { index: true, follow: true },
 };
 
