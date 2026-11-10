@@ -2,11 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { buildSchedule, type Frequency } from "@/lib/schedule";
+import {
+  installmentAllowedForStatus,
+  installmentExtendsHoldHours,
+  cancelRefundSummary,
+  applyInstallmentAdminFee,
+} from "@/lib/booking-rules";
 
 export const dynamic = "force-dynamic";
 
 function parseSchedule(json: string | null | undefined) {
-  if (!json) return [] as Array<{ sequence: number; amount: number; dueDate: string; status?: string }>;
+  if (!json)
+    return [] as Array<{
+      sequence: number;
+      amount: number;
+      dueDate: string;
+      status?: string;
+      percentOfTotal?: number;
+    }>;
   try {
     const data = JSON.parse(json);
     return Array.isArray(data) ? data : [];
@@ -40,7 +53,7 @@ function shapePlan(plan: NonNullable<Awaited<ReturnType<typeof loadPlan>>>) {
     ...plan,
     totalAmount: total,
     amountPaid: paid,
-    deposit: total * 0.1,
+    deposit: total * 0.4,
     paymentMethod: plan.paymentType || "UNSET",
     paymentFrequency: plan.installmentFrequency,
     planDeadline: plan.planDeadlineAt,
@@ -109,6 +122,7 @@ export async function POST(
 
     const { total, paid, balance } = totals(plan);
     const price = Number(plan.asset?.price ?? total ?? 0);
+    const assetType = String(plan.asset?.type || "").toUpperCase();
 
     if (action === "SET_PAYMENT_METHOD") {
       const method = String(body.paymentMethod || "").toUpperCase();
@@ -117,6 +131,19 @@ export async function POST(
       }
       if (plan.paymentType && plan.paymentType !== "UNSET" && paid > 0) {
         return NextResponse.json({ error: "Payment method already set" }, { status: 400 });
+      }
+
+      if (method === "INSTALLMENT") {
+        const gate = installmentAllowedForStatus(assetType, plan.status, paid, total || price);
+        if (!gate.ok) {
+          return NextResponse.json(
+            {
+              error: gate.reason || "Installment not available for this service",
+              code: "INSTALLMENT_NOT_ALLOWED",
+            },
+            { status: 400 }
+          );
+        }
       }
 
       if (method === "FULL") {
@@ -151,23 +178,31 @@ export async function POST(
       } catch {
         /* */
       }
+
+      const fee = applyInstallmentAdminFee(price, assetType);
+      const planTotal = fee.planTotal;
       const deadline = new Date(Date.now() + months * 30 * 24 * 3600 * 1000);
       const schedule = buildSchedule({
-        totalAmount: price,
+        totalAmount: planTotal,
         amountAlreadyPaid: 0,
         frequency,
         planDeadline: deadline,
-        firstIsDeposit: true,
-        depositPercent: 10,
       });
       const nextDue = schedule[0]?.dueDate ? new Date(schedule[0].dueDate) : null;
+
+      const extendH = installmentExtendsHoldHours(assetType);
+      let newExpires = plan.expiresAt ? new Date(plan.expiresAt) : null;
+      if (extendH > 0) {
+        const base = plan.expiresAt ? new Date(plan.expiresAt) : new Date();
+        newExpires = new Date(base.getTime() + extendH * 60 * 60 * 1000);
+      }
 
       await prisma.reservation.update({
         where: { id },
         data: {
           paymentType: "INSTALLMENT",
           installmentFrequency: frequency,
-          installmentTotal: price,
+          installmentTotal: planTotal,
           installmentCount: schedule.length,
           planDeadlineAt: deadline,
           nextDueAt: nextDue,
@@ -177,37 +212,59 @@ export async function POST(
               amount: s.amount,
               dueDate: s.dueDate instanceof Date ? s.dueDate.toISOString() : s.dueDate,
               status: "PENDING",
+              percentOfTotal: s.percentOfTotal,
             }))
           ),
           rulesAgreedAt: new Date(),
           docsStatus: plan.docsStatus || "INCOMPLETE",
+          ...(newExpires ? { expiresAt: newExpires } : {}),
         },
       });
 
       const updated = await loadPlan(id);
+      const extendNote =
+        extendH > 0
+          ? ` Reservation hold extended by ${extendH} hours because installment was chosen within the reservation period.`
+          : "";
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
         redirectToDocs: true,
+        holdExtendedHours: extendH,
+        listPrice: fee.listPrice,
+        planAdminFeePercent: fee.feePercent,
+        planAdminFeeAmount: fee.feeAmount,
+        planTotal: fee.planTotal,
+        feeDisclosure: fee.disclosure,
+        schedulePreview: schedule.map((s) => ({
+          sequence: s.sequence,
+          amount: s.amount,
+          percentOfTotal: s.percentOfTotal,
+        })),
         message:
-          "Installment selected. Upload all required documents now. After admin approval you can make the first installment payment.",
+          `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} Upload all required documents now. After admin approval you can make the first installment payment.` +
+          extendNote,
         plan: updated ? shapePlan(updated) : null,
       });
     }
 
     if (action === "CANCEL_QUOTE") {
-      const pct = 10;
-      const deducted = Math.round(((paid || price * 0.1) * pct) / 100);
-      const refund = Math.max(0, paid - deducted);
+      const summary = cancelRefundSummary(paid);
       return NextResponse.json({
-        percent: pct,
-        deducted,
-        refundAmount: refund,
-        message: `Cancel may deduct ~${pct}%. Estimated refund: ${refund}.`,
+        percent: summary.percent,
+        deducted: summary.deducted,
+        refundAmount: summary.refundAmount,
+        message: summary.message,
       });
     }
 
     if (action === "CANCEL_CONFIRM") {
+      if (total > 0 && paid >= total) {
+        return NextResponse.json(
+          { error: "Fully paid plans cannot be cancelled." },
+          { status: 400 }
+        );
+      }
       await prisma.$transaction(async (tx) => {
         await tx.reservation.update({
           where: { id },
@@ -285,7 +342,7 @@ export async function POST(
         } else {
           const schedule = parseSchedule(plan.scheduleJson);
           const next = schedule.find((i) => (i.status || "PENDING") === "PENDING");
-          amount = Number(next?.amount || price * 0.1);
+          amount = Number(next?.amount || price * 0.4);
         }
       }
 
@@ -308,7 +365,7 @@ export async function POST(
         data: {
           userId: plan.userId,
           amount,
-          currency: "USD",
+          currency: "NGN",
           type,
           method: body.proofUrl ? "PROOF_UPLOAD" : "MANUAL",
           status: "PENDING",
@@ -361,6 +418,7 @@ export async function POST(
               amount: s.amount,
               dueDate: s.dueDate instanceof Date ? s.dueDate.toISOString() : s.dueDate,
               status: "PENDING",
+              percentOfTotal: s.percentOfTotal,
             }))
           ),
           nextDueAt: schedule[0]?.dueDate ? new Date(schedule[0].dueDate) : null,
