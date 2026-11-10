@@ -11,6 +11,24 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** True if this user already completed installment KYC docs on any past plan */
+async function userHasPriorApprovedInstallmentDocs(userId: string): Promise<boolean> {
+  const approvedDoc = await prisma.installmentDocument.findFirst({
+    where: { userId, status: "APPROVED" },
+    select: { id: true },
+  });
+  if (approvedDoc) return true;
+  const priorPlan = await prisma.reservation.findFirst({
+    where: {
+      userId,
+      paymentType: "INSTALLMENT",
+      docsStatus: "APPROVED",
+    },
+    select: { id: true },
+  });
+  return Boolean(priorPlan);
+}
+
 function parseSchedule(json: string | null | undefined) {
   if (!json)
     return [] as Array<{
@@ -197,6 +215,8 @@ export async function POST(
         newExpires = new Date(base.getTime() + extendH * 60 * 60 * 1000);
       }
 
+      const priorDocsOk = await userHasPriorApprovedInstallmentDocs(plan.userId);
+
       await prisma.reservation.update({
         where: { id },
         data: {
@@ -216,7 +236,7 @@ export async function POST(
             }))
           ),
           rulesAgreedAt: new Date(),
-          docsStatus: plan.docsStatus || "INCOMPLETE",
+          docsStatus: priorDocsOk ? "APPROVED" : plan.docsStatus || "INCOMPLETE",
           ...(newExpires ? { expiresAt: newExpires } : {}),
         },
       });
@@ -229,7 +249,7 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
-        redirectToDocs: true,
+        redirectToDocs: !priorDocsOk,
         holdExtendedHours: extendH,
         listPrice: fee.listPrice,
         planAdminFeePercent: fee.feePercent,
@@ -241,9 +261,11 @@ export async function POST(
           amount: s.amount,
           percentOfTotal: s.percentOfTotal,
         })),
-        message:
-          `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} Upload all required documents now. After admin approval you can make the first installment payment.` +
-          extendNote,
+        message: priorDocsOk
+          ? `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} Your previously approved documents were reused — you can pay without uploading again.` +
+            extendNote
+          : `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} First-time installment: upload required documents now. After admin approval you can make the first payment.` +
+            extendNote,
         plan: updated ? shapePlan(updated) : null,
       });
     }
@@ -306,15 +328,26 @@ export async function POST(
 
       if (plan.paymentType === "INSTALLMENT" && action !== "EXTRA_PAYMENT") {
         const docsStatus = String(plan.docsStatus || "INCOMPLETE").toUpperCase();
-        const isFirstPayment = Number(plan.installmentPaid || 0) <= 0;
-        const blocked =
-          isFirstPayment &&
+        const isFirstPaymentOnPlan = Number(plan.installmentPaid || 0) <= 0;
+        const hasPriorDocs = await userHasPriorApprovedInstallmentDocs(plan.userId);
+
+        if (hasPriorDocs && docsStatus !== "APPROVED") {
+          try {
+            await prisma.reservation.update({
+              where: { id },
+              data: { docsStatus: "APPROVED" },
+            });
+          } catch {
+            /* */
+          }
+        } else if (
+          isFirstPaymentOnPlan &&
+          !hasPriorDocs &&
           docsStatus !== "APPROVED" &&
           ["INCOMPLETE", "UNDER_REVIEW", "PENDING", "ACTION_NEEDED", "REJECTED", ""].includes(
             docsStatus
-          );
-
-        if (blocked) {
+          )
+        ) {
           return NextResponse.json(
             {
               error:
@@ -322,9 +355,10 @@ export async function POST(
                   ? "Your documents are under review. Wait for admin approval before the first installment payment."
                   : docsStatus === "REJECTED" || docsStatus === "ACTION_NEEDED"
                     ? "Some documents were rejected. Update them and wait for approval before paying."
-                    : "Upload all required installment documents and wait for admin approval before the first payment.",
+                    : "First-time installment plan: upload required documents and wait for admin approval before the first payment. Later plans will reuse approved documents.",
               code: "DOCS_REQUIRED",
               docsStatus,
+              firstTimeInstallment: true,
             },
             { status: 400 }
           );
@@ -380,7 +414,7 @@ export async function POST(
           data: {
             userId: plan.userId,
             title: "Payment submitted",
-            body: `Payment of ${amount} is pending admin approval.`,
+            body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval. Current balance after approval will update on your plan card.`,
             type: "PAYMENT",
           },
         });
@@ -392,6 +426,9 @@ export async function POST(
         ok: true,
         payment,
         message: "Payment submitted for admin approval",
+        currentTotal: total,
+        currentPaid: paid,
+        currentBalance: balance,
       });
     }
 
