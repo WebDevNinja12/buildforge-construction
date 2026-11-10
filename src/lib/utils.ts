@@ -5,16 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number | null | undefined, currency = "USD") {
+export function formatCurrency(amount: number | null | undefined, currency = "NGN") {
   const n = Number(amount);
-  if (!Number.isFinite(n)) return "$0.00";
+  if (!Number.isFinite(n)) return "₦0";
   try {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-NG", {
       style: "currency",
       currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(n);
   } catch {
-    return `$${n.toFixed(2)}`;
+    return `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
   }
 }
 
@@ -23,7 +25,7 @@ export function formatDate(date: Date | string | null | undefined) {
   try {
     const d = date instanceof Date ? date : new Date(date);
     if (Number.isNaN(d.getTime())) return "—";
-    return new Intl.DateTimeFormat("en-US", {
+    return new Intl.DateTimeFormat("en-NG", {
       year: "numeric",
       month: "short",
       day: "numeric",
