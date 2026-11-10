@@ -59,7 +59,7 @@ export default function Navbar({ user }: NavbarProps) {
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2.5 group">
             <Image
-              src="/logo.png"
+              src="/logo.svg"
               alt="Hama Construction"
               width={40}
               height={40}
