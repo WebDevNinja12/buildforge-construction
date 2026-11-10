@@ -11,10 +11,8 @@ const DEMO_EMAILS = [
 ];
 
 /**
- * Remove demo accounts and all catalog/transaction sample data.
- * Auth (any one):
- *  - header x-setup-secret === SETUP_SECRET
- *  - SETUP_ALLOW_RESET=true + body.confirm === "PURGE ALL DEMO"
+ * Remove demo accounts and sample catalog.
+ * Payment records are always preserved.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -39,9 +37,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const purgeCatalog = body.purgeCatalog !== false; // default true when purging demo
+    const purgeCatalog = body.purgeCatalog !== false;
 
-    // 1) Demo users
     const demoUsers = await prisma.user.findMany({
       where: { email: { in: DEMO_EMAILS } },
       select: { id: true, email: true },
@@ -51,7 +48,7 @@ export async function POST(req: NextRequest) {
       await prisma.notification.deleteMany({ where: { userId: u.id } }).catch(() => null);
       await prisma.userDocument.deleteMany({ where: { userId: u.id } }).catch(() => null);
       await prisma.installmentDocument.deleteMany({ where: { userId: u.id } }).catch(() => null);
-      await prisma.payment.deleteMany({ where: { userId: u.id } }).catch(() => null);
+      // payments kept intentionally
       await prisma.reservation.deleteMany({ where: { userId: u.id } }).catch(() => null);
       await prisma.toolRental.deleteMany({ where: { userId: u.id } }).catch(() => null);
       await prisma.hireRequest.deleteMany({ where: { userId: u.id } }).catch(() => null);
@@ -60,8 +57,8 @@ export async function POST(req: NextRequest) {
       await prisma.user.delete({ where: { id: u.id } }).catch(() => null);
     }
 
-    const catalog = {
-      payments: 0,
+    const catalog: Record<string, number> = {
+      paymentsKept: 0,
       reservations: 0,
       rentals: 0,
       hires: 0,
@@ -70,33 +67,31 @@ export async function POST(req: NextRequest) {
       workers: 0,
       finished: 0,
       projects: 0,
-      reviews: 0,
     };
 
+    try {
+      catalog.paymentsKept = await prisma.payment.count();
+    } catch {
+      catalog.paymentsKept = 0;
+    }
+
     if (purgeCatalog) {
-      // Order matters for FKs
-      const pay = await prisma.payment.deleteMany({}).catch(() => ({ count: 0 }));
-      const res = await prisma.reservation.deleteMany({}).catch(() => ({ count: 0 }));
-      const rent = await prisma.toolRental.deleteMany({}).catch(() => ({ count: 0 }));
-      const hire = await prisma.hireRequest.deleteMany({}).catch(() => ({ count: 0 }));
+      // Never delete payments
+      catalog.reservations = (
+        await prisma.reservation.deleteMany({}).catch(() => ({ count: 0 }))
+      ).count;
+      catalog.rentals = (await prisma.toolRental.deleteMany({}).catch(() => ({ count: 0 }))).count;
+      catalog.hires = (await prisma.hireRequest.deleteMany({}).catch(() => ({ count: 0 }))).count;
       await prisma.installmentDocument.deleteMany({}).catch(() => null);
       await prisma.contract.deleteMany({}).catch(() => null);
       await prisma.workerReview.deleteMany({}).catch(() => null);
-      const a = await prisma.asset.deleteMany({}).catch(() => ({ count: 0 }));
-      const t = await prisma.tool.deleteMany({}).catch(() => ({ count: 0 }));
-      const w = await prisma.worker.deleteMany({}).catch(() => ({ count: 0 }));
-      const f = await prisma.finishedProject.deleteMany({}).catch(() => ({ count: 0 }));
-      const p = await prisma.project.deleteMany({}).catch(() => ({ count: 0 }));
-
-      catalog.payments = pay.count;
-      catalog.reservations = res.count;
-      catalog.rentals = rent.count;
-      catalog.hires = hire.count;
-      catalog.assets = a.count;
-      catalog.tools = t.count;
-      catalog.workers = w.count;
-      catalog.finished = f.count;
-      catalog.projects = p.count;
+      catalog.assets = (await prisma.asset.deleteMany({}).catch(() => ({ count: 0 }))).count;
+      catalog.tools = (await prisma.tool.deleteMany({}).catch(() => ({ count: 0 }))).count;
+      catalog.workers = (await prisma.worker.deleteMany({}).catch(() => ({ count: 0 }))).count;
+      catalog.finished = (
+        await prisma.finishedProject.deleteMany({}).catch(() => ({ count: 0 }))
+      ).count;
+      catalog.projects = (await prisma.project.deleteMany({}).catch(() => ({ count: 0 }))).count;
     }
 
     return NextResponse.json({
@@ -105,7 +100,7 @@ export async function POST(req: NextRequest) {
       purgedCatalog: purgeCatalog,
       catalog,
       message:
-        "Demo/sample data removed. Keep only real admin. Add real services, tools, and workers in Admin.",
+        "Demo/sample data removed. Payment records kept. Add real services, tools, and workers in Admin.",
     });
   } catch (e) {
     console.error(e);
@@ -118,6 +113,6 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    hint: 'POST { "confirm": "PURGE ALL DEMO", "purgeCatalog": true } when SETUP_ALLOW_RESET=true',
+    hint: 'POST { "confirm": "PURGE ALL DEMO", "purgeCatalog": true } when SETUP_ALLOW_RESET=true — payments are never deleted',
   });
 }
