@@ -8,10 +8,10 @@ import {
   cancelRefundSummary,
   applyInstallmentAdminFee,
 } from "@/lib/booking-rules";
+import { applyPaymentToReservation, notifyAdmins } from "@/lib/apply-payment";
 
 export const dynamic = "force-dynamic";
 
-/** True if this user already completed installment KYC docs on any past plan */
 async function userHasPriorApprovedInstallmentDocs(userId: string): Promise<boolean> {
   const approvedDoc = await prisma.installmentDocument.findFirst({
     where: { userId, status: "APPROVED" },
@@ -19,11 +19,7 @@ async function userHasPriorApprovedInstallmentDocs(userId: string): Promise<bool
   });
   if (approvedDoc) return true;
   const priorPlan = await prisma.reservation.findFirst({
-    where: {
-      userId,
-      paymentType: "INSTALLMENT",
-      docsStatus: "APPROVED",
-    },
+    where: { userId, paymentType: "INSTALLMENT", docsStatus: "APPROVED" },
     select: { id: true },
   });
   return Boolean(priorPlan);
@@ -31,13 +27,7 @@ async function userHasPriorApprovedInstallmentDocs(userId: string): Promise<bool
 
 function parseSchedule(json: string | null | undefined) {
   if (!json)
-    return [] as Array<{
-      sequence: number;
-      amount: number;
-      dueDate: string;
-      status?: string;
-      percentOfTotal?: number;
-    }>;
+    return [] as Array<{ sequence: number; amount: number; dueDate: string; status?: string; percentOfTotal?: number }>;
   try {
     const data = JSON.parse(json);
     return Array.isArray(data) ? data : [];
@@ -75,10 +65,7 @@ function shapePlan(plan: NonNullable<Awaited<ReturnType<typeof loadPlan>>>) {
     paymentMethod: plan.paymentType || "UNSET",
     paymentFrequency: plan.installmentFrequency,
     planDeadline: plan.planDeadlineAt,
-    installments: installments.map((i) => ({
-      ...i,
-      status: i.status || "PENDING",
-    })),
+    installments: installments.map((i) => ({ ...i, status: i.status || "PENDING" })),
     summary: {
       totalPrice: total,
       amountPaid: paid,
@@ -155,10 +142,7 @@ export async function POST(
         const gate = installmentAllowedForStatus(assetType, plan.status, paid, total || price);
         if (!gate.ok) {
           return NextResponse.json(
-            {
-              error: gate.reason || "Installment not available for this service",
-              code: "INSTALLMENT_NOT_ALLOWED",
-            },
+            { error: gate.reason || "Installment not available", code: "INSTALLMENT_NOT_ALLOWED" },
             { status: 400 }
           );
         }
@@ -207,7 +191,6 @@ export async function POST(
         planDeadline: deadline,
       });
       const nextDue = schedule[0]?.dueDate ? new Date(schedule[0].dueDate) : null;
-
       const extendH = installmentExtendsHoldHours(assetType);
       let newExpires = plan.expiresAt ? new Date(plan.expiresAt) : null;
       if (extendH > 0) {
@@ -244,48 +227,29 @@ export async function POST(
       const updated = await loadPlan(id);
       const extendNote =
         extendH > 0
-          ? ` Reservation hold extended by ${extendH} hours because installment was chosen within the reservation period.`
+          ? ` Reservation hold extended by ${extendH} hours.`
           : "";
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
         redirectToDocs: !priorDocsOk,
-        holdExtendedHours: extendH,
-        listPrice: fee.listPrice,
-        planAdminFeePercent: fee.feePercent,
-        planAdminFeeAmount: fee.feeAmount,
         planTotal: fee.planTotal,
         feeDisclosure: fee.disclosure,
-        schedulePreview: schedule.map((s) => ({
-          sequence: s.sequence,
-          amount: s.amount,
-          percentOfTotal: s.percentOfTotal,
-        })),
         message: priorDocsOk
-          ? `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} Your previously approved documents were reused — you can pay without uploading again.` +
-            extendNote
-          : `Installment selected. First payment is 40% of the plan total, then 20% each until paid off. ${fee.disclosure} First-time installment: upload required documents now. After admin approval you can make the first payment.` +
-            extendNote,
+          ? `Installment selected. ${fee.disclosure} Prior documents reused.` + extendNote
+          : `Installment selected. ${fee.disclosure} Upload documents for first payment.` + extendNote,
         plan: updated ? shapePlan(updated) : null,
       });
     }
 
     if (action === "CANCEL_QUOTE") {
       const summary = cancelRefundSummary(paid);
-      return NextResponse.json({
-        percent: summary.percent,
-        deducted: summary.deducted,
-        refundAmount: summary.refundAmount,
-        message: summary.message,
-      });
+      return NextResponse.json(summary);
     }
 
     if (action === "CANCEL_CONFIRM") {
       if (total > 0 && paid >= total) {
-        return NextResponse.json(
-          { error: "Fully paid plans cannot be cancelled." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Fully paid plans cannot be cancelled." }, { status: 400 });
       }
       await prisma.$transaction(async (tx) => {
         await tx.reservation.update({
@@ -303,10 +267,7 @@ export async function POST(
           },
         });
         if (!other) {
-          await tx.asset.update({
-            where: { id: plan.assetId },
-            data: { status: "AVAILABLE" },
-          });
+          await tx.asset.update({ where: { id: plan.assetId }, data: { status: "AVAILABLE" } });
         }
       });
       return NextResponse.json({ ok: true, message: "Reservation cancelled." });
@@ -320,10 +281,7 @@ export async function POST(
       action === "PAY_FULL"
     ) {
       if (!plan.paymentType || plan.paymentType === "UNSET") {
-        return NextResponse.json(
-          { error: "Choose Full or Installment payment first" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Choose Full or Installment payment first" }, { status: 400 });
       }
 
       if (plan.paymentType === "INSTALLMENT" && action !== "EXTRA_PAYMENT") {
@@ -333,10 +291,7 @@ export async function POST(
 
         if (hasPriorDocs && docsStatus !== "APPROVED") {
           try {
-            await prisma.reservation.update({
-              where: { id },
-              data: { docsStatus: "APPROVED" },
-            });
+            await prisma.reservation.update({ where: { id }, data: { docsStatus: "APPROVED" } });
           } catch {
             /* */
           }
@@ -344,18 +299,12 @@ export async function POST(
           isFirstPaymentOnPlan &&
           !hasPriorDocs &&
           docsStatus !== "APPROVED" &&
-          ["INCOMPLETE", "UNDER_REVIEW", "PENDING", "ACTION_NEEDED", "REJECTED", ""].includes(
-            docsStatus
-          )
+          ["INCOMPLETE", "UNDER_REVIEW", "PENDING", "ACTION_NEEDED", "REJECTED", ""].includes(docsStatus)
         ) {
           return NextResponse.json(
             {
               error:
-                docsStatus === "UNDER_REVIEW" || docsStatus === "PENDING"
-                  ? "Your documents are under review. Wait for admin approval before the first installment payment."
-                  : docsStatus === "REJECTED" || docsStatus === "ACTION_NEEDED"
-                    ? "Some documents were rejected. Update them and wait for approval before paying."
-                    : "First-time installment plan: upload required documents and wait for admin approval before the first payment. Later plans will reuse approved documents.",
+                "First-time installment: upload documents and wait for admin approval before the first payment.",
               code: "DOCS_REQUIRED",
               docsStatus,
               firstTimeInstallment: true,
@@ -383,7 +332,6 @@ export async function POST(
       if (!(amount > 0) || !Number.isFinite(amount)) {
         return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
       }
-
       if (balance > 0 && amount > balance) amount = balance;
 
       const type =
@@ -395,40 +343,83 @@ export async function POST(
               ? "FULL"
               : "INSTALLMENT";
 
+      const isInstallmentPlan = plan.paymentType === "INSTALLMENT";
+      const hasPriorApprovedPayment =
+        Number(plan.installmentPaid || 0) > 0 ||
+        (await prisma.payment.count({ where: { reservationId: id, status: "APPROVED" } })) > 0;
+      const autoApprove =
+        isInstallmentPlan && hasPriorApprovedPayment && action !== "EXTRA_PAYMENT";
+
       const payment = await prisma.payment.create({
         data: {
           userId: plan.userId,
           amount,
           currency: "NGN",
           type,
-          method: body.proofUrl ? "PROOF_UPLOAD" : "MANUAL",
-          status: "PENDING",
+          method: body.proofUrl ? "PROOF_UPLOAD" : autoApprove ? "AUTO" : "MANUAL",
+          status: autoApprove ? "APPROVED" : "PENDING",
           proofUrl: body.proofUrl ? String(body.proofUrl) : null,
           reservationId: id,
           referenceId: id,
+          reviewedAt: autoApprove ? new Date() : null,
         },
       });
 
-      try {
-        await prisma.notification.create({
+      if (autoApprove) {
+        const result = await applyPaymentToReservation(amount, id);
+        const bal = result
+          ? result.fullyPaid
+            ? ` Plan fully paid (₦${Number(result.installmentPaid).toLocaleString("en-NG")}). Service completed.`
+            : ` Paid ₦${Number(result.installmentPaid).toLocaleString("en-NG")}; balance ₦${Number(result.balance).toLocaleString("en-NG")}.`
+          : "";
+        await prisma.notification
+          .create({
+            data: {
+              userId: plan.userId,
+              title: "Payment recorded",
+              body: `Your installment of ₦${amount.toLocaleString("en-NG")} was applied automatically.${bal}`,
+              type: "PAYMENT",
+            },
+          })
+          .catch(() => null);
+        await notifyAdmins(
+          "Installment payment auto-applied",
+          `${plan.user?.email || plan.userId} paid ₦${amount.toLocaleString("en-NG")} on plan ${id}.${bal}`,
+          "PAYMENT"
+        );
+        const updated = await loadPlan(id);
+        return NextResponse.json({
+          ok: true,
+          payment,
+          autoApproved: true,
+          message: `Payment of ₦${amount.toLocaleString("en-NG")} applied automatically.${bal}`,
+          plan: updated ? shapePlan(updated) : null,
+          balance: result?.balance,
+          fullyPaid: result?.fullyPaid,
+        });
+      }
+
+      await prisma.notification
+        .create({
           data: {
             userId: plan.userId,
             title: "Payment submitted",
-            body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval. Current balance after approval will update on your plan card.`,
+            body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
             type: "PAYMENT",
           },
-        });
-      } catch {
-        /* */
-      }
+        })
+        .catch(() => null);
+      await notifyAdmins(
+        "Payment awaiting approval",
+        `${plan.user?.email || plan.userId} submitted ₦${amount.toLocaleString("en-NG")}. Review in Admin → Payments.`,
+        "PAYMENT"
+      );
 
       return NextResponse.json({
         ok: true,
         payment,
+        autoApproved: false,
         message: "Payment submitted for admin approval",
-        currentTotal: total,
-        currentPaid: paid,
-        currentBalance: balance,
       });
     }
 
@@ -469,10 +460,7 @@ export async function POST(
   } catch (e) {
     console.error("plans POST", e);
     return NextResponse.json(
-      {
-        error: "Plan update failed",
-        detail: e instanceof Error ? e.message : String(e),
-      },
+      { error: "Plan update failed", detail: e instanceof Error ? e.message : String(e) },
       { status: 500 }
     );
   }
