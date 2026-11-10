@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node -e \"try{require('fs').copyFileSync('logo.png','public/logo.png')}catch(e){}\" && prisma generate && next build",
+    "build": "node scripts/copy-static.js && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
