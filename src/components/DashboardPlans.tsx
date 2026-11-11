@@ -7,7 +7,14 @@ import { Loader2, Building2 } from "lucide-react";
 
 const TERMINAL = ["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"];
 
-export function DashboardPlans() {
+type PlansMode = "all" | "reservations" | "installments";
+
+function isInstallmentPlan(p: any) {
+  const m = String(p?.paymentMethod || p?.paymentType || "").toUpperCase();
+  return m === "INSTALLMENT";
+}
+
+export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -19,14 +26,14 @@ export function DashboardPlans() {
     try {
       const res = await fetch("/api/reservations", { credentials: "include" });
       if (res.status === 401) {
-        setError("Please log in again to see your plans.");
+        setError("Please log in again.");
         setPlans([]);
         return;
       }
       const data = await res.json().catch(() => []);
       setPlans(Array.isArray(data) ? data : []);
     } catch {
-      setError("Could not load plans. Pull to refresh or try again.");
+      setError("Could not load this section. Try again.");
       setPlans([]);
     } finally {
       setLoading(false);
@@ -41,7 +48,7 @@ export function DashboardPlans() {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-2">
         <Loader2 className="w-7 h-7 animate-spin text-primary-600" />
-        <p className="text-xs text-slate-500">Loading your plans…</p>
+        <p className="text-xs text-slate-500">Loading…</p>
       </div>
     );
   }
@@ -57,15 +64,31 @@ export function DashboardPlans() {
     );
   }
 
-  const visible = showAll ? plans : plans.filter((p) => !TERMINAL.includes(p?.status));
+  const byMode =
+    mode === "installments"
+      ? plans.filter(isInstallmentPlan)
+      : mode === "reservations"
+        ? plans.filter((p) => !isInstallmentPlan(p))
+        : plans;
+  const visible = showAll
+    ? byMode
+    : byMode.filter((p) => !TERMINAL.includes(String(p?.status || "").toUpperCase()));
 
-  if (!plans.length) {
+  if (!byMode.length) {
     return (
       <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-8 text-center">
         <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-        <p className="font-semibold text-construction-dark">No reservations yet</p>
+        <p className="font-semibold text-construction-dark">
+          {mode === "installments"
+            ? "No installment plans yet"
+            : mode === "reservations"
+              ? "No reservations yet"
+              : "No bookings yet"}
+        </p>
         <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-          Browse services, preview full details, then reserve. Payment options appear here after you reserve.
+          {mode === "installments"
+            ? "When you choose an installment plan on a reservation, it appears here with schedule and balance."
+            : "Browse services, preview full details, then reserve. Full payment and hold countdown appear here."}
         </p>
         <Link
           href="/services"
@@ -77,11 +100,28 @@ export function DashboardPlans() {
     );
   }
 
+  const title =
+    mode === "installments"
+      ? "Installment plans"
+      : mode === "reservations"
+        ? "Reservations"
+        : "Plans and reservations";
+  const subtitle =
+    mode === "installments"
+      ? "Active installment schedules, balances, and next due dates."
+      : mode === "reservations"
+        ? "Holds awaiting full payment or payment method selection. Installment plans are listed separately."
+        : "All asset bookings.";
+
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-bold text-construction-dark">{title}</h2>
+        <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-slate-500">
-          {visible.length} shown · {plans.length} total
+          {visible.length} shown · {byMode.length} in this section
         </p>
         <button
           type="button"
@@ -93,7 +133,7 @@ export function DashboardPlans() {
       </div>
       {visible.length === 0 ? (
         <p className="text-sm text-slate-500 bg-white border rounded-2xl p-5">
-          No active plans. Cleared or completed items are hidden — use “Show all history”.
+          No active items in this section. Cleared or completed items are hidden — use “Show all history”.
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
