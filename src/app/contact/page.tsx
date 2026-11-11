@@ -36,17 +36,17 @@ export default function ContactPage() {
 
   return (
     <div className="bg-white">
-      <section className="relative text-white py-20 overflow-hidden">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: "url('/banners/contact.jpeg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32 w-full">
           <div className="max-w-3xl">
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Contact Us</h1>
-            <p className="mt-6 text-lg text-slate-300 leading-relaxed">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight drop-shadow-sm">Contact Us</h1>
+            <p className="mt-6 text-lg sm:text-xl text-slate-300 leading-relaxed">
               Have a question about assets, tools, hiring, or project management?
               We are here to help. Reach out and our team will respond promptly.
             </p>
