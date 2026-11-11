@@ -23,12 +23,13 @@ import { ClientHistoryActions } from "@/components/HistoryActions";
 import { NotificationBell } from "@/components/NotificationBell";
 import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
 
-type Section = "overview" | "plans" | "documents" | "payments" | "contracts" | "deal";
+type Section = "overview" | "reservations" | "plans" | "documents" | "payments" | "contracts" | "deal";
 
 function sectionFromHash(): Section {
   if (typeof window === "undefined") return "overview";
   const h = (window.location.hash || "").replace("#", "").toLowerCase();
-  if (h === "plans" || h === "reservations") return "plans";
+  if (h === "reservations" || h === "reservation") return "reservations";
+  if (h === "plans" || h === "installments" || h === "installment") return "plans";
   if (h === "documents" || h === "docs") return "documents";
   if (h === "payments") return "payments";
   if (h === "contracts") return "contracts";
@@ -79,15 +80,17 @@ export function ClientDashboardBody({
     const hash =
       s === "overview"
         ? ""
-        : s === "plans"
-          ? "#plans"
-          : s === "documents"
-            ? "#documents"
-            : s === "payments"
-              ? "#payments"
-              : s === "contracts"
-                ? "#contracts"
-                : "#deal";
+        : s === "reservations"
+          ? "#reservations"
+          : s === "plans"
+            ? "#plans"
+            : s === "documents"
+              ? "#documents"
+              : s === "payments"
+                ? "#payments"
+                : s === "contracts"
+                  ? "#contracts"
+                  : "#deal";
     if (hash) {
       window.location.hash = hash;
     } else {
@@ -110,7 +113,7 @@ export function ClientDashboardBody({
           </div>
         </div>
         <p className="text-sm text-slate-300 mt-1 max-w-xl">
-          Overview of your account. Plans, documents, and payments live in their own sections.
+          Overview of your account. Reservations and installment plans are in separate sections.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
@@ -127,10 +130,17 @@ export function ClientDashboardBody({
           </Link>
           <button
             type="button"
+            onClick={() => go("reservations")}
+            className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold"
+          >
+            Reservations
+          </button>
+          <button
+            type="button"
             onClick={() => go("plans")}
             className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold"
           >
-            View plans
+            Installments
           </button>
         </div>
       </div>
@@ -139,7 +149,8 @@ export function ClientDashboardBody({
         {(
           [
             ["overview", "Overview"],
-            ["plans", "Plans"],
+            ["reservations", "Reservations"],
+            ["plans", "Installments"],
             ["documents", "Documents"],
             ["payments", "Payments"],
             ["contracts", "Contracts"],
@@ -196,11 +207,11 @@ export function ClientDashboardBody({
                 label: "Active reservations",
                 value: stats.reservations,
                 icon: CalendarClock,
-                action: () => go("plans"),
-                hint: "Open plans",
+                action: () => go("reservations"),
+                hint: "Open reservations",
               },
               {
-                label: "Active plans",
+                label: "Installment plans",
                 value: stats.activePlans,
                 icon: Layers,
                 action: () => go("plans"),
@@ -217,7 +228,7 @@ export function ClientDashboardBody({
                 label: "Tool rentals",
                 value: stats.rentals,
                 icon: Building2,
-                action: () => go("plans"),
+                action: () => go("reservations"),
                 hint: "Equipment hire",
               },
             ].map((c) => {
@@ -301,12 +312,21 @@ export function ClientDashboardBody({
           <div className="grid sm:grid-cols-3 gap-3">
             <button
               type="button"
+              onClick={() => go("reservations")}
+              className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
+            >
+              <CalendarClock className="w-5 h-5 text-primary-600 mb-2" />
+              <p className="font-semibold text-sm text-construction-dark">Reservations</p>
+              <p className="text-xs text-slate-500 mt-1">Holds and full-payment bookings</p>
+            </button>
+            <button
+              type="button"
               onClick={() => go("plans")}
               className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
             >
               <Layers className="w-5 h-5 text-primary-600 mb-2" />
               <p className="font-semibold text-sm text-construction-dark">Installment plans</p>
-              <p className="text-xs text-slate-500 mt-1">Active schedules, balances, and next due dates</p>
+              <p className="text-xs text-slate-500 mt-1">Schedules, balances, next due dates</p>
             </button>
             <button
               type="button"
@@ -315,34 +335,42 @@ export function ClientDashboardBody({
             >
               <FileText className="w-5 h-5 text-primary-600 mb-2" />
               <p className="font-semibold text-sm text-construction-dark">Documents</p>
-              <p className="text-xs text-slate-500 mt-1">Upload installment files and view submitted docs</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => go("deal")}
-              className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
-            >
-              <Wrench className="w-5 h-5 text-primary-600 mb-2" />
-              <p className="font-semibold text-sm text-construction-dark">Project deal</p>
-              <p className="text-xs text-slate-500 mt-1">Custom construction project terms</p>
+              <p className="text-xs text-slate-500 mt-1">Installment verification files</p>
             </button>
           </div>
         </>
+      )}
+
+      {section === "reservations" && (
+        <div id="reservations" className="scroll-mt-24 space-y-6">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-construction-dark">Reservations</h2>
+              <p className="text-xs text-slate-500">
+                Asset holds and full-payment bookings. Choose installment from a reservation when
+                allowed — installment schedules appear under Installments.
+              </p>
+            </div>
+            <ClientHistoryActions />
+          </div>
+          <DashboardPlans mode="reservations" />
+          <ClientOtherBookings />
+        </div>
       )}
 
       {section === "plans" && (
         <div id="plans" className="scroll-mt-24 space-y-6">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-lg font-bold text-construction-dark">Plans and reservations</h2>
+              <h2 className="text-lg font-bold text-construction-dark">Installment plans</h2>
               <p className="text-xs text-slate-500">
-                Asset/installment plans, tool rentals, and worker hires — pay and manage here.
+                Active installment schedules only. Balances, next due dates, and installment
+                payments live here — separate from reservation holds.
               </p>
             </div>
             <ClientHistoryActions />
           </div>
-          <DashboardPlans />
-          <ClientOtherBookings />
+          <DashboardPlans mode="installments" />
         </div>
       )}
 
@@ -351,8 +379,7 @@ export function ClientDashboardBody({
           <div>
             <h2 className="text-lg font-bold text-construction-dark">My documents</h2>
             <p className="text-xs text-slate-500">
-              Upload installment documents here (required before first installment payment). Submitted
-              files are listed below.
+              Upload installment documents here (required before first installment payment).
             </p>
           </div>
           <ClientInstallmentDocUploads />
