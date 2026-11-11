@@ -36,6 +36,7 @@ const NAV = [
 const BOTTOM = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/services", label: "Services", icon: Building2 },
+  { href: "/dashboard#reservations", label: "Reserve", icon: CalendarClock },
   { href: "/dashboard#plans", label: "Plans", icon: Layers },
   { href: "/profile", label: "Profile", icon: User },
 ];
@@ -64,8 +65,11 @@ export function ClientShell({
     if (frag) {
       if (path !== base && path !== base + "/") return false;
       const h = hash || "";
-      if (frag === "reservations" || frag === "plans") {
-        return h === "plans" || h === "reservations" || h === "reservation";
+      if (frag === "reservations") {
+        return h === "reservations" || h === "reservation";
+      }
+      if (frag === "plans") {
+        return h === "plans" || h === "installments" || h === "installment";
       }
       if (frag === "documents" || frag === "docs") return h === "documents" || h === "docs";
       if (frag === "payments") return h === "payments" || h === "payment";
@@ -178,7 +182,7 @@ export function ClientShell({
               <Link
                 key={item.href + item.label}
                 href={item.href}
-                className={`flex flex-col items-center justify-center gap-0.5 min-h-[52px] min-w-[64px] text-[10px] font-semibold ${
+                className={`flex flex-col items-center justify-center gap-0.5 min-h-[52px] min-w-[56px] text-[10px] font-semibold ${
                   isActive ? "text-primary-600" : "text-slate-500"
                 }`}
               >
