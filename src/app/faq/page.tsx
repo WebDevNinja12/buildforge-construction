@@ -31,17 +31,17 @@ const FAQS = [
 export default function FaqPage() {
   return (
     <div className="bg-white min-h-screen">
-      <section className="relative text-white py-16 overflow-hidden">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: "url('/banners/workers.jpeg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
-        <div className="relative max-w-3xl mx-auto px-4 text-center">
+        <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-24 lg:py-32 w-full text-center">
           <HelpCircle className="w-12 h-12 text-accent-400 mx-auto mb-4" />
-          <h1 className="text-3xl sm:text-4xl font-bold">Frequently asked questions</h1>
-          <p className="mt-3 text-slate-300">Quick answers about Hama Construction services.</p>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold drop-shadow-sm">Frequently asked questions</h1>
+          <p className="mt-3 text-lg text-slate-300">Quick answers about Hama Construction services.</p>
         </div>
       </section>
       <div className="max-w-3xl mx-auto px-4 py-12 space-y-4">
