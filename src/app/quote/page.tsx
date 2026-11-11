@@ -69,21 +69,21 @@ export default function QuotePage() {
 
   return (
     <div className="bg-slate-50 min-h-screen">
-      <section className="relative text-white py-16 overflow-hidden">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: "url('/banners/quote.jpeg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
-        <div className="relative max-w-3xl mx-auto px-4">
+        <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-24 lg:py-32 w-full">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-slate-300 hover:text-white mb-4">
             <ArrowLeft className="w-4 h-4" /> Home
           </Link>
-          <h1 className="text-3xl sm:text-4xl font-bold flex items-center gap-3">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold flex items-center gap-3 drop-shadow-sm">
             <ClipboardList className="w-9 h-9 text-accent-500" /> Request a Quote
           </h1>
-          <p className="mt-3 text-slate-300">
+          <p className="mt-3 text-lg text-slate-300">
             Tell us about your project. Hama Construction will review and contact you with an estimate.
           </p>
         </div>
