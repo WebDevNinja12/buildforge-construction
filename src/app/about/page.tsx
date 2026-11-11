@@ -60,19 +60,19 @@ const team = [
 export default function AboutPage() {
   return (
     <div className="bg-white">
-      <section className="relative text-white overflow-hidden min-h-[240px] sm:min-h-[320px] flex items-center">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: `url('${ABOUT_BANNER}')` }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/75 to-primary-900/55" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 w-full">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32 w-full">
           <div className="max-w-3xl">
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight drop-shadow-sm">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight drop-shadow-sm">
               About Hama Construction
             </h1>
-            <p className="mt-6 text-lg text-slate-200 leading-relaxed">
+            <p className="mt-6 text-lg sm:text-xl text-slate-200 leading-relaxed">
               We are a construction and property platform dedicated to making
               asset acquisition, tool rental, labor hiring, and project
               management simple, transparent, and accessible.
