@@ -39,19 +39,19 @@ const rules = [
 export default function TermsPage() {
   return (
     <div className="bg-white min-h-screen">
-      <section className="relative text-white py-14 overflow-hidden">
+      <section className="relative text-white overflow-hidden min-h-[70vh] flex items-center">
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: "url('/banners/workers.jpeg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-r from-construction-dark/90 via-slate-900/80 to-primary-900/70" />
-        <div className="relative max-w-3xl mx-auto px-4 sm:px-6">
+        <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-24 lg:py-32 w-full">
           <div className="flex items-center gap-3 mb-4">
             <FileText className="w-8 h-8 text-accent-400" />
-            <h1 className="text-3xl sm:text-4xl font-bold">Platform Rules</h1>
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold drop-shadow-sm">Platform Rules</h1>
           </div>
-          <p className="text-slate-300">
+          <p className="text-lg text-slate-300">
             Hama Construction — Building innovation through quality and trust.
             Please read these rules carefully before creating an account.
           </p>
