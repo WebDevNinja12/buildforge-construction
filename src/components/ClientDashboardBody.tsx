@@ -128,20 +128,6 @@ export function ClientDashboardBody({
           >
             Request a quote
           </Link>
-          <button
-            type="button"
-            onClick={() => go("reservations")}
-            className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold"
-          >
-            Reservations
-          </button>
-          <button
-            type="button"
-            onClick={() => go("plans")}
-            className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold"
-          >
-            Installments
-          </button>
         </div>
       </div>
 
@@ -379,7 +365,8 @@ export function ClientDashboardBody({
           <div>
             <h2 className="text-lg font-bold text-construction-dark">My documents</h2>
             <p className="text-xs text-slate-500">
-              Upload installment documents here (required before first installment payment).
+              Upload installment documents here (required before first installment payment). Approved
+              files are reused for later plans — not duplicated per reservation.
             </p>
           </div>
           <ClientInstallmentDocUploads />
