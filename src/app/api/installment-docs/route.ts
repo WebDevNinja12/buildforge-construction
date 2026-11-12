@@ -69,6 +69,55 @@ async function autoAttachApprovedDocs(userId: string, reservationId: string) {
   return created;
 }
 
+/** Apply NIN/BVN from registration profile so clients do not re-enter them. */
+async function attachProfileIdentity(userId: string, reservationId: string) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { nin: true, bvn: true },
+    });
+    if (!user) return;
+
+    const existing = await prisma.installmentDocument.findMany({
+      where: { userId, reservationId },
+      select: { type: true },
+    });
+    const have = new Set(existing.map((d) => String(d.type).toLowerCase()));
+
+    const pairs: Array<{ key: string; label: string; value: string | null | undefined }> = [
+      { key: "nin", label: "NIN", value: user.nin },
+      { key: "bvn", label: "BVN", value: user.bvn },
+    ];
+
+    for (const p of pairs) {
+      const digits = String(p.value || "").replace(/\D/g, "");
+      if (!digits || digits.length < 11) continue;
+      if (have.has(p.key)) continue;
+      try {
+        await prisma.installmentDocument.create({
+          data: {
+            userId,
+            reservationId,
+            type: p.key,
+            label: p.label,
+            fileUrl: "",
+            textValue: digits,
+            inputType: "TEXT",
+            required: true,
+            status: "APPROVED",
+            previousFileUrl: "profile",
+          },
+        });
+        have.add(p.key);
+      } catch (e) {
+        console.warn("attachProfileIdentity", p.key, e);
+      }
+    }
+  } catch (e) {
+    console.warn("attachProfileIdentity", e);
+  }
+}
+
 function computeOverall(docs: { required?: boolean | null; status: string }[]) {
   if (!docs.length) return "INCOMPLETE";
   const required = docs.filter((d) => d.required !== false);
@@ -97,6 +146,7 @@ export async function GET(req: NextRequest) {
         await autoAttachApprovedDocs(session.id, reservationId).catch((e) =>
           console.warn("autoAttach", e)
         );
+        await attachProfileIdentity(session.id, reservationId);
       }
     }
 
