@@ -47,8 +47,8 @@ export function ClientContracts() {
         <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
         <p className="font-semibold text-construction-dark text-sm">No contracts yet</p>
         <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-          When your installment documents are approved and payment starts, signed agreement PDFs
-          appear here for download and verification.
+          Signed agreement PDFs appear here after your first payment is approved (or when an admin
+          generates the agreement). You can download the PDF and open the verify link anytime.
         </p>
       </div>
     );
