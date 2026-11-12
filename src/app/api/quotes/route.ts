@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { sendEmail, quoteReceivedHtml } from "@/lib/email";
+import { healSchema } from "@/lib/schema-heal";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Schema fields: name, email, phone, service, message, status, adminNote
- * Form sends projectType, location, budgetRange, timeline, description —
- * we map those into service + a structured message body.
- */
 function buildMessage(parts: {
   description: string;
   location?: string | null;
@@ -24,7 +20,7 @@ function buildMessage(parts: {
 }
 
 function mapQuote(q: any) {
-  const message = String(q.message || "");
+  const message = String(q.message || q.description || "");
   const lines = message.split("\n");
   const description = lines[0] || message;
   let location: string | null = q.location || null;
@@ -57,8 +53,40 @@ function mapQuote(q: any) {
   };
 }
 
+async function ensureQuoteColumns() {
+  const stmts = [
+    `CREATE TABLE IF NOT EXISTS "QuoteRequest" (
+      "id" TEXT PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "email" TEXT NOT NULL,
+      "phone" TEXT,
+      "service" TEXT,
+      "message" TEXT NOT NULL DEFAULT '',
+      "status" TEXT NOT NULL DEFAULT 'NEW',
+      "adminNote" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "phone" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "service" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "message" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "status" TEXT DEFAULT 'NEW'`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "adminNote" TEXT`,
+  ];
+  for (const sql of stmts) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
+    await healSchema().catch(() => null);
+    await ensureQuoteColumns();
+
     const body = await req.json();
     const {
       name,
@@ -90,31 +118,38 @@ export async function POST(req: NextRequest) {
       timeline,
     });
 
-    const quote = await prisma.quoteRequest.create({
-      data: {
-        name: String(name).trim(),
-        email: String(email).trim().toLowerCase(),
-        phone: phone ? String(phone).trim() : null,
-        service: type,
-        message,
-        status: "NEW",
-      },
-    });
+    const data = {
+      name: String(name).trim(),
+      email: String(email).trim().toLowerCase(),
+      phone: phone ? String(phone).trim() : null,
+      service: type,
+      message,
+      status: "NEW",
+    };
+
+    let quote: any;
+    try {
+      quote = await prisma.quoteRequest.create({ data });
+    } catch (e1) {
+      console.error("quote create failed, re-heal and retry", e1);
+      await ensureQuoteColumns();
+      quote = await prisma.quoteRequest.create({ data });
+    }
 
     await sendEmail({
-      to: quote.email,
+      to: data.email,
       subject: "We received your quote request — Hama Construction",
-      html: quoteReceivedHtml(quote.name),
+      html: quoteReceivedHtml(data.name),
     }).catch(() => null);
 
     const adminEmail = process.env.ADMIN_EMAIL || process.env.NOTIFY_EMAIL;
     if (adminEmail) {
       await sendEmail({
         to: adminEmail,
-        subject: `New quote: ${type} from ${quote.name}`,
-        html: `<p><strong>${quote.name}</strong> (${quote.email}) requested a quote.</p>
+        subject: `New quote: ${type} from ${data.name}`,
+        html: `<p><strong>${data.name}</strong> (${data.email}) requested a quote.</p>
 <p>Type: ${type}<br/>Location: ${location || "—"}<br/>Budget: ${budgetRange || "—"}</p>
-<p>${desc.replace(/</g, "&lt;")}</p>`,
+<p>${desc.replace(/</g, "<")}</p>`,
       }).catch(() => null);
     }
 
@@ -136,6 +171,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
   try {
+    await healSchema().catch(() => null);
+    await ensureQuoteColumns();
     const status = new URL(req.url).searchParams.get("status");
     const quotes = await prisma.quoteRequest.findMany({
       where: status && status !== "ALL" ? { status } : undefined,
@@ -155,6 +192,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
   try {
+    await ensureQuoteColumns();
     const { id, status, adminNote } = await req.json();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const updated = await prisma.quoteRequest.update({
