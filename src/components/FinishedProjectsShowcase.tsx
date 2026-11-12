@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Building2, MapPin, ArrowRight, Loader2 } from "lucide-react";
+import { LazyImage } from "@/components/LazyImage";
 
 interface FinishedProject {
   id: string;
@@ -47,8 +48,12 @@ export default function FinishedProjectsShowcase() {
         >
           <div className="h-40 bg-slate-100 relative overflow-hidden">
             {p.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={p.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <LazyImage
+                src={p.imageUrl}
+                alt={p.title}
+                wrapperClassName="absolute inset-0"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-br from-primary-600 to-construction-dark flex items-center justify-center">
                 <Building2 className="w-12 h-12 text-white/70" />
