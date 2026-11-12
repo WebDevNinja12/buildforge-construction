@@ -108,7 +108,7 @@ export default function ProjectsPage() {
 
           <div className="mt-12 text-center">
             <Link
-              href="/services"
+              href="/quote"
               className="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white font-semibold px-6 py-3 rounded-xl transition-colors"
             >
               Start your project <ArrowRight className="w-4 h-4" />
