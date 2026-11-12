@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { healSchema } from "@/lib/schema-heal";
 import { recordAdminActivity } from "@/lib/admin-activity";
+import { issueContractForUser } from "@/lib/contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,6 @@ export async function GET(
       return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
 
-    // Load each section independently so one missing column never blanks the profile
     const regDocs = await prisma.userDocument
       .findMany({ where: { userId: id }, orderBy: { createdAt: "desc" } })
       .catch(() => []);
@@ -106,7 +106,6 @@ export async function GET(
         orderBy: { createdAt: "desc" },
       });
     } catch {
-      // Missing HireRequest.total etc. — minimal select
       try {
         hires = await prisma.$queryRaw`
           SELECT id, "userId", "workerId", status, location, notes, "createdAt"
@@ -134,7 +133,6 @@ export async function GET(
     return NextResponse.json({
       user: {
         ...user,
-        // optional fields may not exist on older rows
         clientType: (user as any).clientType || "INDIVIDUAL",
         avatarUrl: (user as any).avatarUrl || null,
         signatureUrl: (user as any).signatureUrl || null,
@@ -238,7 +236,8 @@ export async function PATCH(
         data: {
           status: "APPROVED",
           approvedAt: new Date(),
-          verificationStatus: user.verificationStatus === "PENDING" ? "UNDER_REVIEW" : user.verificationStatus,
+          verificationStatus:
+            user.verificationStatus === "PENDING" ? "UNDER_REVIEW" : user.verificationStatus,
         },
       });
       await recordAdminActivity({
@@ -273,7 +272,26 @@ export async function PATCH(
       return NextResponse.json({ ok: true });
     }
 
-    // Document batch review
+    if (action === "GENERATE_AGREEMENT") {
+      const reservationId = body.reservationId ? String(body.reservationId) : null;
+      const contract = await issueContractForUser({
+        userId: id,
+        reservationId,
+        forceNew: Boolean(body.forceNew),
+      });
+      await recordAdminActivity({
+        adminId: admin.id,
+        adminEmail: admin.email,
+        adminName: admin.name,
+        action: "GENERATE_AGREEMENT",
+        entity: "Contract",
+        entityId: contract.id,
+        details: { contractNumber: contract.contractNumber, userId: id },
+        alsoNotifyEmails: [user.email],
+      }).catch(() => null);
+      return NextResponse.json({ ok: true, contract });
+    }
+
     if (action === "REVIEW_DOCS" && Array.isArray(body.reviews)) {
       for (const r of body.reviews) {
         if (!r.id || !r.status) continue;
