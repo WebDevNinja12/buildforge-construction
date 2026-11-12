@@ -11,16 +11,22 @@ function copyIfExists(src, dest) {
       ensureDir(path.dirname(dest));
       fs.copyFileSync(src, dest);
       console.log("copied", src, "->", dest);
+      return true;
     }
   } catch (e) {
     console.warn("skip", src, e.message);
   }
+  return false;
 }
 
 ensureDir("public");
 ensureDir("public/banners");
 
-copyIfExists("logo.png", "public/logo.png");
+// Company logo: prefer hamacon.png (current brand asset)
+if (!copyIfExists("hamacon.png", "public/logo.png")) {
+  copyIfExists("logo.png", "public/logo.png");
+}
+copyIfExists("hamacon.png", "public/hamacon.png");
 
 const banners = [
   ["construction (8).png", "public/banners/home.png"],
