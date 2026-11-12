@@ -66,9 +66,21 @@ export const DEFAULT_REQUIRED_DOCS: RequiredDocDef[] = [
     sortOrder: 50,
   },
   {
+    key: "nin",
+    label: "NIN",
+    instruction:
+      "11-digit National Identification Number. If you entered NIN at registration, it is applied automatically.",
+    required: true,
+    inputType: "TEXT",
+    categories: [],
+    clientTypes: ["INDIVIDUAL"],
+    sortOrder: 54,
+  },
+  {
     key: "bvn",
     label: "BVN",
-    instruction: "Enter your 11-digit Bank Verification Number.",
+    instruction:
+      "Enter your 11-digit Bank Verification Number. If provided at registration, it is applied automatically.",
     required: true,
     inputType: "TEXT",
     categories: [],

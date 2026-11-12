@@ -8,6 +8,43 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** Ensure critical defaults (e.g. NIN) appear even when DB has an older required list. */
+function mergeMissingDefaults(
+  dbDocs: Array<{
+    id: string;
+    key: string;
+    label: string;
+    instruction: string;
+    required: boolean;
+    inputType: string;
+    sortOrder: number;
+  }>,
+  category: string,
+  clientType: ClientType
+) {
+  const defaults = filterDefaults(category, clientType);
+  const have = new Set(dbDocs.map((d) => String(d.key || "").toLowerCase()));
+  const merged = [...dbDocs];
+  for (const d of defaults) {
+    const k = d.key.toLowerCase();
+    if (have.has(k)) continue;
+    if (k === "nin" || k === "bvn" || k === "valid_id") {
+      merged.push({
+        id: d.key,
+        key: d.key,
+        label: d.label,
+        instruction: d.instruction,
+        required: d.required,
+        inputType: d.inputType,
+        sortOrder: d.sortOrder,
+      });
+      have.add(k);
+    }
+  }
+  merged.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  return merged;
+}
+
 /** List required docs for category + client type (DB overrides defaults) */
 export async function GET(req: NextRequest) {
   try {
@@ -54,19 +91,20 @@ export async function GET(req: NextRequest) {
     });
 
     if (filteredDb.length) {
+      const mapped = filteredDb.map((r) => ({
+        id: r.id,
+        key: r.key,
+        label: r.label,
+        instruction: r.instruction || "",
+        required: r.required !== false,
+        inputType: r.inputType || "FILE",
+        sortOrder: r.sortOrder ?? 0,
+      }));
       return NextResponse.json({
         category,
         clientType,
         source: "database",
-        documents: filteredDb.map((r) => ({
-          id: r.id,
-          key: r.key,
-          label: r.label,
-          instruction: r.instruction || "",
-          required: r.required !== false,
-          inputType: r.inputType || "FILE",
-          sortOrder: r.sortOrder ?? 0,
-        })),
+        documents: mergeMissingDefaults(mapped, category, clientType),
       });
     }
 
