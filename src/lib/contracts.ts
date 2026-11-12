@@ -66,7 +66,7 @@ export async function buildAgreementPdf(opts: {
   draw("Service / Asset", 12, true);
   draw(opts.serviceTitle);
   draw(`Payment method: ${opts.paymentMethod}`);
-  draw(`Total price: $${Number(opts.totalAmount || 0).toFixed(2)}`);
+  draw(`Total price: NGN ${Number(opts.totalAmount || 0).toLocaleString("en-NG")}`);
   if (opts.scheduleText) {
     y -= 4;
     draw("Schedule / deadline", 12, true);
@@ -126,4 +126,135 @@ export async function buildAgreementPdf(opts: {
     token: process.env.BLOB_READ_WRITE_TOKEN || process.env.construction_READ_WRITE_TOKEN,
   });
   return blob.url;
+}
+
+/** Create (or return existing) signed agreement for a client / reservation. */
+export async function issueContractForUser(opts: {
+  userId: string;
+  reservationId?: string | null;
+  forceNew?: boolean;
+}) {
+  const user = await prisma.user.findUnique({ where: { id: opts.userId } });
+  if (!user) throw new Error("User not found");
+
+  if (opts.reservationId && !opts.forceNew) {
+    const existing = await prisma.contract
+      .findFirst({
+        where: { userId: opts.userId, reservationId: opts.reservationId },
+        orderBy: { issuedAt: "desc" },
+      })
+      .catch(() => null);
+    if (existing) return existing;
+  }
+
+  let serviceTitle = "Hama Construction service agreement";
+  let paymentMethod = "As agreed";
+  let totalAmount = 0;
+  let scheduleText = "";
+  let reservationId: string | null = opts.reservationId || null;
+
+  if (reservationId) {
+    const res = await prisma.reservation
+      .findUnique({
+        where: { id: reservationId },
+        include: { asset: true },
+      })
+      .catch(() => null);
+    if (res) {
+      serviceTitle = (res as any).asset?.title || (res as any).asset?.name || serviceTitle;
+      paymentMethod = (res as any).paymentType || paymentMethod;
+      totalAmount =
+        Number((res as any).installmentTotal) ||
+        Number((res as any).total) ||
+        Number((res as any).asset?.price) ||
+        0;
+      if ((res as any).scheduleJson) {
+        try {
+          const sch = JSON.parse((res as any).scheduleJson);
+          if (Array.isArray(sch)) {
+            scheduleText = sch
+              .slice(0, 8)
+              .map(
+                (s: any, i: number) =>
+                  `#${i + 1}: NGN ${Number(s.amount || 0).toLocaleString("en-NG")} due ${s.dueAt || s.due || ""}`
+              )
+              .join("\n");
+          }
+        } catch {
+          /* */
+        }
+      }
+    }
+  } else {
+    const latest = await prisma.reservation
+      .findFirst({
+        where: { userId: opts.userId },
+        orderBy: { createdAt: "desc" },
+        include: { asset: true },
+      })
+      .catch(() => null);
+    if (latest) {
+      reservationId = latest.id;
+      serviceTitle = (latest as any).asset?.title || (latest as any).asset?.name || serviceTitle;
+      paymentMethod = (latest as any).paymentType || paymentMethod;
+      totalAmount =
+        Number((latest as any).installmentTotal) ||
+        Number((latest as any).total) ||
+        Number((latest as any).asset?.price) ||
+        0;
+    }
+  }
+
+  const contractNumber = await nextContractNumber();
+  const verifyToken = randomVerifyToken();
+
+  let pdfUrl: string | null = null;
+  try {
+    pdfUrl = await buildAgreementPdf({
+      contractNumber,
+      verifyToken,
+      clientName: user.name || user.email,
+      clientEmail: user.email,
+      clientPhone: user.phone,
+      serviceTitle,
+      paymentMethod,
+      totalAmount,
+      scheduleText: scheduleText || undefined,
+      rulesText:
+        "First installment 40% of total; subsequent installments 20% each until paid. Surcharge on installment plans is a fee, not interest. Cancellation: 10% deduction; refund within 7 days.",
+      cancelText: "If cancelled, 10% is deducted. Refund processing period is 7 days.",
+      signatureUrl: (user as any).signatureUrl || null,
+    });
+  } catch (e) {
+    console.error("buildAgreementPdf", e);
+  }
+
+  const contract = await prisma.contract.create({
+    data: {
+      contractNumber,
+      verifyToken,
+      userId: user.id,
+      reservationId: reservationId || undefined,
+      status: "ACTIVE",
+      pdfUrl: pdfUrl || undefined,
+      clientName: user.name || user.email,
+      serviceTitle,
+      paymentMethod,
+      totalAmount,
+      issuedAt: new Date(),
+    },
+  });
+
+  await prisma.notification
+    .create({
+      data: {
+        userId: user.id,
+        title: "Agreement ready",
+        body: `Your contract ${contractNumber} is ready. Open My Contracts to download the PDF.`,
+        type: "CONTRACT",
+      },
+    })
+    .catch(() => null);
+
+  return contract;
 }
