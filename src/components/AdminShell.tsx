@@ -22,6 +22,7 @@ import {
   X,
   MoreHorizontal,
   QrCode,
+  Sparkles,
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
@@ -35,6 +36,7 @@ const PRIMARY = [
 ];
 
 const MORE = [
+  { href: "/admin/finished-projects", label: "Finished Projects", icon: Sparkles },
   { href: "/admin/reservations", label: "Reservations", icon: CalendarClock },
   { href: "/admin/installments", label: "Installment Plans", icon: Layers },
   { href: "/admin/workers", label: "Workers", icon: HardHat },
