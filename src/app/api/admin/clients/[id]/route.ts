@@ -24,24 +24,52 @@ export async function GET(
   try {
     await healSchema().catch(() => null);
 
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        role: true,
-        status: true,
-        verificationStatus: true,
-        verificationNote: true,
-        approvedAt: true,
-        verifiedAt: true,
-        createdAt: true,
-        updatedAt: true,
-        deletedAt: true,
-      },
-    });
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          role: true,
+          status: true,
+          verificationStatus: true,
+          verificationNote: true,
+          approvedAt: true,
+          verifiedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          nin: true,
+          bvn: true,
+          address: true,
+          clientType: true,
+          avatarUrl: true,
+          signatureUrl: true,
+        } as any,
+      });
+    } catch {
+      user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          role: true,
+          status: true,
+          verificationStatus: true,
+          verificationNote: true,
+          approvedAt: true,
+          verifiedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+        },
+      });
+    }
     if (!user || user.role === "ADMIN" || user.deletedAt) {
       return NextResponse.json({ error: "Client not found" }, { status: 404 });
     }
@@ -133,9 +161,11 @@ export async function GET(
     return NextResponse.json({
       user: {
         ...user,
-        clientType: (user as any).clientType || "INDIVIDUAL",
-        avatarUrl: (user as any).avatarUrl || null,
-        signatureUrl: (user as any).signatureUrl || null,
+        nin: user.nin || null,
+        bvn: user.bvn || null,
+        clientType: user.clientType || "INDIVIDUAL",
+        avatarUrl: user.avatarUrl || null,
+        signatureUrl: user.signatureUrl || null,
       },
       registrationDocuments: regDocs,
       installmentDocuments: instDocs,
