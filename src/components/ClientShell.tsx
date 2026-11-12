@@ -12,7 +12,6 @@ import {
   FileText,
   CreditCard,
   MessageSquare,
-  Sparkles,
   Menu,
   X,
   Home,
@@ -30,7 +29,6 @@ const NAV = [
   { href: "/dashboard#documents", label: "My Documents", icon: FileText },
   { href: "/dashboard#payments", label: "Payment History", icon: CreditCard },
   { href: "/quote", label: "Request Quote", icon: MessageSquare },
-  { href: "/dashboard/finished-projects", label: "Finished Projects", icon: Sparkles },
 ];
 
 const BOTTOM = [
