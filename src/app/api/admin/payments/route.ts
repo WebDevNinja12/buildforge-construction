@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { recordAdminActivity } from "@/lib/admin-activity";
 import { healSchema } from "@/lib/schema-heal";
 import { applyPaymentToReservation } from "@/lib/apply-payment";
+import { issueContractForUser } from "@/lib/contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,15 @@ async function processOne(
           },
         })
         .catch(() => null);
+
+      try {
+        await issueContractForUser({
+          userId: payment.userId,
+          reservationId: payment.reservationId || null,
+        });
+      } catch (e) {
+        console.error("auto contract issue", e);
+      }
     }
   } else {
     await prisma.payment.update({
