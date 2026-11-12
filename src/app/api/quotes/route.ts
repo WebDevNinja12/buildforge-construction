@@ -44,7 +44,7 @@ function mapQuote(q: any) {
     location,
     budgetRange,
     timeline,
-    description,
+    description: q.description || description,
     message,
     status: q.status || "NEW",
     adminNote: q.adminNote || null,
@@ -62,6 +62,11 @@ async function ensureQuoteColumns() {
       "phone" TEXT,
       "service" TEXT,
       "message" TEXT NOT NULL DEFAULT '',
+      "projectType" TEXT,
+      "description" TEXT,
+      "location" TEXT,
+      "budgetRange" TEXT,
+      "timeline" TEXT,
       "status" TEXT NOT NULL DEFAULT 'NEW',
       "adminNote" TEXT,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -70,8 +75,18 @@ async function ensureQuoteColumns() {
     `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "phone" TEXT`,
     `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "service" TEXT`,
     `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "message" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "projectType" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "description" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "location" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "budgetRange" TEXT`,
+    `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "timeline" TEXT`,
     `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "status" TEXT DEFAULT 'NEW'`,
     `ALTER TABLE "QuoteRequest" ADD COLUMN IF NOT EXISTS "adminNote" TEXT`,
+    `ALTER TABLE "QuoteRequest" ALTER COLUMN "projectType" DROP NOT NULL`,
+    `ALTER TABLE "QuoteRequest" ALTER COLUMN "projectType" SET DEFAULT 'General'`,
+    `ALTER TABLE "QuoteRequest" ALTER COLUMN "description" DROP NOT NULL`,
+    `ALTER TABLE "QuoteRequest" ALTER COLUMN "message" DROP NOT NULL`,
+    `ALTER TABLE "QuoteRequest" ALTER COLUMN "message" SET DEFAULT ''`,
   ];
   for (const sql of stmts) {
     try {
@@ -80,6 +95,10 @@ async function ensureQuoteColumns() {
       /* ignore */
     }
   }
+}
+
+function newQuoteId() {
+  return `qr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -118,38 +137,127 @@ export async function POST(req: NextRequest) {
       timeline,
     });
 
-    const data = {
-      name: String(name).trim(),
-      email: String(email).trim().toLowerCase(),
-      phone: phone ? String(phone).trim() : null,
-      service: type,
-      message,
-      status: "NEW",
-    };
+    const nameS = String(name).trim();
+    const emailS = String(email).trim().toLowerCase();
+    const phoneS = phone ? String(phone).trim() : null;
+    const locS = location ? String(location).trim() : null;
+    const budgetS = budgetRange ? String(budgetRange).trim() : null;
+    const timeS = timeline ? String(timeline).trim() : null;
 
-    let quote: any;
+    let quote: any = null;
+    let lastErr: unknown = null;
+
     try {
-      quote = await prisma.quoteRequest.create({ data });
-    } catch (e1) {
-      console.error("quote create failed, re-heal and retry", e1);
-      await ensureQuoteColumns();
-      quote = await prisma.quoteRequest.create({ data });
+      quote = await prisma.quoteRequest.create({
+        data: {
+          name: nameS,
+          email: emailS,
+          phone: phoneS,
+          service: type,
+          message,
+          projectType: type,
+          description: desc,
+          location: locS,
+          budgetRange: budgetS,
+          timeline: timeS,
+          status: "NEW",
+        } as any,
+      });
+    } catch (e) {
+      lastErr = e;
+      console.error("quote prisma create", e);
+    }
+
+    if (!quote) {
+      const id = newQuoteId();
+      try {
+        await prisma.$executeRaw`
+          INSERT INTO "QuoteRequest" (
+            "id", "name", "email", "phone", "service", "message",
+            "projectType", "description", "location", "budgetRange", "timeline",
+            "status", "createdAt", "updatedAt"
+          ) VALUES (
+            ${id}, ${nameS}, ${emailS}, ${phoneS}, ${type}, ${message},
+            ${type}, ${desc}, ${locS}, ${budgetS}, ${timeS},
+            ${"NEW"}, ${new Date()}, ${new Date()}
+          )
+        `;
+        quote = {
+          id,
+          name: nameS,
+          email: emailS,
+          phone: phoneS,
+          service: type,
+          message,
+          projectType: type,
+          description: desc,
+          status: "NEW",
+        };
+      } catch (e2) {
+        lastErr = e2;
+        console.error("quote full raw insert", e2);
+        try {
+          await prisma.$executeRaw`
+            INSERT INTO "QuoteRequest" (
+              "id", "name", "email", "phone", "projectType", "description", "status", "createdAt", "updatedAt"
+            ) VALUES (
+              ${id}, ${nameS}, ${emailS}, ${phoneS}, ${type}, ${message}, ${"NEW"}, ${new Date()}, ${new Date()}
+            )
+          `;
+          quote = {
+            id,
+            name: nameS,
+            email: emailS,
+            projectType: type,
+            description: message,
+            status: "NEW",
+          };
+        } catch (e3) {
+          lastErr = e3;
+          console.error("quote legacy raw insert", e3);
+          try {
+            await prisma.$executeRaw`
+              INSERT INTO "QuoteRequest" (
+                "id", "name", "email", "service", "message", "status", "createdAt", "updatedAt"
+              ) VALUES (
+                ${id}, ${nameS}, ${emailS}, ${type}, ${message}, ${"NEW"}, ${new Date()}, ${new Date()}
+              )
+            `;
+            quote = {
+              id,
+              name: nameS,
+              email: emailS,
+              service: type,
+              message,
+              status: "NEW",
+            };
+          } catch (e4) {
+            lastErr = e4;
+            console.error("quote minimal raw insert", e4);
+          }
+        }
+      }
+    }
+
+    if (!quote) {
+      const msg = lastErr instanceof Error ? lastErr.message : "Failed to submit quote";
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     await sendEmail({
-      to: data.email,
+      to: emailS,
       subject: "We received your quote request — Hama Construction",
-      html: quoteReceivedHtml(data.name),
+      html: quoteReceivedHtml(nameS),
     }).catch(() => null);
 
     const adminEmail = process.env.ADMIN_EMAIL || process.env.NOTIFY_EMAIL;
     if (adminEmail) {
       await sendEmail({
         to: adminEmail,
-        subject: `New quote: ${type} from ${data.name}`,
-        html: `<p><strong>${data.name}</strong> (${data.email}) requested a quote.</p>
-<p>Type: ${type}<br/>Location: ${location || "—"}<br/>Budget: ${budgetRange || "—"}</p>
-<p>${desc.replace(/</g, "<")}</p>`,
+        subject: `New quote: ${type} from ${nameS}`,
+        html: `<p><strong>${nameS}</strong> (${emailS}) requested a quote.</p>
+<p>Type: ${type}<br/>Location: ${locS || "—"}<br/>Budget: ${budgetS || "—"}</p>
+<p>${desc.replace(/</g, "&lt;")}</p>`,
       }).catch(() => null);
     }
 
