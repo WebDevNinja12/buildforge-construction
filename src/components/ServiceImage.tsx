@@ -1,6 +1,7 @@
 "use client";
 
 import { parseImages, mainImage, PLACEHOLDER_IMAGE } from "@/lib/schedule";
+import { LazyImage } from "@/components/LazyImage";
 
 export function ServiceImage({
   imagesJson,
@@ -16,8 +17,12 @@ export function ServiceImage({
   const imgs = parseImages(imagesJson);
   const src = mainImage(imgs, mainIndex) || PLACEHOLDER_IMAGE;
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt || "Service"} className={className} />
+    <LazyImage
+      src={src}
+      alt={alt || "Service"}
+      className={className}
+      wrapperClassName="w-full h-full"
+    />
   );
 }
 
@@ -33,12 +38,12 @@ export function ServiceGallery({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
       {list.map((url, i) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <LazyImage
           key={i}
           src={url}
           alt=""
-          className={`rounded-lg h-28 w-full object-cover border ${i === mainIndex ? "ring-2 ring-primary-500" : ""}`}
+          className="w-full h-28 object-cover rounded-lg"
+          wrapperClassName="rounded-lg overflow-hidden"
         />
       ))}
     </div>
