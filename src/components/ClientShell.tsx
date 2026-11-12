@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Home,
+  ScrollText,
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
@@ -28,6 +29,7 @@ const NAV = [
   { href: "/dashboard#plans", label: "Installment Plans", icon: Layers },
   { href: "/dashboard#documents", label: "My Documents", icon: FileText },
   { href: "/dashboard#payments", label: "Payment History", icon: CreditCard },
+  { href: "/dashboard#contracts", label: "My Contracts", icon: ScrollText },
   { href: "/quote", label: "Request Quote", icon: MessageSquare },
 ];
 
@@ -71,6 +73,7 @@ export function ClientShell({
       }
       if (frag === "documents" || frag === "docs") return h === "documents" || h === "docs";
       if (frag === "payments") return h === "payments" || h === "payment";
+      if (frag === "contracts") return h === "contracts" || h === "contract";
       return h === frag.toLowerCase();
     }
     if (base === "/dashboard") {
