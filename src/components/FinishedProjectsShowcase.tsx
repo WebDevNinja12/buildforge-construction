@@ -11,6 +11,7 @@ interface FinishedProject {
   location: string;
   category: string;
   completedAt: string;
+  imageUrl?: string | null;
 }
 
 export default function FinishedProjectsShowcase() {
@@ -44,17 +45,27 @@ export default function FinishedProjectsShowcase() {
           key={p.id}
           className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
         >
-          <div className="h-36 bg-gradient-to-br from-primary-600 to-construction-dark flex items-center justify-center">
-            <Building2 className="w-12 h-12 text-white/70" />
+          <div className="h-40 bg-slate-100 relative overflow-hidden">
+            {p.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={p.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-br from-primary-600 to-construction-dark flex items-center justify-center">
+                <Building2 className="w-12 h-12 text-white/70" />
+              </div>
+            )}
           </div>
           <div className="p-5">
             <div className="flex items-start justify-between gap-2">
               <h3 className="font-semibold text-construction-dark">{p.title}</h3>
-              <span className="text-xs font-medium bg-primary-100 text-primary-700 px-2 py-0.5 rounded">{p.category}</span>
+              <span className="text-xs font-medium bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
+                {p.category}
+              </span>
             </div>
             <p className="mt-2 text-sm text-construction-gray line-clamp-2">{p.description}</p>
             <p className="mt-3 text-xs text-slate-500 inline-flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5" />{p.location}
+              <MapPin className="w-3.5 h-3.5" />
+              {p.location}
             </p>
           </div>
         </div>
