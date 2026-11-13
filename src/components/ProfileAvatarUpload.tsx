@@ -8,22 +8,20 @@ const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif|bmp|heic|heif)$/i;
 function looksLikeImage(file: File): boolean {
   const t = (file.type || "").toLowerCase();
   if (t.startsWith("image/")) return true;
-  // Mobile camera / some Android pickers leave type empty or octet-stream
   if (!t || t === "application/octet-stream") {
     return IMAGE_EXT.test(file.name) || file.name === "image.jpg" || !file.name;
   }
   return false;
 }
 
-/**
- * Circular profile photo — pick from gallery or open camera.
- */
 export function ProfileAvatarUpload({
   value,
   onChange,
+  fallbackInitials,
 }: {
   value: string;
   onChange: (url: string) => void;
+  fallbackInitials?: string;
 }) {
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -42,7 +40,6 @@ export function ProfileAvatarUpload({
         throw new Error("Image must be under 8MB.");
       }
 
-      // Normalize empty type for API
       let blob: Blob = file;
       let filename = file.name || `photo-${Date.now()}.jpg`;
       let type = file.type;
@@ -82,22 +79,22 @@ export function ProfileAvatarUpload({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm font-medium text-slate-700 self-start">Profile photo</p>
-
       <div className="relative">
-        <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-primary-100 bg-slate-100 shadow-inner flex items-center justify-center">
+        <div className="w-28 h-28 rounded-full overflow-hidden bg-slate-100 border-4 border-white shadow-md ring-1 ring-slate-200/80 flex items-center justify-center">
           {value ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="Profile" className="w-full h-full object-cover" />
+          ) : fallbackInitials ? (
+            <span className="text-2xl font-bold text-slate-400 tracking-wide">{fallbackInitials}</span>
           ) : (
-            <User className="w-14 h-14 text-slate-300" />
+            <User className="w-12 h-12 text-slate-300" />
           )}
         </div>
         {value && !busy && (
           <button
             type="button"
             onClick={() => onChange("")}
-            className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full p-1.5 shadow"
+            className="absolute -top-0.5 -right-0.5 bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 rounded-full p-1.5 shadow-sm transition"
             title="Remove photo"
           >
             <X className="w-3.5 h-3.5" />
@@ -105,7 +102,7 @@ export function ProfileAvatarUpload({
         )}
         {busy && (
           <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-white animate-spin" />
+            <Loader2 className="w-7 h-7 text-white animate-spin" />
           </div>
         )}
       </div>
@@ -115,23 +112,22 @@ export function ProfileAvatarUpload({
           type="button"
           disabled={busy}
           onClick={() => galleryRef.current?.click()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold disabled:opacity-50 shadow-sm transition"
         >
-          <ImagePlus className="w-4 h-4" />
-          Choose from device
+          <ImagePlus className="w-3.5 h-3.5" />
+          Choose photo
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => cameraRef.current?.click()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 disabled:opacity-50 transition"
         >
-          <Camera className="w-4 h-4" />
-          Take photo
+          <Camera className="w-3.5 h-3.5" />
+          Camera
         </button>
       </div>
 
-      {/* Gallery / files */}
       <input
         ref={galleryRef}
         type="file"
@@ -139,7 +135,6 @@ export function ProfileAvatarUpload({
         className="hidden"
         onChange={(e) => upload(e.target.files?.[0])}
       />
-      {/* Camera (mobile) */}
       <input
         ref={cameraRef}
         type="file"
@@ -149,12 +144,12 @@ export function ProfileAvatarUpload({
         onChange={(e) => upload(e.target.files?.[0])}
       />
 
-      <p className="text-xs text-slate-500 text-center max-w-xs">
-        JPEG, PNG, WebP or GIF · max 8MB. On phones you can open the camera or pick from gallery.
+      <p className="text-[11px] text-slate-400 text-center max-w-[240px] leading-relaxed">
+        JPEG, PNG, WebP or GIF · max 8MB
       </p>
 
       {error && (
-        <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 w-full text-center">
+        <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 w-full text-center">
           {error}
         </p>
       )}
