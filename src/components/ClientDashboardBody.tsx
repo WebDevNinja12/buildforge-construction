@@ -12,6 +12,8 @@ import {
   FileText,
   Layers,
   Wrench,
+  Briefcase,
+  LayoutDashboard,
 } from "lucide-react";
 import { DashboardPlans } from "@/components/DashboardPlans";
 import { ClientOtherBookings } from "@/components/ClientOtherBookings";
@@ -20,10 +22,16 @@ import { ClientInstallmentDocUploads } from "@/components/ClientInstallmentDocUp
 import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientHistoryActions } from "@/components/HistoryActions";
-import { NotificationBell } from "@/components/NotificationBell";
 import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
 
-type Section = "overview" | "reservations" | "plans" | "documents" | "payments" | "contracts" | "deal";
+type Section =
+  | "overview"
+  | "reservations"
+  | "plans"
+  | "documents"
+  | "payments"
+  | "contracts"
+  | "deal";
 
 function sectionFromHash(): Section {
   if (typeof window === "undefined") return "overview";
@@ -57,6 +65,16 @@ type Props = {
   }>;
   notifications: Array<{ id: string; title?: string; body?: string }>;
 };
+
+const TABS: { id: Section; label: string; icon: typeof Layers }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "reservations", label: "Reservations", icon: CalendarClock },
+  { id: "plans", label: "Installments", icon: Layers },
+  { id: "documents", label: "Documents", icon: FileText },
+  { id: "payments", label: "Payments", icon: CreditCard },
+  { id: "contracts", label: "Contracts", icon: FileText },
+  { id: "deal", label: "Project deal", icon: Briefcase },
+];
 
 export function ClientDashboardBody({
   firstName,
@@ -102,76 +120,77 @@ export function ClientDashboardBody({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl bg-gradient-to-br from-construction-dark via-slate-800 to-slate-900 text-white p-5 sm:p-7 shadow-lg border border-white/5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wider text-slate-300">Client portal</p>
-            <h1 className="text-2xl sm:text-3xl font-bold mt-1">Hello, {firstName}</h1>
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-primary-900 opacity-[0.97]" />
+        <div className="relative px-5 sm:px-7 py-6 sm:py-8 text-white">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+            Client portal
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+            Hello, {firstName}
+          </h1>
+          <p className="text-sm text-slate-300 mt-2 max-w-xl leading-relaxed">
+            Manage reservations, installment plans, documents, and payments in one place.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link
+              href="/services"
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-xl bg-accent-500 hover:bg-accent-600 text-sm font-semibold text-white shadow-sm transition"
+            >
+              Browse services <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/quote"
+              className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-sm font-semibold transition"
+            >
+              Request a quote
+            </Link>
           </div>
-          <div className="shrink-0">
-            <NotificationBell light />
-          </div>
-        </div>
-        <p className="text-sm text-slate-300 mt-1 max-w-xl">
-          Overview of your account. Reservations and installment plans are in separate sections.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href="/services"
-            className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-xl bg-accent-500 hover:bg-accent-600 text-sm font-semibold text-white"
-          >
-            Browse services <ArrowRight className="w-4 h-4" />
-          </Link>
-          <Link
-            href="/quote"
-            className="inline-flex items-center min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold"
-          >
-            Request a quote
-          </Link>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["overview", "Overview"],
-            ["reservations", "Reservations"],
-            ["plans", "Installments"],
-            ["documents", "Documents"],
-            ["payments", "Payments"],
-            ["contracts", "Contracts"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => go(id)}
-            className={`min-h-[40px] px-4 rounded-full text-sm font-semibold transition-colors ${
-              section === id
-                ? "bg-construction-dark text-white"
-                : "bg-white border border-slate-200 text-slate-600 hover:border-primary-300"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {TABS.map(({ id, label, icon: Icon }) => {
+          const on = section === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => go(id)}
+              className={`shrink-0 inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-full text-xs sm:text-sm font-semibold transition-colors ${
+                on
+                  ? "bg-construction-dark text-white shadow-sm"
+                  : "bg-white border border-slate-200 text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              <Icon className={`w-3.5 h-3.5 ${on ? "text-white/90" : "text-slate-400"}`} />
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {section === "overview" && (
         <>
           <div
             className={`rounded-2xl border px-4 sm:px-5 py-4 flex gap-3 ${
-              verified ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"
+              verified
+                ? "bg-emerald-50/80 border-emerald-200"
+                : "bg-amber-50/80 border-amber-200"
             }`}
           >
-            <BadgeCheck
-              className={`w-6 h-6 shrink-0 ${verified ? "text-green-600" : "text-amber-600"}`}
-            />
+            <span
+              className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
+                verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              <BadgeCheck className="w-5 h-5" />
+            </span>
             <div className="min-w-0">
-              <p className="font-semibold text-sm sm:text-base">
-                Verification:{" "}
+              <p className="font-semibold text-sm text-construction-dark flex flex-wrap items-center gap-2">
+                Account verification
                 <span
-                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusBadgeClass(vStatus)}`}
+                  className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${statusBadgeClass(vStatus)}`}
                 >
                   {vStatus.replace(/_/g, " ")}
                 </span>
@@ -194,28 +213,28 @@ export function ClientDashboardBody({
                 value: stats.reservations,
                 icon: CalendarClock,
                 action: () => go("reservations"),
-                hint: "Open reservations",
+                hint: "Open list",
               },
               {
                 label: "Installment plans",
                 value: stats.activePlans,
                 icon: Layers,
                 action: () => go("plans"),
-                hint: "Installment schedules",
+                hint: "Schedules",
               },
               {
                 label: "Documents",
                 value: stats.documents,
                 icon: FileText,
                 action: () => go("documents"),
-                hint: "ID and installment files",
+                hint: "Files",
               },
               {
                 label: "Tool rentals",
                 value: stats.rentals,
                 icon: Building2,
                 action: () => go("reservations"),
-                hint: "Equipment hire",
+                hint: "Equipment",
               },
             ].map((c) => {
               const Icon = c.icon;
@@ -224,47 +243,61 @@ export function ClientDashboardBody({
                   key={c.label}
                   type="button"
                   onClick={c.action}
-                  className="text-left bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary-200 transition"
+                  className="text-left bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary-200 transition group"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-slate-500 font-medium">{c.label}</p>
-                    <Icon className="w-4 h-4 text-primary-600" />
+                    <span className="w-9 h-9 rounded-xl bg-primary-50 text-primary-700 inline-flex items-center justify-center group-hover:bg-primary-100 transition">
+                      <Icon className="w-4 h-4" />
+                    </span>
+                    <p className="text-[11px] text-primary-700 font-semibold opacity-0 group-hover:opacity-100 transition">
+                      {c.hint} →
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold text-construction-dark mt-1">{c.value}</p>
-                  <p className="text-[11px] text-primary-700 font-medium mt-1">{c.hint}</p>
+                  <p className="text-2xl font-bold text-construction-dark mt-3 tabular-nums">
+                    {c.value}
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">{c.label}</p>
                 </button>
               );
             })}
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-construction-dark flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-primary-600" /> Recent payments
+                <h2 className="font-bold text-construction-dark flex items-center gap-2 text-sm sm:text-base">
+                  <span className="w-8 h-8 rounded-lg bg-slate-100 text-primary-700 inline-flex items-center justify-center">
+                    <CreditCard className="w-4 h-4" />
+                  </span>
+                  Recent payments
                 </h2>
                 <button
                   type="button"
                   onClick={() => go("payments")}
-                  className="text-xs font-semibold text-primary-700"
+                  className="text-xs font-semibold text-primary-700 hover:underline"
                 >
                   View all
                 </button>
               </div>
               {payments.length === 0 ? (
-                <p className="text-sm text-slate-500 py-4">No payments yet.</p>
+                <p className="text-sm text-slate-500 py-6 text-center">No payments yet.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
-                  {payments.slice(0, 4).map((p) => (
-                    <li key={p.id} className="py-2.5 flex justify-between gap-3 text-sm">
-                      <div>
-                        <p className="font-medium">{formatCurrency(p.amount)}</p>
-                        <p className="text-xs text-slate-500">
+                  {payments.slice(0, 5).map((p) => (
+                    <li
+                      key={p.id}
+                      className="py-3 flex justify-between gap-3 text-sm first:pt-0 last:pb-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-construction-dark">
+                          {formatCurrency(p.amount)}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">
                           {p.type} · {formatDate(p.createdAt)}
                         </p>
                       </div>
                       <span
-                        className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${statusBadgeClass(
+                        className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(
                           p.status
                         )}`}
                       >
@@ -276,18 +309,27 @@ export function ClientDashboardBody({
               )}
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-              <h2 className="font-bold text-construction-dark flex items-center gap-2 mb-3">
-                <Bell className="w-4 h-4 text-primary-600" /> Notifications
-              </h2>
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-construction-dark flex items-center gap-2 text-sm sm:text-base">
+                  <span className="w-8 h-8 rounded-lg bg-slate-100 text-primary-700 inline-flex items-center justify-center">
+                    <Bell className="w-4 h-4" />
+                  </span>
+                  Notifications
+                </h2>
+              </div>
               {notifications.length === 0 ? (
-                <p className="text-sm text-slate-500 py-4">No new notifications.</p>
+                <p className="text-sm text-slate-500 py-6 text-center">No notifications yet.</p>
               ) : (
-                <ul className="space-y-2">
-                  {notifications.slice(0, 4).map((n) => (
-                    <li key={n.id} className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-                      <p className="font-medium text-construction-dark">{n.title}</p>
-                      <p className="text-slate-500 text-xs mt-0.5 line-clamp-2">{n.body}</p>
+                <ul className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                  {notifications.slice(0, 6).map((n) => (
+                    <li key={n.id} className="py-3 first:pt-0 last:pb-0">
+                      <p className="text-sm font-medium text-construction-dark">
+                        {n.title || "Update"}
+                      </p>
+                      {n.body && (
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -296,64 +338,83 @@ export function ClientDashboardBody({
           </div>
 
           <div className="grid sm:grid-cols-3 gap-3">
-            <button
-              type="button"
-              onClick={() => go("reservations")}
-              className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
-            >
-              <CalendarClock className="w-5 h-5 text-primary-600 mb-2" />
-              <p className="font-semibold text-sm text-construction-dark">Reservations</p>
-              <p className="text-xs text-slate-500 mt-1">Holds and full-payment bookings</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => go("plans")}
-              className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
-            >
-              <Layers className="w-5 h-5 text-primary-600 mb-2" />
-              <p className="font-semibold text-sm text-construction-dark">Installment plans</p>
-              <p className="text-xs text-slate-500 mt-1">Schedules, balances, next due dates</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => go("documents")}
-              className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-primary-300 shadow-sm"
-            >
-              <FileText className="w-5 h-5 text-primary-600 mb-2" />
-              <p className="font-semibold text-sm text-construction-dark">Documents</p>
-              <p className="text-xs text-slate-500 mt-1">Installment verification files</p>
-            </button>
+            {[
+              {
+                href: "/services",
+                title: "Browse services",
+                body: "Houses, land, hotels, tools & workers",
+                icon: Building2,
+              },
+              {
+                href: "/quote",
+                title: "Request a quote",
+                body: "Get a project estimate from our team",
+                icon: FileText,
+              },
+              {
+                id: "deal" as Section,
+                title: "Open a project deal",
+                body: "Submit a construction deal for review",
+                icon: Wrench,
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              const inner = (
+                <>
+                  <span className="w-10 h-10 rounded-xl bg-primary-50 text-primary-700 inline-flex items-center justify-center shrink-0">
+                    <Icon className="w-5 h-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-construction-dark">{item.title}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{item.body}</p>
+                  </div>
+                </>
+              );
+              if ("href" in item && item.href) {
+                return (
+                  <Link
+                    key={item.title}
+                    href={item.href}
+                    className="flex gap-3 bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition"
+                  >
+                    {inner}
+                  </Link>
+                );
+              }
+              return (
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={() => go(item.id!)}
+                  className="flex gap-3 text-left bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition"
+                >
+                  {inner}
+                </button>
+              );
+            })}
           </div>
         </>
       )}
 
       {section === "reservations" && (
-        <div id="reservations" className="scroll-mt-24 space-y-6">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-bold text-construction-dark">Reservations</h2>
-              <p className="text-xs text-slate-500">
-                Asset holds and full-payment bookings. Choose installment from a reservation when
-                allowed — installment schedules appear under Installments.
-              </p>
-            </div>
-            <ClientHistoryActions />
-          </div>
+        <div id="reservations" className="scroll-mt-24 space-y-4">
+          <SectionHead
+            title="My reservations"
+            subtitle="Active holds and bookings. Installment schedules are under Installments."
+          />
+          <ClientHistoryActions />
           <DashboardPlans mode="reservations" />
           <ClientOtherBookings />
         </div>
       )}
 
       {section === "plans" && (
-        <div id="plans" className="scroll-mt-24 space-y-6">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-bold text-construction-dark">Installment plans</h2>
-              <p className="text-xs text-slate-500">
-                Active installment schedules only. Balances, next due dates, and installment
-                payments live here — separate from reservation holds.
-              </p>
-            </div>
+        <div id="plans" className="scroll-mt-24 space-y-4">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <SectionHead
+              title="Installment plans"
+              subtitle="Balances, next due dates, and installment payments — separate from reservation holds."
+            />
             <ClientHistoryActions />
           </div>
           <DashboardPlans mode="installments" />
@@ -362,36 +423,38 @@ export function ClientDashboardBody({
 
       {section === "documents" && (
         <div id="documents" className="scroll-mt-24 space-y-4">
-          <div>
-            <h2 className="text-lg font-bold text-construction-dark">My documents</h2>
-            <p className="text-xs text-slate-500">
-              Upload installment documents here (required before first installment payment). Approved
-              files are reused for later plans — not duplicated per reservation.
-            </p>
-          </div>
+          <SectionHead
+            title="My documents"
+            subtitle="Upload installment documents here (required before first installment payment)."
+          />
           <ClientInstallmentDocUploads />
           <ClientDocumentsList />
         </div>
       )}
 
       {section === "payments" && (
-        <div id="payments" className="scroll-mt-24 space-y-3">
-          <h2 className="text-lg font-bold text-construction-dark">Payment history</h2>
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div id="payments" className="scroll-mt-24 space-y-4">
+          <SectionHead title="Payment history" subtitle="All reservation and installment payments." />
+          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-sm">
             {payments.length === 0 ? (
-              <p className="p-6 text-sm text-slate-500">No payments yet.</p>
+              <p className="p-8 text-sm text-slate-500 text-center">No payments yet.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {payments.map((p) => (
-                  <li key={p.id} className="px-4 py-3 flex justify-between gap-3 text-sm">
+                  <li
+                    key={p.id}
+                    className="px-4 sm:px-5 py-3.5 flex justify-between gap-3 text-sm"
+                  >
                     <div>
-                      <p className="font-medium">{formatCurrency(p.amount)}</p>
+                      <p className="font-semibold text-construction-dark">
+                        {formatCurrency(p.amount)}
+                      </p>
                       <p className="text-xs text-slate-500">
                         {p.type} · {formatDate(p.createdAt)}
                       </p>
                     </div>
                     <span
-                      className={`text-[10px] font-semibold px-2 py-1 rounded-full h-fit ${statusBadgeClass(
+                      className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(
                         p.status
                       )}`}
                     >
@@ -406,19 +469,31 @@ export function ClientDashboardBody({
       )}
 
       {section === "contracts" && (
-        <div id="contracts" className="scroll-mt-24 space-y-3">
-          <h2 className="text-lg font-bold text-construction-dark">My contracts</h2>
+        <div id="contracts" className="scroll-mt-24 space-y-4">
+          <SectionHead title="My contracts" subtitle="Issued agreements for approved services." />
           <ClientContracts />
         </div>
       )}
 
       {section === "deal" && (
-        <div id="deal" className="scroll-mt-24 space-y-3">
-          <h2 className="text-lg font-bold text-construction-dark flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-primary-600" /> Project deal
-          </h2>
+        <div id="deal" className="scroll-mt-24 space-y-4">
+          <SectionHead
+            title="Project deal"
+            subtitle="Open a construction deal for admin review. Accepted deals are followed up offline."
+          />
           <ClientProjectDeal />
         </div>
+      )}
+    </div>
+  );
+}
+
+function SectionHead({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-construction-dark tracking-tight">{title}</h2>
+      {subtitle && (
+        <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>
       )}
     </div>
   );
