@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PlanCard } from "@/components/PlanCard";
-import { Loader2, Building2 } from "lucide-react";
+import { Loader2, Building2, Trash2 } from "lucide-react";
 
 const TERMINAL = ["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"];
 
@@ -14,17 +14,28 @@ function isInstallmentPlan(p: any) {
   return m === "INSTALLMENT";
 }
 
+function isTerminal(p: any) {
+  return TERMINAL.includes(String(p?.status || "").toUpperCase());
+}
+
 export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
   const [plans, setPlans] = useState<any[]>([]);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
 
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/reservations", { credentials: "include" });
+      const [res, hideRes] = await Promise.all([
+        fetch("/api/reservations", { credentials: "include" }),
+        fetch("/api/history/clear", { credentials: "include" }),
+      ]);
       if (res.status === 401) {
         setError("Please log in again.");
         setPlans([]);
@@ -32,8 +43,12 @@ export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
       }
       const data = await res.json().catch(() => []);
       setPlans(Array.isArray(data) ? data : []);
+      if (hideRes.ok) {
+        const h = await hideRes.json().catch(() => ({}));
+        setHidden(new Set(Array.isArray(h.reservations) ? h.reservations.map(String) : []));
+      }
     } catch {
-      setError("Could not load this section. Try again.");
+      setError("Could not load this section. Pull to refresh or try again.");
       setPlans([]);
     } finally {
       setLoading(false);
@@ -43,6 +58,62 @@ export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
   useEffect(() => {
     load();
   }, []);
+
+  const byMode = useMemo(() => {
+    const base =
+      mode === "installments"
+        ? plans.filter(isInstallmentPlan)
+        : mode === "reservations"
+          ? plans.filter((p) => !isInstallmentPlan(p))
+          : plans;
+    return base.filter((p) => !hidden.has(String(p.id)));
+  }, [plans, mode, hidden]);
+
+  const visible = showAll ? byMode : byMode.filter((p) => !isTerminal(p));
+  const selectable = visible.filter(isTerminal);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (selected.size >= selectable.length) setSelected(new Set());
+    else setSelected(new Set(selectable.map((p) => String(p.id))));
+  }
+
+  async function cleanupSelected() {
+    if (!selected.size) return;
+    if (
+      !confirm(
+        `Remove ${selected.size} completed/cancelled item(s) from your history?\nActive bookings are not affected.`
+      )
+    )
+      return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/history/clear", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationIds: Array.from(selected) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Cleanup failed");
+      setMsg(data.message || "Removed from history");
+      setSelected(new Set());
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Cleanup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -63,16 +134,6 @@ export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
       </div>
     );
   }
-
-  const byMode =
-    mode === "installments"
-      ? plans.filter(isInstallmentPlan)
-      : mode === "reservations"
-        ? plans.filter((p) => !isInstallmentPlan(p))
-        : plans;
-  const visible = showAll
-    ? byMode
-    : byMode.filter((p) => !TERMINAL.includes(String(p?.status || "").toUpperCase()));
 
   if (!byMode.length) {
     return (
@@ -105,7 +166,7 @@ export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
       ? "Installment plans"
       : mode === "reservations"
         ? "Reservations"
-        : "Plans and reservations";
+        : "Plans & reservations";
   const subtitle =
     mode === "installments"
       ? "Active installment schedules, balances, and next due dates."
@@ -125,21 +186,66 @@ export function DashboardPlans({ mode = "all" }: { mode?: PlansMode }) {
         </p>
         <button
           type="button"
-          onClick={() => setShowAll((v) => !v)}
+          onClick={() => {
+            setShowAll((v) => !v);
+            setSelected(new Set());
+          }}
           className="text-xs font-semibold text-primary-700 min-h-[40px] px-2"
         >
           {showAll ? "Hide completed / cancelled" : "Show all history"}
         </button>
       </div>
+      {showAll && selectable.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 min-h-[36px]">
+            <input
+              type="checkbox"
+              checked={selected.size > 0 && selected.size === selectable.length}
+              onChange={toggleAll}
+              className="rounded border-slate-300"
+            />
+            Select all history ({selectable.length})
+          </label>
+          <button
+            type="button"
+            disabled={!selected.size || busy}
+            onClick={cleanupSelected}
+            className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Clean up selected ({selected.size})
+          </button>
+        </div>
+      )}
+      {msg && (
+        <p className="text-xs text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-2">{msg}</p>
+      )}
       {visible.length === 0 ? (
         <p className="text-sm text-slate-500 bg-white border rounded-2xl p-5">
           No active items in this section. Cleared or completed items are hidden — use “Show all history”.
         </p>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
-          {visible.map((p) => (
-            <PlanCard key={p.id} plan={p} onUpdated={load} />
-          ))}
+          {visible.map((p) => {
+            const term = isTerminal(p);
+            const id = String(p.id);
+            return (
+              <div key={id} className="relative">
+                {showAll && term && (
+                  <label className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 bg-white/95 border border-slate-200 rounded-lg px-2 py-1 shadow-sm text-[10px] font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(id)}
+                      onChange={() => toggle(id)}
+                      className="rounded border-slate-300"
+                    />
+                    Select
+                  </label>
+                )}
+                <PlanCard plan={p} onUpdated={load} />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
