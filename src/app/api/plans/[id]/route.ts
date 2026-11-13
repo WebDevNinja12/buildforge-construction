@@ -164,7 +164,7 @@ export async function POST(
         return NextResponse.json({
           ok: true,
           paymentMethod: "FULL",
-          message: "Full payment selected. Submit payment from your plan card.",
+          message: "Full payment selected (bank transfer). Submit payment from your plan card.",
           plan: updated ? shapePlan(updated) : null,
         });
       }
@@ -226,9 +226,7 @@ export async function POST(
 
       const updated = await loadPlan(id);
       const extendNote =
-        extendH > 0
-          ? ` Reservation hold extended by ${extendH} hours.`
-          : "";
+        extendH > 0 ? ` Reservation hold extended by ${extendH} hours.` : "";
       return NextResponse.json({
         ok: true,
         paymentMethod: "INSTALLMENT",
@@ -236,8 +234,8 @@ export async function POST(
         planTotal: fee.planTotal,
         feeDisclosure: fee.disclosure,
         message: priorDocsOk
-          ? `Installment selected. ${fee.disclosure} Prior documents reused.` + extendNote
-          : `Installment selected. ${fee.disclosure} Upload documents for first payment.` + extendNote,
+          ? `Installment selected (bank transfer). ${fee.disclosure} Prior documents reused.` + extendNote
+          : `Installment selected (bank transfer). ${fee.disclosure} Upload documents for first payment.` + extendNote,
         plan: updated ? shapePlan(updated) : null,
       });
     }
@@ -356,7 +354,7 @@ export async function POST(
           amount,
           currency: "NGN",
           type,
-          method: body.proofUrl ? "PROOF_UPLOAD" : autoApprove ? "AUTO" : "MANUAL",
+          method: "BANK_TRANSFER",
           status: autoApprove ? "APPROVED" : "PENDING",
           proofUrl: body.proofUrl ? String(body.proofUrl) : null,
           reservationId: id,
@@ -377,14 +375,14 @@ export async function POST(
             data: {
               userId: plan.userId,
               title: "Payment recorded",
-              body: `Your installment of ₦${amount.toLocaleString("en-NG")} was applied automatically.${bal}`,
+              body: `Your bank transfer of ₦${amount.toLocaleString("en-NG")} was applied automatically.${bal}`,
               type: "PAYMENT",
             },
           })
           .catch(() => null);
         await notifyAdmins(
           "Installment payment auto-applied",
-          `${plan.user?.email || plan.userId} paid ₦${amount.toLocaleString("en-NG")} on plan ${id}.${bal}`,
+          `${plan.user?.email || plan.userId} paid ₦${amount.toLocaleString("en-NG")} (bank transfer) on plan ${id}.${bal}`,
           "PAYMENT"
         );
         const updated = await loadPlan(id);
@@ -392,7 +390,7 @@ export async function POST(
           ok: true,
           payment,
           autoApproved: true,
-          message: `Payment of ₦${amount.toLocaleString("en-NG")} applied automatically.${bal}`,
+          message: `Bank transfer of ₦${amount.toLocaleString("en-NG")} applied automatically.${bal}`,
           plan: updated ? shapePlan(updated) : null,
           balance: result?.balance,
           fullyPaid: result?.fullyPaid,
@@ -404,14 +402,14 @@ export async function POST(
           data: {
             userId: plan.userId,
             title: "Payment submitted",
-            body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
+            body: `Bank transfer of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
             type: "PAYMENT",
           },
         })
         .catch(() => null);
       await notifyAdmins(
         "Payment awaiting approval",
-        `${plan.user?.email || plan.userId} submitted ₦${amount.toLocaleString("en-NG")}. Review in Admin → Payments.`,
+        `${plan.user?.email || plan.userId} submitted ₦${amount.toLocaleString("en-NG")} (bank transfer). Review in Admin → Payments.`,
         "PAYMENT"
       );
 
@@ -419,7 +417,7 @@ export async function POST(
         ok: true,
         payment,
         autoApproved: false,
-        message: "Payment submitted for admin approval",
+        message: "Bank transfer payment submitted for admin approval",
       });
     }
 
