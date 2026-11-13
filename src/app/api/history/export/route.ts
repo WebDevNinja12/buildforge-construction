@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { buildTextPdf, money, col } from "@/lib/pdf";
+import { buildTextPdf, money, PAYMENT_METHOD_LABEL, type PdfTable } from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -68,99 +68,111 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const lines: string[] = [];
-    lines.push("ACCOUNT STATEMENT");
-    lines.push(`Account holder : ${user.name}`);
-    lines.push(`Email          : ${user.email}`);
-    lines.push(`Phone          : ${user.phone || "—"}`);
-    lines.push(`Account status : ${user.status} / ${user.verificationStatus}`);
-    lines.push(`Member since   : ${user.createdAt.toISOString().slice(0, 10)}`);
-    lines.push("");
-
-    // Payment ledger (bank-style)
-    lines.push("PAYMENT LEDGER (chronological)");
-    lines.push(
-      col("DATE", "DESCRIPTION", "DEBIT", "CREDIT", "BALANCE")
-    );
-    lines.push("-".repeat(90));
-
     let balance = 0;
-    let totalIn = 0;
-    let totalOut = 0;
-
-    if (payments.length === 0) {
-      lines.push("(no payment transactions)");
-    } else {
-      for (const p of payments) {
-        const date = p.createdAt.toISOString().slice(0, 10);
-        const desc = `${p.type} ${p.status} ${p.method || ""}`.trim().slice(0, 36);
-        const amt = Number(p.amount) || 0;
-        // Credits = money received/approved toward account; debits = refunds out
-        let debit = "";
-        let credit = "";
-        if (p.type === "REFUND") {
-          debit = money(amt);
-          balance -= amt;
-          totalOut += amt;
-        } else {
-          // treat completed/approved as credit to "paid" balance tracking
-          credit = money(amt);
-          if (p.status === "APPROVED" || p.status === "COMPLETED" || p.status === "CONFIRMED") {
-            balance += amt;
-            totalIn += amt;
-          }
-        }
-        lines.push(col(date, desc, debit, credit, money(balance)));
+    const paymentRows = payments.map((p) => {
+      const isRefund = p.type === "REFUND";
+      const amt = Number(p.amount) || 0;
+      if (!isRefund && (p.status === "APPROVED" || p.status === "COMPLETED")) {
+        balance += amt;
+      } else if (isRefund && (p.status === "APPROVED" || p.status === "COMPLETED")) {
+        balance -= amt;
       }
-    }
+      return {
+        date: p.createdAt.toISOString().slice(0, 10),
+        narration: `${p.type || "PAYMENT"}`.slice(0, 20),
+        method: PAYMENT_METHOD_LABEL,
+        debit: isRefund ? money(amt) : "",
+        credit: !isRefund ? money(amt) : "",
+        status: String(p.status || "").slice(0, 12),
+        balance: money(balance),
+      };
+    });
 
-    lines.push("-".repeat(90));
-    lines.push(`Total credits (approved) : ${money(totalIn)}`);
-    lines.push(`Total debits (refunds)   : ${money(totalOut)}`);
-    lines.push(`Running paid balance     : ${money(balance)}`);
-    lines.push("");
+    const paymentsTable: PdfTable = {
+      title: "Payment ledger",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "narration", header: "NARRATION", width: 18 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "debit", header: "DEBIT", width: 12, align: "right" },
+        { key: "credit", header: "CREDIT", width: 12, align: "right" },
+        { key: "status", header: "STATUS", width: 12 },
+        { key: "balance", header: "BALANCE", width: 14, align: "right" },
+      ],
+      rows: paymentRows,
+    };
 
-    lines.push("RESERVATIONS");
-    lines.push("-".repeat(90));
-    if (!reservations.length) lines.push("(none)");
-    for (const r of reservations) {
-      lines.push(
-        `${r.createdAt.toISOString().slice(0, 10)}  ${r.asset?.title || "Asset"}  | ${r.status} | ${r.paymentMethod} | total ${money(r.totalAmount || r.deposit)} paid ${money(r.amountPaid)}`
-      );
-    }
-    lines.push("");
+    const reservationsTable: PdfTable = {
+      title: "Reservations",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "asset", header: "ASSET", width: 22 },
+        { key: "status", header: "STATUS", width: 14 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "total", header: "TOTAL", width: 12, align: "right" },
+        { key: "paid", header: "PAID", width: 12, align: "right" },
+      ],
+      rows: reservations.map((r) => ({
+        date: r.createdAt.toISOString().slice(0, 10),
+        asset: (r.asset?.title || "Asset").slice(0, 22),
+        status: String(r.status || "").slice(0, 14),
+        method: PAYMENT_METHOD_LABEL,
+        total: money((r as any).totalAmount || (r as any).deposit || 0),
+        paid: money((r as any).amountPaid || (r as any).installmentPaid || 0),
+      })),
+    };
 
-    lines.push("TOOL RENTALS");
-    lines.push("-".repeat(90));
-    if (!rentals.length) lines.push("(none)");
-    for (const t of rentals) {
-      lines.push(
-        `${t.createdAt.toISOString().slice(0, 10)}  ${t.tool?.name || "Tool"}  | ${t.status} | ${money(t.totalCost)}`
-      );
-    }
-    lines.push("");
+    const rentalsTable: PdfTable = {
+      title: "Tool rentals",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "tool", header: "TOOL", width: 24 },
+        { key: "status", header: "STATUS", width: 14 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "cost", header: "COST", width: 14, align: "right" },
+      ],
+      rows: rentals.map((t) => ({
+        date: t.createdAt.toISOString().slice(0, 10),
+        tool: (t.tool?.name || "Tool").slice(0, 24),
+        status: String(t.status || "").slice(0, 14),
+        method: PAYMENT_METHOD_LABEL,
+        cost: money(t.totalCost),
+      })),
+    };
 
-    lines.push("HIRE REQUESTS");
-    lines.push("-".repeat(90));
-    if (!hires.length) lines.push("(none)");
-    for (const h of hires) {
-      lines.push(
-        `${h.createdAt.toISOString().slice(0, 10)}  ${h.worker?.name || h.serviceType}  | ${h.status} | ${money(h.estimatedCost || 0)}`
-      );
-    }
-    lines.push("");
+    const hiresTable: PdfTable = {
+      title: "Hire requests",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "worker", header: "WORKER / SERVICE", width: 26 },
+        { key: "status", header: "STATUS", width: 14 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "cost", header: "EST. COST", width: 14, align: "right" },
+      ],
+      rows: hires.map((h) => ({
+        date: h.createdAt.toISOString().slice(0, 10),
+        worker: (h.worker?.name || h.serviceType || "Hire").slice(0, 26),
+        status: String(h.status || "").slice(0, 14),
+        method: PAYMENT_METHOD_LABEL,
+        cost: money(h.estimatedCost || 0),
+      })),
+    };
 
-    lines.push("PROJECT DEALS");
-    lines.push("-".repeat(90));
-    if (!projects.length) lines.push("(none)");
-    for (const p of projects) {
-      lines.push(
-        `${p.createdAt.toISOString().slice(0, 10)}  ${p.title}  | ${p.status} | budget ${money(p.budget)}`
-      );
-    }
-    lines.push("");
-    lines.push("This statement is system-generated for Hama Construction records.");
-    lines.push("Motivated by quality and trust — not a bank instrument.");
+    const projectsTable: PdfTable = {
+      title: "Project deals",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "title", header: "TITLE", width: 28 },
+        { key: "status", header: "STATUS", width: 16 },
+        { key: "budget", header: "BUDGET", width: 14, align: "right" },
+      ],
+      rows: projects.map((p) => ({
+        date: p.createdAt.toISOString().slice(0, 10),
+        title: (p.title || "").slice(0, 28),
+        status: String(p.status || "").slice(0, 16),
+        budget: money(p.budget),
+      })),
+    };
 
     const pdf = buildTextPdf({
       title: "HAMA CONSTRUCTION — ACCOUNT STATEMENT",
@@ -168,7 +180,20 @@ export async function GET(req: NextRequest) {
         session.role === "ADMIN"
           ? `Admin export for ${user.email}`
           : `Client statement · ${user.email}`,
-      lines,
+      meta: [
+        `Account holder : ${user.name}`,
+        `Email          : ${user.email}`,
+        `Phone          : ${user.phone || "—"}`,
+        `Account status : ${user.status} / ${user.verificationStatus}`,
+        `Member since   : ${user.createdAt.toISOString().slice(0, 10)}`,
+        `Payment method : ${PAYMENT_METHOD_LABEL}`,
+        `Running paid balance : ${money(balance)}`,
+      ],
+      tables: [paymentsTable, reservationsTable, rentalsTable, hiresTable, projectsTable],
+      lines: [
+        "This statement is system-generated for Hama Construction records.",
+        "Motivated by quality and trust — not a bank instrument.",
+      ],
       footer: "Hama Construction | Building innovation through quality and trust",
     });
 
