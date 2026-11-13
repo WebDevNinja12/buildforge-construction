@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
 /**
  * Client submits a payment against a reservation (or tool/hire).
  * Prefer /api/plans/[id] with action PAY_* for reservation plans.
+ * Settlement method is always bank transfer.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
         amount,
         currency: String(body.currency || "NGN"),
         type,
-        method: proofUrl ? "PROOF_UPLOAD" : "MANUAL",
+        method: "BANK_TRANSFER",
         status: "PENDING",
         proofUrl,
         reservationId,
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Payment submitted",
-          body: `Payment of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
+          body: `Bank transfer of ₦${amount.toLocaleString("en-NG")} is pending admin approval.`,
           type: "PAYMENT",
         },
       });
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { ok: true, payment, message: "Payment submitted for admin approval" },
+      { ok: true, payment, message: "Bank transfer payment submitted for admin approval" },
       { status: 201 }
     );
   } catch (e) {
