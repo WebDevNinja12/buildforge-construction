@@ -10,6 +10,7 @@ import {
   Search,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { ExpandableText } from "@/components/ExpandableText";
 
 type Quote = {
   id: string;
@@ -262,12 +263,7 @@ export default function AdminQuotesPage() {
 
                 {item.description && (
                   <div className="mt-3 rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">
-                      Description
-                    </p>
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {item.description}
-                    </p>
+                    <ExpandableText text={item.description} label="Description" limit={160} />
                   </div>
                 )}
               </div>
