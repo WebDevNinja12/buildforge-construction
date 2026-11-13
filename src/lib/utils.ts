@@ -42,25 +42,22 @@ export function formatDate(date: Date | string | null | undefined) {
 export function statusBadgeClass(status?: string | null) {
   const s = (status || "").toUpperCase();
   if (["APPROVED", "VERIFIED", "COMPLETED", "FULLY_PAID", "ACTIVE", "CONFIRMED"].includes(s)) {
-    return "bg-emerald-100 text-emerald-800";
+    return "bg-green-100 text-green-800";
   }
-  if (["PENDING", "UNDER_REVIEW", "PENDING_APPROVAL", "NEW", "CONTACTED"].includes(s)) {
-    return "bg-amber-100 text-amber-900";
-  }
-  if (["REJECTED", "CANCELLED", "EXPIRED", "SUSPENDED", "REFUNDED"].includes(s)) {
+  if (["REJECTED", "OVERDUE", "SUSPENDED", "CANCELLED", "EXPIRED", "FAILED"].includes(s)) {
     return "bg-red-100 text-red-800";
+  }
+  if (["PENDING", "UNDER_REVIEW", "PENDING_APPROVAL", "INCOMPLETE", "ACTION_NEEDED"].includes(s)) {
+    return "bg-amber-100 text-amber-900";
   }
   return "bg-slate-100 text-slate-700";
 }
 
 export const ASSET_TYPES = [
-  "HOUSE",
-  "LAND",
-  "HOTEL",
-  "BUILDING",
-  "APARTMENT",
-  "COMMERCIAL",
-  "TOOLS",
-  "WORKERS",
-  "OTHER",
-] as const;
+  { value: "HOUSE", label: "House" },
+  { value: "HOTEL", label: "Hotel" },
+  { value: "LAND", label: "Land" },
+  { value: "APARTMENT", label: "Apartment" },
+  { value: "COMMERCIAL", label: "Commercial" },
+  { value: "BUILDING", label: "Building" },
+];
