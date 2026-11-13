@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { buildTextPdf, money, PAYMENT_METHOD_LABEL, type PdfTable } from "@/lib/pdf";
+import {
+  buildReportPdf,
+  money,
+  PAYMENT_METHOD_LABEL,
+  type PdfTable,
+} from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Client or admin downloads bank-statement style account history PDF */
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
@@ -79,11 +83,11 @@ export async function GET(req: NextRequest) {
       }
       return {
         date: p.createdAt.toISOString().slice(0, 10),
-        narration: `${p.type || "PAYMENT"}`.slice(0, 20),
+        narration: String(p.type || "PAYMENT"),
         method: PAYMENT_METHOD_LABEL,
-        debit: isRefund ? money(amt) : "",
-        credit: !isRefund ? money(amt) : "",
-        status: String(p.status || "").slice(0, 12),
+        debit: isRefund ? money(amt) : "—",
+        credit: !isRefund ? money(amt) : "—",
+        status: String(p.status || ""),
         balance: money(balance),
       };
     });
@@ -91,13 +95,13 @@ export async function GET(req: NextRequest) {
     const paymentsTable: PdfTable = {
       title: "Payment ledger",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "narration", header: "NARRATION", width: 18 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "debit", header: "DEBIT", width: 12, align: "right" },
-        { key: "credit", header: "CREDIT", width: 12, align: "right" },
-        { key: "status", header: "STATUS", width: 12 },
-        { key: "balance", header: "BALANCE", width: 14, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "narration", header: "Narration", width: 2.5 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "debit", header: "Debit", width: 1.8 },
+        { key: "credit", header: "Credit", width: 1.8 },
+        { key: "status", header: "Status", width: 1.8 },
+        { key: "balance", header: "Balance", width: 2 },
       ],
       rows: paymentRows,
     };
@@ -105,17 +109,17 @@ export async function GET(req: NextRequest) {
     const reservationsTable: PdfTable = {
       title: "Reservations",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "asset", header: "ASSET", width: 22 },
-        { key: "status", header: "STATUS", width: 14 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "total", header: "TOTAL", width: 12, align: "right" },
-        { key: "paid", header: "PAID", width: 12, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "asset", header: "Asset", width: 3 },
+        { key: "status", header: "Status", width: 2 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "total", header: "Total", width: 2 },
+        { key: "paid", header: "Paid", width: 2 },
       ],
       rows: reservations.map((r) => ({
         date: r.createdAt.toISOString().slice(0, 10),
-        asset: (r.asset?.title || "Asset").slice(0, 22),
-        status: String(r.status || "").slice(0, 14),
+        asset: (r.asset?.title || "Asset").slice(0, 28),
+        status: String(r.status || ""),
         method: PAYMENT_METHOD_LABEL,
         total: money((r as any).totalAmount || (r as any).deposit || 0),
         paid: money((r as any).amountPaid || (r as any).installmentPaid || 0),
@@ -125,16 +129,16 @@ export async function GET(req: NextRequest) {
     const rentalsTable: PdfTable = {
       title: "Tool rentals",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "tool", header: "TOOL", width: 24 },
-        { key: "status", header: "STATUS", width: 14 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "cost", header: "COST", width: 14, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "tool", header: "Tool", width: 3.5 },
+        { key: "status", header: "Status", width: 2 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "cost", header: "Cost", width: 2 },
       ],
       rows: rentals.map((t) => ({
         date: t.createdAt.toISOString().slice(0, 10),
-        tool: (t.tool?.name || "Tool").slice(0, 24),
-        status: String(t.status || "").slice(0, 14),
+        tool: (t.tool?.name || "Tool").slice(0, 28),
+        status: String(t.status || ""),
         method: PAYMENT_METHOD_LABEL,
         cost: money(t.totalCost),
       })),
@@ -143,16 +147,16 @@ export async function GET(req: NextRequest) {
     const hiresTable: PdfTable = {
       title: "Hire requests",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "worker", header: "WORKER / SERVICE", width: 26 },
-        { key: "status", header: "STATUS", width: 14 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "cost", header: "EST. COST", width: 14, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "worker", header: "Worker / service", width: 3.5 },
+        { key: "status", header: "Status", width: 2 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "cost", header: "Est. cost", width: 2 },
       ],
       rows: hires.map((h) => ({
         date: h.createdAt.toISOString().slice(0, 10),
-        worker: (h.worker?.name || h.serviceType || "Hire").slice(0, 26),
-        status: String(h.status || "").slice(0, 14),
+        worker: (h.worker?.name || h.serviceType || "Hire").slice(0, 28),
+        status: String(h.status || ""),
         method: PAYMENT_METHOD_LABEL,
         cost: money(h.estimatedCost || 0),
       })),
@@ -161,39 +165,38 @@ export async function GET(req: NextRequest) {
     const projectsTable: PdfTable = {
       title: "Project deals",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "title", header: "TITLE", width: 28 },
-        { key: "status", header: "STATUS", width: 16 },
-        { key: "budget", header: "BUDGET", width: 14, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "title", header: "Title", width: 4 },
+        { key: "status", header: "Status", width: 2.5 },
+        { key: "budget", header: "Budget", width: 2 },
       ],
       rows: projects.map((p) => ({
         date: p.createdAt.toISOString().slice(0, 10),
-        title: (p.title || "").slice(0, 28),
-        status: String(p.status || "").slice(0, 16),
+        title: (p.title || "").slice(0, 36),
+        status: String(p.status || ""),
         budget: money(p.budget),
       })),
     };
 
-    const pdf = buildTextPdf({
-      title: "HAMA CONSTRUCTION — ACCOUNT STATEMENT",
-      subtitle:
-        session.role === "ADMIN"
-          ? `Admin export for ${user.email}`
-          : `Client statement · ${user.email}`,
+    const pdf = await buildReportPdf({
+      title: "Account Statement",
+      periodLabel: "Full account history",
+      preparedBy: session.role === "ADMIN" ? session.email : user.name,
+      rightHeader: "Account Statement",
       meta: [
-        `Account holder : ${user.name}`,
-        `Email          : ${user.email}`,
-        `Phone          : ${user.phone || "—"}`,
-        `Account status : ${user.status} / ${user.verificationStatus}`,
-        `Member since   : ${user.createdAt.toISOString().slice(0, 10)}`,
-        `Payment method : ${PAYMENT_METHOD_LABEL}`,
-        `Running paid balance : ${money(balance)}`,
+        `Account holder: ${user.name}`,
+        `Email: ${user.email}  ·  Phone: ${user.phone || "—"}`,
+        `Status: ${user.status} / ${user.verificationStatus}  ·  Member since: ${user.createdAt.toISOString().slice(0, 10)}`,
+        `Running paid balance: ${money(balance)}`,
       ],
-      tables: [paymentsTable, reservationsTable, rentalsTable, hiresTable, projectsTable],
-      lines: [
-        "This statement is system-generated for Hama Construction records.",
-        "Motivated by quality and trust — not a bank instrument.",
+      tables: [
+        paymentsTable,
+        reservationsTable,
+        rentalsTable,
+        hiresTable,
+        projectsTable,
       ],
+      note: "System-generated for Hama Construction records. Not a bank instrument.",
       footer: "Hama Construction | Building innovation through quality and trust",
     });
 
