@@ -13,6 +13,7 @@ import {
   Briefcase,
   MapPin,
 } from "lucide-react";
+import { ExpandableText } from "@/components/ExpandableText";
 
 export function AdminProjectDeals() {
   const [deals, setDeals] = useState<any[]>([]);
@@ -203,9 +204,9 @@ export function AdminProjectDeals() {
                 </div>
 
                 {d.description && (
-                  <p className="text-sm text-slate-700 mt-3 whitespace-pre-wrap leading-relaxed">
-                    {d.description}
-                  </p>
+                  <div className="mt-3">
+                    <ExpandableText text={d.description} limit={200} />
+                  </div>
                 )}
 
                 <div className="mt-4 bg-slate-50 border border-slate-100 rounded-xl p-4">
