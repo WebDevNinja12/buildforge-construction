@@ -6,41 +6,134 @@ function escapePdfText(s: string): string {
     .replace(/\(/g, "\\(")
     .replace(/\)/g, "\\)")
     .replace(/[^\x20-\x7E]/g, (ch) => {
-      // keep basic punctuation; strip other unicode for Type1 Helvetica
       if (ch === "\t") return " ";
       return "?";
     });
 }
 
+/** Naira display (#) as requested for the project currency */
 export function money(n: number | null | undefined): string {
   const v = Number(n) || 0;
-  return (v < 0 ? "-" : "") + "$" + Math.abs(v).toFixed(2);
+  return (v < 0 ? "-" : "") + "#" + Math.abs(v).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
+export const PAYMENT_METHOD_LABEL = "Bank Transfer";
+
+function pad(s: string, w: number, align: "left" | "right" = "left"): string {
+  const t = String(s ?? "");
+  if (t.length >= w) return t.slice(0, w);
+  const space = " ".repeat(w - t.length);
+  return align === "right" ? space + t : t + space;
+}
+
+/** Fixed-width column row (bank-statement style) */
+export function col(
+  a: string,
+  b: string,
+  c: string,
+  d: string,
+  e: string
+): string {
+  return [
+    pad(a, 12),
+    pad(b, 28),
+    pad(c, 12, "right"),
+    pad(d, 12, "right"),
+    pad(e, 14, "right"),
+  ].join(" ");
+}
+
+export type PdfTableColumn = {
+  key: string;
+  header: string;
+  width: number;
+  align?: "left" | "right";
+};
+
+export type PdfTable = {
+  title?: string;
+  columns: PdfTableColumn[];
+  rows: Record<string, string | number | null | undefined>[];
+};
+
+function renderTableLines(table: PdfTable): string[] {
+  const lines: string[] = [];
+  if (table.title) {
+    lines.push(table.title.toUpperCase());
+  }
+  const header = table.columns
+    .map((c) => pad(c.header, c.width, c.align || "left"))
+    .join(" ");
+  const rule = "-".repeat(Math.min(100, header.length));
+  lines.push(header);
+  lines.push(rule);
+  if (!table.rows.length) {
+    lines.push("(none)");
+  } else {
+    for (const row of table.rows) {
+      const cells = table.columns.map((c) => {
+        const raw = row[c.key];
+        const val =
+          raw == null || raw === ""
+            ? ""
+            : typeof raw === "number"
+              ? money(raw)
+              : String(raw);
+        return pad(val, c.width, c.align || "left");
+      });
+      lines.push(cells.join(" "));
+    }
+  }
+  lines.push(rule);
+  lines.push("");
+  return lines;
+}
+
+/** Build a multi-page statement PDF. Prefer `tables` for tabular narration. */
 export function buildTextPdf(opts: {
   title: string;
   subtitle?: string;
-  lines: string[];
+  lines?: string[];
+  tables?: PdfTable[];
   footer?: string;
+  meta?: string[];
 }): Uint8Array {
   const pageWidth = 612;
   const pageHeight = 792;
-  const marginX = 40;
-  const marginTop = 50;
+  const marginX = 36;
+  const marginTop = 48;
   const marginBottom = 40;
   const fontSize = 9;
-  const lineHeight = 12;
+  const lineHeight = 11;
   const usable = pageHeight - marginTop - marginBottom;
-  const linesPerPage = Math.max(20, Math.floor(usable / lineHeight) - 4);
+  const linesPerPage = Math.max(20, Math.floor(usable / lineHeight) - 3);
+
+  const body: string[] = [];
+  if (opts.meta?.length) {
+    for (const m of opts.meta) body.push(m);
+    body.push("");
+  }
+  if (opts.tables?.length) {
+    for (const t of opts.tables) {
+      body.push(...renderTableLines(t));
+    }
+  }
+  if (opts.lines?.length) {
+    body.push(...opts.lines);
+  }
 
   const headerLines = [
     opts.title,
     opts.subtitle || "",
     `Generated: ${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`,
-    "-".repeat(90),
+    `Payment method: ${PAYMENT_METHOD_LABEL}`,
+    "=".repeat(92),
   ].filter((x) => x !== undefined && x !== null);
 
-  const all = [...headerLines, ...opts.lines];
+  const all = [...headerLines, ...body];
   const pages: string[][] = [];
   for (let i = 0; i < all.length; i += linesPerPage) {
     pages.push(all.slice(i, i + linesPerPage));
@@ -49,19 +142,19 @@ export function buildTextPdf(opts: {
 
   const contentObjects: string[] = [];
   for (let p = 0; p < pages.length; p++) {
-    const lines = pages[p];
+    const pageLines = pages[p];
     const ops: string[] = [];
     ops.push("BT");
     ops.push(`/F1 ${fontSize} Tf`);
     let y = pageHeight - marginTop;
-    for (const line of lines) {
-      const safe = escapePdfText(line.slice(0, 110));
+    for (const line of pageLines) {
+      const safe = escapePdfText(line.slice(0, 118));
       ops.push(`1 0 0 1 ${marginX} ${y} Tm (${safe}) Tj`);
       y -= lineHeight;
     }
-    // footer
     const foot = escapePdfText(
-      (opts.footer || "Hama Construction — Building innovation through quality and trust") +
+      (opts.footer ||
+        "Hama Construction — Building innovation through quality and trust") +
         `  |  Page ${p + 1} of ${pages.length}`
     );
     ops.push(`/F1 8 Tf`);
@@ -70,24 +163,21 @@ export function buildTextPdf(opts: {
     contentObjects.push(ops.join("\n"));
   }
 
-  // Build PDF with correct byte offsets
   const chunks: { offset: number; body: string }[] = [];
   let buf = "%PDF-1.4\n";
 
-  const add = (body: string) => {
+  const add = (bodyStr: string) => {
     const offset = byteLen(buf);
-    chunks.push({ offset, body });
-    buf += body;
+    chunks.push({ offset, body: bodyStr });
+    buf += bodyStr;
   };
 
-  // obj 1 Catalog
   add("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
 
-  // obj 2 Pages — kids 3..(2+pageCount) are page objects; content starts after
   const pageCount = pages.length;
   const pageObjNums = Array.from({ length: pageCount }, (_, i) => 3 + i);
-  const contentStart = 3 + pageCount; // first content stream object number
-  const fontObj = contentStart + pageCount; // font after all content streams
+  const contentStart = 3 + pageCount;
+  const fontObj = contentStart + pageCount;
 
   const kids = pageObjNums.map((n) => `${n} 0 R`).join(" ");
   add(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>\nendobj\n`);
@@ -104,13 +194,17 @@ export function buildTextPdf(opts: {
     const contentObj = contentStart + i;
     const stream = contentObjects[i];
     const len = byteLen(stream);
-    add(`${contentObj} 0 obj\n<< /Length ${len} >>\nstream\n${stream}\nendstream\nendobj\n`);
+    add(
+      `${contentObj} 0 obj\n<< /Length ${len} >>\nstream\n${stream}\nendstream\nendobj\n`
+    );
   }
 
-  add(`${fontObj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
+  add(
+    `${fontObj} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`
+  );
 
   const xrefPos = byteLen(buf);
-  const totalObjs = fontObj; // highest object number
+  const totalObjs = fontObj;
   let xref = `xref\n0 ${totalObjs + 1}\n`;
   xref += "0000000000 65535 f \n";
   for (let i = 0; i < chunks.length; i++) {
@@ -125,14 +219,4 @@ export function buildTextPdf(opts: {
 
 function byteLen(s: string): number {
   return new TextEncoder().encode(s).length;
-}
-
-/** Bank-statement style column helper */
-export function col(date: string, desc: string, debit: string, credit: string, balance: string): string {
-  const d = (date || "").padEnd(12).slice(0, 12);
-  const de = (desc || "").padEnd(36).slice(0, 36);
-  const dr = (debit || "").padStart(12).slice(-12);
-  const cr = (credit || "").padStart(12).slice(-12);
-  const bal = (balance || "").padStart(12).slice(-12);
-  return `${d} ${de} ${dr} ${cr} ${bal}`;
 }
