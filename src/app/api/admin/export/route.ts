@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { buildTextPdf, money, col } from "@/lib/pdf";
+import { buildTextPdf, money, PAYMENT_METHOD_LABEL, type PdfTable } from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,7 +51,10 @@ export async function GET(req: NextRequest) {
     const sp = new URL(req.url).searchParams;
     const type = sp.get("type") || "overview";
     const period = parsePeriod(sp.get("period"));
-    const year = Math.min(2100, Math.max(2020, Number(sp.get("year")) || new Date().getFullYear()));
+    const year = Math.min(
+      2100,
+      Math.max(2020, Number(sp.get("year")) || new Date().getFullYear())
+    );
     const month = Number(sp.get("month")) || undefined;
     const quarter = Number(sp.get("quarter")) || undefined;
     const { start, end, label } = periodRange(period, year, month, quarter);
@@ -72,20 +75,33 @@ export async function GET(req: NextRequest) {
           _count: { select: { reservations: true, payments: true } },
         },
       });
-      const lines: string[] = [];
-      lines.push(`CLIENT REGISTER — ${label}`);
-      lines.push(col("JOINED", "NAME / EMAIL", "STATUS", "RES", "PAYS"));
-      lines.push("-" .repeat(90).replace(/ /g, ""));
-      for (const u of users) {
-        lines.push(
-          `${u.createdAt.toISOString().slice(0, 10)}  ${(u.name || "").slice(0, 20)}  ${u.email}  | ${u.status}/${u.verificationStatus} | r${u._count.reservations} p${u._count.payments} | ${u.phone || ""}`
-        );
-      }
-      if (!users.length) lines.push("(no clients in this period)");
+
+      const clientsTable: PdfTable = {
+        title: "Client register",
+        columns: [
+          { key: "joined", header: "JOINED", width: 12 },
+          { key: "name", header: "NAME", width: 18 },
+          { key: "email", header: "EMAIL", width: 28 },
+          { key: "status", header: "STATUS", width: 14 },
+          { key: "counts", header: "RES/PAY", width: 10, align: "right" },
+        ],
+        rows: users.map((u) => ({
+          joined: u.createdAt.toISOString().slice(0, 10),
+          name: (u.name || "").slice(0, 18),
+          email: (u.email || "").slice(0, 28),
+          status: `${u.status}/${u.verificationStatus}`.slice(0, 14),
+          counts: `r${u._count.reservations} p${u._count.payments}`,
+        })),
+      };
+
       const pdf = buildTextPdf({
         title: "HAMA CONSTRUCTION — CLIENT REGISTER",
         subtitle: `Period: ${label} · Exported by ${session.email}`,
-        lines,
+        meta: [
+          `Payment method: ${PAYMENT_METHOD_LABEL}`,
+          `Clients in period: ${users.length}`,
+        ],
+        tables: [clientsTable],
       });
       return new NextResponse(Buffer.from(pdf), {
         headers: {
@@ -98,7 +114,9 @@ export async function GET(req: NextRequest) {
     }
 
     const [clientCount, reservations, payments, deals] = await Promise.all([
-      prisma.user.count({ where: { role: "CLIENT", deletedAt: null, ...dateFilter } }),
+      prisma.user.count({
+        where: { role: "CLIENT", deletedAt: null, ...dateFilter },
+      }),
       prisma.reservation.findMany({
         where: { ...dateFilter },
         include: { asset: true, user: { select: { name: true, email: true } } },
@@ -124,56 +142,91 @@ export async function GET(req: NextRequest) {
         .catch(() => [] as any[]),
     ]);
 
-    const sep = "-".repeat(90);
-    const lines: string[] = [];
-    lines.push(`OVERVIEW STATEMENT — ${label}`);
-    lines.push(`Total clients (joined)  : ${clientCount}`);
-    lines.push(`Reservations listed     : ${reservations.length}`);
-    lines.push(`Payments listed         : ${payments.length}`);
-    lines.push(`Project deals listed    : ${deals.length}`);
-    lines.push("");
-    lines.push("PAYMENT LEDGER");
-    lines.push(col("DATE", "CLIENT / TYPE", "DEBIT", "CREDIT", "STATUS"));
-    lines.push(sep);
     let approvedTotal = 0;
-    for (const p of payments) {
-      const date = p.createdAt.toISOString().slice(0, 10);
-      const desc = `${(p.user?.name || "").slice(0, 14)} ${p.type}`.slice(0, 36);
-      const amt = money(p.amount);
-      if (p.type === "REFUND") {
-        lines.push(col(date, desc, amt, "", p.status));
-      } else {
-        lines.push(col(date, desc, "", amt, p.status));
-        if (p.status === "APPROVED" || p.status === "COMPLETED") approvedTotal += Number(p.amount) || 0;
+    const paymentRows = payments.map((p) => {
+      const isRefund = p.type === "REFUND";
+      const amt = Number(p.amount) || 0;
+      if (!isRefund && (p.status === "APPROVED" || p.status === "COMPLETED")) {
+        approvedTotal += amt;
       }
-    }
-    if (!payments.length) lines.push("(no payments in this period)");
-    lines.push(sep);
-    lines.push(`Approved payment volume : ${money(approvedTotal)}`);
-    lines.push("");
-    lines.push("RESERVATIONS");
-    lines.push(sep);
-    for (const r of reservations) {
-      lines.push(
-        `${r.createdAt.toISOString().slice(0, 10)}  ${r.user?.name || "?"}  | ${r.asset?.title || ""}  | ${r.status} | paid ${money((r as any).installmentPaid || 0)}`
-      );
-    }
-    if (!reservations.length) lines.push("(none)");
-    lines.push("");
-    lines.push("PROJECT DEALS");
-    lines.push(sep);
-    for (const d of deals as any[]) {
-      lines.push(
-        `${d.createdAt.toISOString().slice(0, 10)}  ${d.client?.name || ""} ${d.client?.email || ""}  | ${d.title || ""}  | ${d.status || ""} | ${money(d.budget)}`
-      );
-    }
-    if (!deals.length) lines.push("(none)");
+      return {
+        date: p.createdAt.toISOString().slice(0, 10),
+        client: (p.user?.name || p.user?.email || "").slice(0, 16),
+        type: String(p.type || "").slice(0, 12),
+        method: PAYMENT_METHOD_LABEL,
+        debit: isRefund ? money(amt) : "",
+        credit: !isRefund ? money(amt) : "",
+        status: String(p.status || "").slice(0, 12),
+      };
+    });
+
+    const paymentsTable: PdfTable = {
+      title: "Payment ledger",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "client", header: "CLIENT", width: 16 },
+        { key: "type", header: "TYPE", width: 12 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "debit", header: "DEBIT", width: 12, align: "right" },
+        { key: "credit", header: "CREDIT", width: 12, align: "right" },
+        { key: "status", header: "STATUS", width: 12 },
+      ],
+      rows: paymentRows,
+    };
+
+    const reservationsTable: PdfTable = {
+      title: "Reservations",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "client", header: "CLIENT", width: 16 },
+        { key: "asset", header: "ASSET", width: 22 },
+        { key: "status", header: "STATUS", width: 14 },
+        { key: "method", header: "METHOD", width: 14 },
+        { key: "paid", header: "PAID", width: 12, align: "right" },
+      ],
+      rows: reservations.map((r) => ({
+        date: r.createdAt.toISOString().slice(0, 10),
+        client: (r.user?.name || "").slice(0, 16),
+        asset: (r.asset?.title || "").slice(0, 22),
+        status: String(r.status || "").slice(0, 14),
+        method: PAYMENT_METHOD_LABEL,
+        paid: money((r as any).installmentPaid || (r as any).amountPaid || 0),
+      })),
+    };
+
+    const dealsTable: PdfTable = {
+      title: "Project deals",
+      columns: [
+        { key: "date", header: "DATE", width: 11 },
+        { key: "client", header: "CLIENT", width: 18 },
+        { key: "title", header: "TITLE", width: 24 },
+        { key: "status", header: "STATUS", width: 14 },
+        { key: "budget", header: "BUDGET", width: 14, align: "right" },
+      ],
+      rows: (deals as any[]).map((d) => ({
+        date: d.createdAt.toISOString().slice(0, 10),
+        client: (d.client?.name || d.client?.email || "").slice(0, 18),
+        title: (d.title || "").slice(0, 24),
+        status: String(d.status || "").slice(0, 14),
+        budget: money(d.budget),
+      })),
+    };
 
     const pdf = buildTextPdf({
       title: "HAMA CONSTRUCTION — ADMIN OVERVIEW STATEMENT",
       subtitle: `Period: ${label} · Exported by ${session.email}`,
-      lines,
+      meta: [
+        `Payment method: ${PAYMENT_METHOD_LABEL}`,
+        `Clients joined: ${clientCount}`,
+        `Reservations listed: ${reservations.length}`,
+        `Payments listed: ${payments.length}`,
+        `Project deals listed: ${deals.length}`,
+        `Approved payment volume: ${money(approvedTotal)}`,
+      ],
+      tables: [paymentsTable, reservationsTable, dealsTable],
+      footer: "Hama Construction | Building innovation through quality and trust",
     });
+
     return new NextResponse(Buffer.from(pdf), {
       headers: {
         "Content-Type": "application/pdf",
