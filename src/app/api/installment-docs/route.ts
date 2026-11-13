@@ -10,7 +10,6 @@ function isNotExpired(expiresAt: Date | null | undefined) {
   return new Date(expiresAt).getTime() > Date.now();
 }
 
-/** Latest approved doc of this type for the user (any prior plan) */
 async function findReusableApproved(userId: string, type: string) {
   const rows = await prisma.installmentDocument.findMany({
     where: { userId, type, status: "APPROVED" },
@@ -69,7 +68,6 @@ async function autoAttachApprovedDocs(userId: string, reservationId: string) {
   return created;
 }
 
-/** Apply NIN/BVN from registration profile so clients do not re-enter them. */
 async function attachProfileIdentity(userId: string, reservationId: string) {
   try {
     const user = await prisma.user.findUnique({
@@ -161,15 +159,76 @@ export async function GET(req: NextRequest) {
 
     const docs = await prisma.installmentDocument.findMany({
       where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            status: true,
+            verificationStatus: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
-      take: 200,
+      take: session.role === "ADMIN" ? 500 : 200,
     });
 
-    const byType = new Map<string, (typeof docs)[0]>();
-    for (const d of docs) {
-      if (!byType.has(d.type)) byType.set(d.type, d);
+    let regDocs: any[] = [];
+    if (session.role === "ADMIN" && !reservationId) {
+      try {
+        regDocs = await prisma.userDocument.findMany({
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                status: true,
+                verificationStatus: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 300,
+        });
+      } catch (e) {
+        console.warn("userDocument list", e);
+      }
     }
-    const unique = Array.from(byType.values());
+
+    // Deduplicate by userId+type (never collapse across clients)
+    const byKey = new Map<string, (typeof docs)[0]>();
+    for (const d of docs) {
+      const k = `${d.userId}::${d.type}`;
+      if (!byKey.has(k)) byKey.set(k, d);
+    }
+    let unique: any[] = Array.from(byKey.values());
+
+    if (regDocs.length) {
+      const seen = new Set(unique.map((d) => `${d.userId}::${d.type}`));
+      for (const r of regDocs) {
+        const k = `${r.userId}::${r.type}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        unique.push({
+          ...r,
+          label: r.label || r.type,
+          reservationId: null,
+          source: "REGISTRATION",
+        });
+      }
+    }
+
+    if (reservationId && session.role !== "ADMIN") {
+      const byType = new Map<string, (typeof unique)[0]>();
+      for (const d of unique) {
+        if (!byType.has(d.type)) byType.set(d.type, d);
+      }
+      unique = Array.from(byType.values());
+    }
 
     const overall = reservationId ? computeOverall(unique) : "INCOMPLETE";
 
@@ -187,8 +246,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       documents: unique.map((d) => ({
         ...d,
+        source: d.source || "INSTALLMENT",
         reused: Boolean(d.previousFileUrl && d.status === "APPROVED"),
         canUpdate: true,
+        user: d.user || null,
       })),
       overall,
       message:
