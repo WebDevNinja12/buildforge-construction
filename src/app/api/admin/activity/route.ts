@@ -92,8 +92,24 @@ export async function DELETE(req: NextRequest) {
   const all = searchParams.get("all") === "1";
   const before = searchParams.get("before");
   const id = searchParams.get("id");
+  let bodyIds: string[] = [];
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (Array.isArray(body?.ids)) {
+      bodyIds = body.ids.map((x: unknown) => String(x).trim()).filter(Boolean).slice(0, 200);
+    }
+  } catch {
+    bodyIds = [];
+  }
 
   try {
+    if (bodyIds.length) {
+      const result = await prisma.adminActivityLog.deleteMany({
+        where: { id: { in: bodyIds } },
+      });
+      return NextResponse.json({ ok: true, deleted: result.count });
+    }
+
     if (id) {
       await prisma.adminActivityLog.delete({ where: { id } }).catch(() => null);
       return NextResponse.json({ ok: true, deleted: 1 });
@@ -136,7 +152,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Specify all=1, before=YYYY-MM-DD, or id=..." },
+      { error: "Specify ids, all=1, before=ISO date, or id=..." },
       { status: 400 }
     );
   } catch (e) {
