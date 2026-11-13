@@ -22,6 +22,7 @@ import { ClientInstallmentDocUploads } from "@/components/ClientInstallmentDocUp
 import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientHistoryActions } from "@/components/HistoryActions";
+import { NotificationBell } from "@/components/NotificationBell";
 import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
 
 type Section =
@@ -86,6 +87,23 @@ export function ClientDashboardBody({
   notifications,
 }: Props) {
   const [section, setSection] = useState<Section>("overview");
+  const [paySelected, setPaySelected] = useState<Set<string>>(new Set());
+  const [hiddenPays, setHiddenPays] = useState<Set<string>>(new Set());
+  const [payBusy, setPayBusy] = useState(false);
+  const [payMsg, setPayMsg] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/history/clear", { credentials: "include" });
+        if (!res.ok) return;
+        const d = await res.json();
+        setHiddenPays(new Set(Array.isArray(d.payments) ? d.payments.map(String) : []));
+      } catch {
+        /* */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const sync = () => setSection(sectionFromHash());
@@ -126,9 +144,14 @@ export function ClientDashboardBody({
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
             Client portal
           </p>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
-            Hello, {firstName}
-          </h1>
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+              Hello, {firstName}
+            </h1>
+            <div className="shrink-0 pt-1">
+              <NotificationBell light />
+            </div>
+          </div>
           <p className="text-sm text-slate-300 mt-2 max-w-xl leading-relaxed">
             Manage reservations, installment plans, documents, and payments in one place.
           </p>
@@ -253,9 +276,7 @@ export function ClientDashboardBody({
                       {c.hint} →
                     </p>
                   </div>
-                  <p className="text-2xl font-bold text-construction-dark mt-3 tabular-nums">
-                    {c.value}
-                  </p>
+                  <p className="text-2xl font-bold text-construction-dark mt-3 tabular-nums">{c.value}</p>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">{c.label}</p>
                 </button>
               );
@@ -279,32 +300,30 @@ export function ClientDashboardBody({
                   View all
                 </button>
               </div>
-              {payments.length === 0 ? (
+              {payments.filter((p) => !hiddenPays.has(String(p.id))).length === 0 ? (
                 <p className="text-sm text-slate-500 py-6 text-center">No payments yet.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
-                  {payments.slice(0, 5).map((p) => (
-                    <li
-                      key={p.id}
-                      className="py-3 flex justify-between gap-3 text-sm first:pt-0 last:pb-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-semibold text-construction-dark">
-                          {formatCurrency(p.amount)}
-                        </p>
-                        <p className="text-xs text-slate-500 truncate">
-                          {p.type} · {formatDate(p.createdAt)}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(
-                          p.status
-                        )}`}
-                      >
-                        {p.status}
-                      </span>
-                    </li>
-                  ))}
+                  {payments
+                    .filter((p) => !hiddenPays.has(String(p.id)))
+                    .slice(0, 5)
+                    .map((p) => (
+                      <li key={p.id} className="py-3 flex justify-between gap-3 text-sm first:pt-0 last:pb-0">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-construction-dark">{formatCurrency(p.amount)}</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {p.type} · {formatDate(p.createdAt)}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(
+                            p.status
+                          )}`}
+                        >
+                          {p.status}
+                        </span>
+                      </li>
+                    ))}
                 </ul>
               )}
             </div>
@@ -324,12 +343,8 @@ export function ClientDashboardBody({
                 <ul className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
                   {notifications.slice(0, 6).map((n) => (
                     <li key={n.id} className="py-3 first:pt-0 last:pb-0">
-                      <p className="text-sm font-medium text-construction-dark">
-                        {n.title || "Update"}
-                      </p>
-                      {n.body && (
-                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>
-                      )}
+                      <p className="text-sm font-medium text-construction-dark">{n.title || "Update"}</p>
+                      {n.body && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>}
                     </li>
                   ))}
                 </ul>
@@ -435,36 +450,105 @@ export function ClientDashboardBody({
       {section === "payments" && (
         <div id="payments" className="scroll-mt-24 space-y-4">
           <SectionHead title="Payment history" subtitle="All reservation and installment payments." />
-          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-sm">
-            {payments.length === 0 ? (
-              <p className="p-8 text-sm text-slate-500 text-center">No payments yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {payments.map((p) => (
-                  <li
-                    key={p.id}
-                    className="px-4 sm:px-5 py-3.5 flex justify-between gap-3 text-sm"
-                  >
-                    <div>
-                      <p className="font-semibold text-construction-dark">
-                        {formatCurrency(p.amount)}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {p.type} · {formatDate(p.createdAt)}
-                      </p>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(
-                        p.status
-                      )}`}
+          {(() => {
+            const list = payments.filter((p) => !hiddenPays.has(String(p.id)));
+            const allIds = list.map((p) => String(p.id));
+            return (
+              <>
+                {list.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                    <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 min-h-[36px]">
+                      <input
+                        type="checkbox"
+                        checked={paySelected.size > 0 && paySelected.size === list.length}
+                        onChange={() => {
+                          if (paySelected.size === list.length) setPaySelected(new Set());
+                          else setPaySelected(new Set(allIds));
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                      Select all ({list.length})
+                    </label>
+                    <button
+                      type="button"
+                      disabled={!paySelected.size || payBusy}
+                      onClick={async () => {
+                        if (!confirm(`Remove ${paySelected.size} payment(s) from your history view?`)) return;
+                        setPayBusy(true);
+                        setPayMsg("");
+                        try {
+                          const res = await fetch("/api/history/clear", {
+                            method: "POST",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ paymentIds: Array.from(paySelected) }),
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) throw new Error(data.error || "Failed");
+                          setHiddenPays((h) => new Set([...h, ...paySelected]));
+                          setPaySelected(new Set());
+                          setPayMsg(data.message || "Cleaned up");
+                        } catch (e) {
+                          setPayMsg(e instanceof Error ? e.message : "Failed");
+                        } finally {
+                          setPayBusy(false);
+                        }
+                      }}
+                      className="min-h-[36px] px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50"
                     >
-                      {p.status}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                      {payBusy ? "Working…" : `Clean up selected (${paySelected.size})`}
+                    </button>
+                    {payMsg && <p className="text-xs text-slate-500 w-full">{payMsg}</p>}
+                  </div>
+                )}
+                <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-sm">
+                  {list.length === 0 ? (
+                    <p className="p-8 text-sm text-slate-500 text-center">No payments yet.</p>
+                  ) : (
+                    <ul className="divide-y divide-slate-100">
+                      {list.map((p) => {
+                        const id = String(p.id);
+                        return (
+                          <li key={id} className="px-4 sm:px-5 py-3.5 flex justify-between gap-3 text-sm items-start">
+                            <label className="flex gap-3 min-w-0 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={paySelected.has(id)}
+                                onChange={() => {
+                                  setPaySelected((prev) => {
+                                    const n = new Set(prev);
+                                    if (n.has(id)) n.delete(id);
+                                    else n.add(id);
+                                    return n;
+                                  });
+                                }}
+                                className="mt-1 rounded border-slate-300"
+                              />
+                              <span>
+                                <span className="font-semibold text-construction-dark block">
+                                  {formatCurrency(p.amount)}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {p.type} · {formatDate(p.createdAt)}
+                                </span>
+                              </span>
+                            </label>
+                            <span
+                              className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(
+                                p.status
+                              )}`}
+                            >
+                              {p.status}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
