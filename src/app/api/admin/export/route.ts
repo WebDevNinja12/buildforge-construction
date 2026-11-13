@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
       const lines: string[] = [];
       lines.push(`CLIENT REGISTER — ${label}`);
       lines.push(col("JOINED", "NAME / EMAIL", "STATUS", "RES", "PAYS"));
-      lines.push("-" .repeat(90));
+      lines.push("-" .repeat(90).replace(/ /g, ""));
       for (const u of users) {
         lines.push(
           `${u.createdAt.toISOString().slice(0, 10)}  ${(u.name || "").slice(0, 20)}  ${u.email}  | ${u.status}/${u.verificationStatus} | r${u._count.reservations} p${u._count.payments} | ${u.phone || ""}`
@@ -124,6 +124,7 @@ export async function GET(req: NextRequest) {
         .catch(() => [] as any[]),
     ]);
 
+    const sep = "-".repeat(90);
     const lines: string[] = [];
     lines.push(`OVERVIEW STATEMENT — ${label}`);
     lines.push(`Total clients (joined)  : ${clientCount}`);
@@ -133,7 +134,7 @@ export async function GET(req: NextRequest) {
     lines.push("");
     lines.push("PAYMENT LEDGER");
     lines.push(col("DATE", "CLIENT / TYPE", "DEBIT", "CREDIT", "STATUS"));
-    lines.push("-" .repeat(90));
+    lines.push(sep);
     let approvedTotal = 0;
     for (const p of payments) {
       const date = p.createdAt.toISOString().slice(0, 10);
@@ -147,11 +148,11 @@ export async function GET(req: NextRequest) {
       }
     }
     if (!payments.length) lines.push("(no payments in this period)");
-    lines.push("-" .repeat(90));
+    lines.push(sep);
     lines.push(`Approved payment volume : ${money(approvedTotal)}`);
     lines.push("");
     lines.push("RESERVATIONS");
-    lines.push("-" .repeat(90));
+    lines.push(sep);
     for (const r of reservations) {
       lines.push(
         `${r.createdAt.toISOString().slice(0, 10)}  ${r.user?.name || "?"}  | ${r.asset?.title || ""}  | ${r.status} | paid ${money((r as any).installmentPaid || 0)}`
@@ -160,7 +161,7 @@ export async function GET(req: NextRequest) {
     if (!reservations.length) lines.push("(none)");
     lines.push("");
     lines.push("PROJECT DEALS");
-    lines.push("-" .repeat(90));
+    lines.push(sep);
     for (const d of deals as any[]) {
       lines.push(
         `${d.createdAt.toISOString().slice(0, 10)}  ${d.client?.name || ""} ${d.client?.email || ""}  | ${d.title || ""}  | ${d.status || ""} | ${money(d.budget)}`
