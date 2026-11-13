@@ -23,7 +23,12 @@ import { ClientContracts } from "@/components/ClientContracts";
 import { ClientProjectDeal } from "@/components/ClientProjectDeal";
 import { ClientHistoryActions } from "@/components/HistoryActions";
 import { NotificationBell } from "@/components/NotificationBell";
-import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
+import {
+  formatCurrency,
+  formatDate,
+  statusBadgeClass,
+  PAYMENT_METHOD_LABEL,
+} from "@/lib/utils";
 
 type Section =
   | "overview"
@@ -127,9 +132,8 @@ export function ClientDashboardBody({
                 : s === "contracts"
                   ? "#contracts"
                   : "#deal";
-    if (hash) {
-      window.location.hash = hash;
-    } else {
+    if (hash) window.location.hash = hash;
+    else {
       history.replaceState(null, "", window.location.pathname);
       setSection("overview");
     }
@@ -141,19 +145,15 @@ export function ClientDashboardBody({
       <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-primary-900 opacity-[0.97]" />
         <div className="relative px-5 sm:px-7 py-6 sm:py-8 text-white">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
-            Client portal
-          </p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">Client portal</p>
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
-              Hello, {firstName}
-            </h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">Hello, {firstName}</h1>
             <div className="shrink-0 pt-1">
               <NotificationBell light />
             </div>
           </div>
           <p className="text-sm text-slate-300 mt-2 max-w-xl leading-relaxed">
-            Manage reservations, installment plans, documents, and payments in one place.
+            Manage reservations, installment plans, documents, and payments in one place. Settlement is {PAYMENT_METHOD_LABEL}.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link
@@ -197,9 +197,7 @@ export function ClientDashboardBody({
         <>
           <div
             className={`rounded-2xl border px-4 sm:px-5 py-4 flex gap-3 ${
-              verified
-                ? "bg-emerald-50/80 border-emerald-200"
-                : "bg-amber-50/80 border-amber-200"
+              verified ? "bg-emerald-50/80 border-emerald-200" : "bg-amber-50/80 border-amber-200"
             }`}
           >
             <span
@@ -212,9 +210,7 @@ export function ClientDashboardBody({
             <div className="min-w-0">
               <p className="font-semibold text-sm text-construction-dark flex flex-wrap items-center gap-2">
                 Account verification
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${statusBadgeClass(vStatus)}`}
-                >
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${statusBadgeClass(vStatus)}`}>
                   {vStatus.replace(/_/g, " ")}
                 </span>
               </p>
@@ -223,42 +219,16 @@ export function ClientDashboardBody({
                   ? "Your account is fully verified."
                   : "Under review — you can still reserve while we check your details."}
               </p>
-              {verificationNote ? (
-                <p className="text-xs text-slate-500 mt-1">{verificationNote}</p>
-              ) : null}
+              {verificationNote ? <p className="text-xs text-slate-500 mt-1">{verificationNote}</p> : null}
             </div>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {[
-              {
-                label: "Active reservations",
-                value: stats.reservations,
-                icon: CalendarClock,
-                action: () => go("reservations"),
-                hint: "Open list",
-              },
-              {
-                label: "Installment plans",
-                value: stats.activePlans,
-                icon: Layers,
-                action: () => go("plans"),
-                hint: "Schedules",
-              },
-              {
-                label: "Documents",
-                value: stats.documents,
-                icon: FileText,
-                action: () => go("documents"),
-                hint: "Files",
-              },
-              {
-                label: "Tool rentals",
-                value: stats.rentals,
-                icon: Building2,
-                action: () => go("reservations"),
-                hint: "Equipment",
-              },
+              { label: "Active reservations", value: stats.reservations, icon: CalendarClock, action: () => go("reservations"), hint: "Open list" },
+              { label: "Installment plans", value: stats.activePlans, icon: Layers, action: () => go("plans"), hint: "Schedules" },
+              { label: "Documents", value: stats.documents, icon: FileText, action: () => go("documents"), hint: "Files" },
+              { label: "Tool rentals", value: stats.rentals, icon: Building2, action: () => go("reservations"), hint: "Equipment" },
             ].map((c) => {
               const Icon = c.icon;
               return (
@@ -272,9 +242,7 @@ export function ClientDashboardBody({
                     <span className="w-9 h-9 rounded-xl bg-primary-50 text-primary-700 inline-flex items-center justify-center group-hover:bg-primary-100 transition">
                       <Icon className="w-4 h-4" />
                     </span>
-                    <p className="text-[11px] text-primary-700 font-semibold opacity-0 group-hover:opacity-100 transition">
-                      {c.hint} →
-                    </p>
+                    <p className="text-[11px] text-primary-700 font-semibold opacity-0 group-hover:opacity-100 transition">{c.hint} →</p>
                   </div>
                   <p className="text-2xl font-bold text-construction-dark mt-3 tabular-nums">{c.value}</p>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">{c.label}</p>
@@ -292,11 +260,7 @@ export function ClientDashboardBody({
                   </span>
                   Recent payments
                 </h2>
-                <button
-                  type="button"
-                  onClick={() => go("payments")}
-                  className="text-xs font-semibold text-primary-700 hover:underline"
-                >
+                <button type="button" onClick={() => go("payments")} className="text-xs font-semibold text-primary-700 hover:underline">
                   View all
                 </button>
               </div>
@@ -312,14 +276,10 @@ export function ClientDashboardBody({
                         <div className="min-w-0">
                           <p className="font-semibold text-construction-dark">{formatCurrency(p.amount)}</p>
                           <p className="text-xs text-slate-500 truncate">
-                            {p.type} · {formatDate(p.createdAt)}
+                            {p.type} · {PAYMENT_METHOD_LABEL} · {formatDate(p.createdAt)}
                           </p>
                         </div>
-                        <span
-                          className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(
-                            p.status
-                          )}`}
-                        >
+                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(p.status)}`}>
                           {p.status}
                         </span>
                       </li>
@@ -354,24 +314,9 @@ export function ClientDashboardBody({
 
           <div className="grid sm:grid-cols-3 gap-3">
             {[
-              {
-                href: "/services",
-                title: "Browse services",
-                body: "Houses, land, hotels, tools & workers",
-                icon: Building2,
-              },
-              {
-                href: "/quote",
-                title: "Request a quote",
-                body: "Get a project estimate from our team",
-                icon: FileText,
-              },
-              {
-                id: "deal" as Section,
-                title: "Open a project deal",
-                body: "Submit a construction deal for review",
-                icon: Wrench,
-              },
+              { href: "/services", title: "Browse services", body: "Houses, land, hotels, tools & workers", icon: Building2 },
+              { href: "/quote", title: "Request a quote", body: "Get a project estimate from our team", icon: FileText },
+              { id: "deal" as Section, title: "Open a project deal", body: "Submit a construction deal for review", icon: Wrench },
             ].map((item) => {
               const Icon = item.icon;
               const inner = (
@@ -387,22 +332,13 @@ export function ClientDashboardBody({
               );
               if ("href" in item && item.href) {
                 return (
-                  <Link
-                    key={item.title}
-                    href={item.href}
-                    className="flex gap-3 bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition"
-                  >
+                  <Link key={item.title} href={item.href} className="flex gap-3 bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition">
                     {inner}
                   </Link>
                 );
               }
               return (
-                <button
-                  key={item.title}
-                  type="button"
-                  onClick={() => go(item.id!)}
-                  className="flex gap-3 text-left bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition"
-                >
+                <button key={item.title} type="button" onClick={() => go(item.id!)} className="flex gap-3 text-left bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm hover:border-primary-200 hover:shadow-md transition">
                   {inner}
                 </button>
               );
@@ -413,10 +349,7 @@ export function ClientDashboardBody({
 
       {section === "reservations" && (
         <div id="reservations" className="scroll-mt-24 space-y-4">
-          <SectionHead
-            title="My reservations"
-            subtitle="Active holds and bookings. Installment schedules are under Installments."
-          />
+          <SectionHead title="My reservations" subtitle="Active holds and bookings. Installment schedules are under Installments." />
           <ClientHistoryActions />
           <DashboardPlans mode="reservations" />
           <ClientOtherBookings />
@@ -426,10 +359,7 @@ export function ClientDashboardBody({
       {section === "plans" && (
         <div id="plans" className="scroll-mt-24 space-y-4">
           <div className="flex items-start justify-between gap-2 flex-wrap">
-            <SectionHead
-              title="Installment plans"
-              subtitle="Balances, next due dates, and installment payments — separate from reservation holds."
-            />
+            <SectionHead title="Installment plans" subtitle="Balances, next due dates, and installment payments — separate from reservation holds." />
             <ClientHistoryActions />
           </div>
           <DashboardPlans mode="installments" />
@@ -438,10 +368,7 @@ export function ClientDashboardBody({
 
       {section === "documents" && (
         <div id="documents" className="scroll-mt-24 space-y-4">
-          <SectionHead
-            title="My documents"
-            subtitle="Upload installment documents here (required before first installment payment)."
-          />
+          <SectionHead title="My documents" subtitle="Upload installment documents here (required before first installment payment)." />
           <ClientInstallmentDocUploads />
           <ClientDocumentsList />
         </div>
@@ -449,7 +376,10 @@ export function ClientDashboardBody({
 
       {section === "payments" && (
         <div id="payments" className="scroll-mt-24 space-y-4">
-          <SectionHead title="Payment history" subtitle="All reservation and installment payments." />
+          <SectionHead
+            title="Payment history"
+            subtitle={`All reservation and installment payments. Settlement method: ${PAYMENT_METHOD_LABEL}.`}
+          />
           {(() => {
             const list = payments.filter((p) => !hiddenPays.has(String(p.id)));
             const allIds = list.map((p) => String(p.id));
@@ -525,19 +455,13 @@ export function ClientDashboardBody({
                                 className="mt-1 rounded border-slate-300"
                               />
                               <span>
-                                <span className="font-semibold text-construction-dark block">
-                                  {formatCurrency(p.amount)}
-                                </span>
+                                <span className="font-semibold text-construction-dark block">{formatCurrency(p.amount)}</span>
                                 <span className="text-xs text-slate-500">
-                                  {p.type} · {formatDate(p.createdAt)}
+                                  {p.type} · {PAYMENT_METHOD_LABEL} · {formatDate(p.createdAt)}
                                 </span>
                               </span>
                             </label>
-                            <span
-                              className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(
-                                p.status
-                              )}`}
-                            >
+                            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(p.status)}`}>
                               {p.status}
                             </span>
                           </li>
@@ -561,10 +485,7 @@ export function ClientDashboardBody({
 
       {section === "deal" && (
         <div id="deal" className="scroll-mt-24 space-y-4">
-          <SectionHead
-            title="Project deal"
-            subtitle="Open a construction deal for admin review. Accepted deals are followed up offline."
-          />
+          <SectionHead title="Project deal" subtitle="Open a construction deal for admin review. Accepted deals are followed up offline." />
           <ClientProjectDeal />
         </div>
       )}
@@ -576,9 +497,7 @@ function SectionHead({ title, subtitle }: { title: string; subtitle?: string }) 
   return (
     <div>
       <h2 className="text-lg font-bold text-construction-dark tracking-tight">{title}</h2>
-      {subtitle && (
-        <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>
-      )}
+      {subtitle && <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
     </div>
   );
 }
