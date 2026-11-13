@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, PAYMENT_METHOD_LABEL } from "@/lib/utils";
 import { Countdown } from "@/components/Countdown";
 import { ServiceImage } from "@/components/ServiceImage";
 import { FileText, Loader2, Lock, CheckCircle2 } from "lucide-react";
@@ -20,6 +20,9 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [frequency, setFrequency] = useState("MONTHLY");
+  const [stayNights, setStayNights] = useState(1);
+  const [stayIn, setStayIn] = useState("");
+  const [stayOut, setStayOut] = useState("");
   const [docsOverall, setDocsOverall] = useState<string>(
     String(initial?.docsStatus || "INCOMPLETE").toUpperCase()
   );
@@ -36,29 +39,40 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const paymentMethod = plan?.paymentMethod || plan?.paymentType || "UNSET";
   const needsMethod = !paymentMethod || paymentMethod === "UNSET";
   const isInstallment = paymentMethod === "INSTALLMENT";
-  const docsApproved = docsOverall === "APPROVED";
-  const firstInstallmentGate = isInstallment && paid <= 0 && !docsApproved;
   const statusUpper = String(plan?.status || "").toUpperCase();
+  const assetType = String(plan?.asset?.type || plan?.assetType || "HOUSE").toUpperCase();
   const fullyPaid =
-    (total > 0 && paid >= total) || ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
+    balance <= 0.01 ||
+    ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
+  const showInstallmentOption = !["WORKERS", "WORKER", "LABOR"].includes(assetType);
   const canCancel =
     !fullyPaid &&
     !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED", "REFUNDED"].includes(statusUpper);
+  const canSetStay =
+    assetType === "HOTEL" &&
+    !["CANCELLED", "EXPIRED", "FULLY_PAID", "COMPLETED"].includes(statusUpper);
 
   const installments = Array.isArray(plan?.installments)
     ? plan.installments
     : (() => {
         try {
-          return JSON.parse(plan?.scheduleJson || "[]");
+          const raw = plan?.scheduleJson;
+          if (!raw) return [];
+          const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+          return Array.isArray(data) ? data : [];
         } catch {
           return [];
         }
       })();
   const next = installments.find((i: any) => (i.status || "PENDING") === "PENDING");
 
-  function goDocuments() {
-    if (typeof window !== "undefined") window.location.hash = "documents";
-  }
+  const houseLandFee = ["HOUSE", "LAND"].includes(assetType) ? 50_000 : 0;
+  const needsReservationFee =
+    houseLandFee > 0 && paid + 0.01 < houseLandFee && !fullyPaid &&
+    !["CANCELLED", "EXPIRED", "REFUNDED"].includes(statusUpper);
+
+  const docsApproved = ["APPROVED"].includes(docsOverall);
+  const firstInstallmentGate = isInstallment && paid <= 0 && !docsApproved;
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -74,9 +88,11 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         !docsApproved
       ) {
         setMsg(
-          "First-time installment: upload documents first. Returning clients with approved docs can pay immediately."
+          "First-time installment: upload documents in Documents section first. Returning clients with approved docs can pay immediately."
         );
-        goDocuments();
+        if (typeof window !== "undefined") {
+          window.location.hash = "documents";
+        }
         return;
       }
 
@@ -89,7 +105,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
       const data = await readJson(res);
       if (!res.ok) {
         if (data.docsStatus || String(data.error || "").toLowerCase().includes("document")) {
-          goDocuments();
+          if (typeof window !== "undefined") window.location.hash = "documents";
         }
         throw new Error(data.error || data.detail || "Request failed");
       }
@@ -97,14 +113,12 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         setPlan(data.plan);
         if (data.plan.docsStatus) setDocsOverall(String(data.plan.docsStatus).toUpperCase());
       }
-
       if (action === "SET_PAYMENT_METHOD" && extra.paymentMethod === "INSTALLMENT") {
-        setMsg(data.message || "Installment selected.");
-        if (
-          data.redirectToDocs !== false &&
-          String(data.plan?.docsStatus || "").toUpperCase() !== "APPROVED"
-        ) {
-          goDocuments();
+        if (data.redirectToDocs) {
+          setMsg(data.message || "Installment selected. Upload documents next.");
+          if (typeof window !== "undefined") window.location.hash = "documents";
+        } else {
+          setMsg(data.message || "Installment selected (bank transfer).");
         }
       } else {
         setMsg(data.message || "Updated");
@@ -117,77 +131,43 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
     }
   }
 
-  async function cancelPlan() {
-    if (fullyPaid) {
-      setMsg("This plan is fully paid and cannot be cancelled.");
-      return;
-    }
-    setBusy("CANCEL_QUOTE");
-    setMsg("");
-    try {
-      const quoteRes = await fetch(`/api/plans/${plan.id}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "CANCEL_QUOTE" }),
-      });
-      const quote = await readJson(quoteRes);
-      const note = quote.message || "Cancellation may apply a fee on amounts already paid.";
-      const reason =
-        window.prompt(`${note}\n\nOptional reason for cancelling this plan:`) ?? null;
-      if (reason === null) {
-        setBusy("");
-        return;
-      }
-      if (
-        !window.confirm(
-          "Cancel this plan permanently? Pending payments will be voided and the service may be released."
-        )
-      ) {
-        setBusy("");
-        return;
-      }
-      await act("CANCEL_CONFIRM", {
-        reason: reason.trim() || "Cancelled by client",
-      });
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Cancel failed");
-      setBusy("");
-    }
-  }
-
   return (
-    <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <ServiceImage
-        imagesJson={plan?.asset?.images}
-        mainIndex={plan?.asset?.mainImageIndex}
-        alt={plan?.asset?.title}
-      />
+    <div className="bg-white border border-slate-200/90 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+      {plan?.asset?.imageUrl || plan?.asset?.images?.[0] ? (
+        <ServiceImage
+          src={plan?.asset?.imageUrl || plan?.asset?.images?.[0]}
+          alt={plan?.asset?.title || "Service"}
+          className="h-36 w-full object-cover"
+        />
+      ) : null}
       <div className="p-4 space-y-3 flex-1 flex flex-col">
-        <div className="flex justify-between gap-2">
-          <h3 className="font-semibold text-construction-dark leading-snug">
-            {plan?.asset?.title || "Reservation"}
-          </h3>
-          <span className="text-[10px] font-semibold px-2 py-1 rounded-full bg-slate-100 text-slate-700 h-fit shrink-0">
-            {plan?.status}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-semibold text-construction-dark truncate">
+              {plan?.asset?.title || plan?.title || "Reservation"}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {assetType}
+              {plan?.status ? ` · ${String(plan.status).replace(/_/g, " ")}` : ""}
+            </p>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-slate-100 text-slate-700 shrink-0">
+            {needsMethod
+              ? "Choose plan type below"
+              : isInstallment
+                ? `Installment · ${PAYMENT_METHOD_LABEL}`
+                : `Full payment · ${PAYMENT_METHOD_LABEL}`}
           </span>
         </div>
-        <p className="text-sm text-slate-500">
-          {needsMethod ? "Choose payment method below" : paymentMethod}
-          {plan?.paymentFrequency || plan?.installmentFrequency
-            ? ` · ${plan?.paymentFrequency || plan?.installmentFrequency}`
-            : ""}
-        </p>
 
-        {plan?.expiresAt ? (
-          <Countdown
-            expiresAt={plan.expiresAt}
-            status={plan.status}
-            label="Hold expires in"
-            variant="clock"
-            showWhenSettled={false}
-          />
-        ) : null}
+        {needsReservationFee && (
+          <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-950">
+            <p className="font-semibold">House / Land reservation fee</p>
+            <p className="mt-0.5">
+              Pay {formatCurrency(houseLandFee)} by {PAYMENT_METHOD_LABEL} to fully lock this reservation.
+            </p>
+          </div>
+        )}
 
         {plan?.nextDueAt && isInstallment && (
           <Countdown
@@ -218,79 +198,94 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
           </div>
         </div>
 
+        {canSetStay && (
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-sm font-semibold text-construction-dark">Hotel stay period</p>
+            <p className="text-[11px] text-slate-500">
+              Choose dates or nights. Fee = nights × nightly rate ({formatCurrency(plan?.asset?.price || 0)}) — calculated before you pay.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={stayIn} onChange={(e) => setStayIn(e.target.value)} className="border rounded-xl px-3 min-h-[40px] text-sm" />
+              <input type="date" value={stayOut} onChange={(e) => setStayOut(e.target.value)} className="border rounded-xl px-3 min-h-[40px] text-sm" />
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={90}
+              value={stayNights}
+              onChange={(e) => setStayNights(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              className="w-full border rounded-xl px-3 min-h-[40px] text-sm"
+              placeholder="Nights"
+            />
+          </div>
+        )}
+
         {needsMethod && (
           <div className="space-y-3 border-t pt-3">
-            <p className="text-sm font-semibold text-construction-dark">Payment method</p>
+            <p className="text-sm font-semibold text-construction-dark">Choose plan type</p>
+            <p className="text-[11px] text-slate-500">
+              Settlement is always <strong>{PAYMENT_METHOD_LABEL}</strong>. Transfer to the company account, then submit payment for admin approval.
+            </p>
             <button
               type="button"
               disabled={!!busy}
               onClick={() => act("SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
               className="w-full min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50"
             >
-              {busy === "SET_PAYMENT_METHOD" ? "Saving…" : "Full payment"}
+              {busy === "SET_PAYMENT_METHOD" ? "Saving…" : "Full payment (bank transfer)"}
             </button>
-            <div className="space-y-2">
-              <select
-                value={frequency}
-                onChange={(e) => setFrequency(e.target.value)}
-                className="w-full border rounded-xl px-3 min-h-[44px] text-sm"
-              >
-                {["MONTHLY", "WEEKLY", "QUARTERLY", "YEARLY"].map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={!!busy}
-                onClick={() =>
-                  act("SET_PAYMENT_METHOD", {
-                    paymentMethod: "INSTALLMENT",
-                    paymentFrequency: frequency,
-                  })
-                }
-                className="w-full min-h-[44px] rounded-xl border border-primary-600 text-primary-700 text-sm font-semibold disabled:opacity-50"
-              >
-                Installment payment
-              </button>
-              <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] text-sky-950 space-y-1">
-                <p className="font-semibold">Installment structure</p>
-                <p>
-                  First payment <strong>40%</strong>, then <strong>20%</strong> each until paid. Docs
-                  required only the <strong>first time</strong> you use installment.
-                </p>
-                <p>
-                  House / land: <strong>5%</strong> admin fee · Other services: <strong>1%</strong> ·{" "}
-                  <strong>Not interest</strong>.
-                </p>
+            {showInstallmentOption ? (
+              <div className="space-y-2">
+                <select
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value)}
+                  className="w-full border rounded-xl px-3 min-h-[44px] text-sm"
+                >
+                  {["MONTHLY", "WEEKLY", "QUARTERLY", "YEARLY"].map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() =>
+                    act("SET_PAYMENT_METHOD", {
+                      paymentMethod: "INSTALLMENT",
+                      paymentFrequency: frequency,
+                    })
+                  }
+                  className="w-full min-h-[44px] rounded-xl border border-primary-600 text-primary-700 text-sm font-semibold disabled:opacity-50"
+                >
+                  Installment plan (bank transfer)
+                </button>
+                <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] text-sky-950 space-y-1">
+                  <p className="font-semibold">Installment structure</p>
+                  <p>
+                    First payment <strong>40%</strong> of the plan total, then <strong>20%</strong> each until fully paid.
+                  </p>
+                  <p>
+                    House / building / land: <strong>5%</strong> plan administration fee. Other installment services: <strong>1%</strong>. <strong>This is not interest</strong>.
+                  </p>
+                  <p>All installments are settled by <strong>{PAYMENT_METHOD_LABEL}</strong>.</p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">Workers: full payment only via {PAYMENT_METHOD_LABEL}.</p>
+            )}
           </div>
         )}
 
-        {isInstallment && (
-          <div ref={docsRef} className="border-t pt-3 space-y-2">
-            <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-xs text-sky-950">
-              <p className="font-semibold">Balance tracking</p>
-              <p className="mt-0.5">
-                Paid and remaining balance update automatically when each payment is approved. When
-                the balance reaches zero the service is marked fully paid.
-              </p>
-            </div>
-            {!docsApproved && (
-              <div className="flex items-start gap-2 rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5">
-                <FileText className="w-4 h-4 text-primary-700 shrink-0 mt-0.5" />
-                <div className="text-xs text-primary-900">
-                  <p className="font-semibold">Documents (first installment plan only)</p>
-                  <p className="mt-0.5">
-                    Required only the first time you use installment. Later plans reuse approved
-                    documents automatically.
-                  </p>
-                </div>
+        {isInstallment && !needsMethod && (
+          <div ref={docsRef} className="space-y-2 border-t pt-3">
+            <div className="flex items-start gap-2 rounded-xl bg-primary-50 border border-primary-100 px-3 py-2.5">
+              <FileText className="w-4 h-4 text-primary-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-primary-900">
+                <p className="font-semibold">Step 1 — Documents</p>
+                <p className="mt-0.5">
+                  Required only the <strong>first time</strong> you use an installment plan. Upload in <strong>Documents</strong>; admin approval unlocks payment.
+                </p>
               </div>
-            )}
-
+            </div>
             {firstInstallmentGate && (
               <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5 text-xs text-amber-950">
                 <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
@@ -300,23 +295,21 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                 </div>
               </div>
             )}
-
             {docsApproved && paid <= 0 && (
               <div className="flex items-start gap-2 rounded-xl bg-green-50 border border-green-100 px-3 py-2.5 text-xs text-green-900">
                 <CheckCircle2 className="w-4 h-4 text-green-700 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold">Documents approved</p>
-                  <p className="mt-0.5">You may proceed with payment.</p>
+                  <p className="mt-0.5">You may proceed with the first installment via {PAYMENT_METHOD_LABEL}.</p>
                 </div>
               </div>
             )}
-
             {!docsApproved && (
               <a
                 href="#documents"
                 className="w-full min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
               >
-                <FileText className="w-4 h-4" /> Go to Documents
+                <FileText className="w-4 h-4" /> Go to Documents to upload
               </a>
             )}
           </div>
@@ -324,52 +317,68 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
 
         {!needsMethod && balance > 0 && (
           <div className="flex flex-col gap-2 border-t pt-3">
+            <p className="text-[11px] text-slate-500 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2">
+              Pay by <strong>{PAYMENT_METHOD_LABEL}</strong> only. After transfer, submit here for admin confirmation.
+            </p>
+            {isInstallment && (
+              <p className="text-xs font-semibold text-construction-dark">
+                Step 2 — Payment {firstInstallmentGate ? "(available after document approval)" : ""}
+              </p>
+            )}
             <button
               type="button"
               disabled={!!busy || firstInstallmentGate}
-              onClick={() => act("PAY_NOW")}
-              className="w-full min-h-[44px] rounded-xl bg-accent-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              onClick={() => act(isInstallment ? "PAY_INSTALLMENT" : "PAY_NOW")}
+              className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold disabled:opacity-50"
             >
-              {busy === "PAY_NOW" && <Loader2 className="w-4 h-4 animate-spin" />}
-              {firstInstallmentGate ? (
-                <>
-                  <Lock className="w-4 h-4" /> Complete documents first
-                </>
+              {busy.startsWith("PAY") ? (
+                <span className="inline-flex items-center gap-2 justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
+                </span>
+              ) : isInstallment ? (
+                `Pay next installment (${PAYMENT_METHOD_LABEL})`
               ) : (
-                `Pay now${next ? ` (${formatCurrency(next.amount)})` : ""}`
+                `Pay now (${PAYMENT_METHOD_LABEL})`
               )}
             </button>
-            <button
-              type="button"
-              disabled={!!busy || firstInstallmentGate}
-              onClick={() => act("PAY_REMAINING")}
-              className="w-full min-h-[44px] rounded-xl border text-sm font-semibold disabled:opacity-50"
-            >
-              Pay remaining balance ({formatCurrency(balance)})
-            </button>
+            {balance > 0 && (
+              <button
+                type="button"
+                disabled={!!busy || firstInstallmentGate}
+                onClick={() => act("PAY_REMAINING")}
+                className="w-full min-h-[44px] rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Pay remaining balance
+              </button>
+            )}
           </div>
         )}
 
         {canCancel && (
-          <div className="border-t pt-3">
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={cancelPlan}
-              className="w-full min-h-[44px] rounded-xl border border-red-200 text-red-700 text-sm font-semibold disabled:opacity-50 hover:bg-red-50"
-            >
-              {busy === "CANCEL_CONFIRM" ? "Cancelling…" : "Cancel this plan"}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={async () => {
+              const q = await fetch(`/api/plans/${plan.id}`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "CANCEL_QUOTE" }),
+              });
+              const quote = await readJson(q);
+              const note = quote.message || "Cancellation may apply a fee on amounts already paid.";
+              if (!window.confirm(`${note}\n\nConfirm cancel?`)) return;
+              await act("CANCEL_CONFIRM", { reason: "Client cancelled" });
+            }}
+            className="w-full min-h-[40px] rounded-xl text-xs font-semibold text-red-700 border border-red-100 hover:bg-red-50 disabled:opacity-50"
+          >
+            Cancel reservation
+          </button>
         )}
 
-        {fullyPaid && (
-          <p className="text-[11px] text-green-700 font-medium border-t pt-3">
-            Fully paid — service completed. This plan can no longer be cancelled.
-          </p>
+        {msg && (
+          <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2">{msg}</p>
         )}
-
-        {msg && <p className="text-xs text-slate-600">{msg}</p>}
       </div>
     </div>
   );
