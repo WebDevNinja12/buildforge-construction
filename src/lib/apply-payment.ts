@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { reservationHoldFee, isHouseOrLand } from "@/lib/booking-rules";
 
 function parseSchedule(json: string | null | undefined) {
   if (!json) return [] as Array<{ sequence: number; amount: number; dueDate: string; status?: string }>;
@@ -40,11 +41,31 @@ export async function applyPaymentToReservation(amount: number, reservationId: s
     scheduleJson = JSON.stringify(schedule);
   }
 
-  const nextStatus = fullyPaid
-    ? "FULLY_PAID"
-    : reservation.status === "PENDING"
-      ? "CONFIRMED"
-      : reservation.status;
+  let nextStatus = reservation.status;
+  if (fullyPaid) {
+    nextStatus = "FULLY_PAID";
+  } else {
+    let assetType: string | null = null;
+    try {
+      const asset = await prisma.asset.findUnique({
+        where: { id: reservation.assetId },
+        select: { type: true },
+      });
+      assetType = asset?.type || null;
+    } catch {
+      /* */
+    }
+    const holdFee = reservationHoldFee(assetType);
+    if (isHouseOrLand(assetType) && holdFee > 0) {
+      if (newPaid + 0.01 >= holdFee) {
+        nextStatus = reservation.status === "PENDING" ? "CONFIRMED" : reservation.status;
+      } else {
+        nextStatus = "PENDING";
+      }
+    } else if (reservation.status === "PENDING") {
+      nextStatus = "CONFIRMED";
+    }
+  }
 
   await prisma.reservation.update({
     where: { id: reservationId },
@@ -76,9 +97,8 @@ export async function applyPaymentToReservation(amount: number, reservationId: s
 /** Notify all admin accounts */
 export async function notifyAdmins(title: string, body: string, type = "PAYMENT") {
   const admins = await prisma.user.findMany({
-    where: { role: "ADMIN" },
+    where: { role: "ADMIN", deletedAt: null },
     select: { id: true },
-    take: 20,
   });
   for (const a of admins) {
     await prisma.notification
