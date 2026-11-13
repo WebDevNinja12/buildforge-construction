@@ -1,7 +1,86 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { KeyRound, Shield, Mail, Loader2, Trash2, Lock, Unlock } from "lucide-react";
+import {
+  KeyRound,
+  Shield,
+  Mail,
+  Loader2,
+  Trash2,
+  Lock,
+  Unlock,
+  Settings2,
+} from "lucide-react";
+
+function Card({
+  children,
+  tone = "default",
+}: {
+  children: React.ReactNode;
+  tone?: "default" | "warn" | "danger";
+}) {
+  const toneClass =
+    tone === "warn"
+      ? "bg-amber-50/80 border-amber-200"
+      : tone === "danger"
+        ? "bg-red-50/80 border-red-100"
+        : "bg-white border-slate-200/80";
+  return (
+    <section className={`border rounded-2xl shadow-sm overflow-hidden ${toneClass}`}>
+      {children}
+    </section>
+  );
+}
+
+function CardHead({
+  icon: Icon,
+  title,
+  subtitle,
+  iconClass = "text-primary-600",
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  subtitle?: string;
+  iconClass?: string;
+}) {
+  return (
+    <div className="px-5 pt-5 pb-3 border-b border-slate-100/80">
+      <h2 className="font-semibold text-construction-dark flex items-center gap-2 text-[15px]">
+        <span
+          className={`inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 ${iconClass}`}
+        >
+          <Icon className="w-4 h-4" />
+        </span>
+        {title}
+      </h2>
+      {subtitle && (
+        <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{subtitle}</p>
+      )}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      {label && (
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
+          {label}
+        </label>
+      )}
+      {children}
+    </div>
+  );
+}
+
+const inputClass =
+  "w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm min-h-[46px] bg-white text-construction-dark placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500/25 focus:border-primary-400 transition";
 
 export default function AdminSettingsPage() {
   const [maint, setMaint] = useState({
@@ -160,6 +239,9 @@ export default function AdminSettingsPage() {
       if (!res.ok) throw new Error(data.error || "Failed");
       setLinkMsg(data.message || "Reset link created");
       if (data.resetUrl) setResetLink(data.resetUrl);
+      else if (data.link || data.resetLink || data.url) {
+        setResetLink(data.link || data.resetLink || data.url);
+      }
     } catch (err) {
       setLinkErr(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -202,168 +284,180 @@ export default function AdminSettingsPage() {
     }
   }
 
+  const locked =
+    maint.maintenanceMode || maint.lockClientLogin || maint.lockRegistration;
+
   return (
-    <div className="space-y-8 max-w-2xl">
+    <div className="space-y-6 max-w-2xl pb-10">
       <div>
-        <h1 className="text-2xl font-bold text-construction-dark">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Maintenance lock, password security, and data cleanup. Admin login always works even when the
-          site is locked.
+        <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+          <Settings2 className="w-3.5 h-3.5 text-primary-600" />
+          Admin
+        </div>
+        <h1 className="text-2xl font-bold text-construction-dark tracking-tight">Settings</h1>
+        <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+          Maintenance lock, password security, and data cleanup. Admin login always works even when
+          the site is locked.
         </p>
       </div>
 
-      <section
-        className={`border rounded-2xl p-4 sm:p-5 space-y-3 ${
-          maint.maintenanceMode ? "bg-amber-50 border-amber-200" : "bg-white border-slate-200"
-        }`}
-      >
-        <h2 className="font-semibold text-construction-dark flex items-center gap-2">
-          {maint.maintenanceMode || maint.lockClientLogin ? (
-            <Lock className="w-4 h-4 text-amber-700" />
+      <Card tone={locked ? "warn" : "default"}>
+        <CardHead
+          icon={locked ? Lock : Unlock}
+          title="Site maintenance"
+          subtitle="When locked, clients cannot log in or create accounts. Admin login is never blocked."
+          iconClass={locked ? "text-amber-700" : "text-emerald-600"}
+        />
+        <div className="px-5 py-4 space-y-4">
+          {maintLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin text-primary-600" />
           ) : (
-            <Unlock className="w-4 h-4 text-emerald-600" />
-          )}
-          Site maintenance — lock / unlock client access
-        </h2>
-        <p className="text-xs text-slate-600">
-          When locked, clients cannot log in or create accounts. <strong>Admin login is never blocked.</strong>
-        </p>
-        {maintLoading ? (
-          <Loader2 className="w-5 h-5 animate-spin text-primary-600" />
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={maintBusy}
-                onClick={() =>
-                  saveSiteMode({
-                    maintenanceMode: true,
-                    lockClientLogin: true,
-                    lockRegistration: true,
-                  })
-                }
-                className="min-h-[44px] px-4 rounded-xl bg-amber-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
-              >
-                {maintBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-                Lock site (maintenance ON)
-              </button>
-              <button
-                type="button"
-                disabled={maintBusy}
-                onClick={() =>
-                  saveSiteMode({
-                    maintenanceMode: false,
-                    lockClientLogin: false,
-                    lockRegistration: false,
-                  })
-                }
-                className="min-h-[44px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
-              >
-                Unlock site (open for clients)
-              </button>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-2 text-sm">
-              <label className="flex items-center gap-2 bg-white/80 border rounded-xl px-3 py-2 min-h-[44px]">
-                <input
-                  type="checkbox"
-                  checked={maint.lockClientLogin}
+            <>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
                   disabled={maintBusy}
-                  onChange={(e) => saveSiteMode({ lockClientLogin: e.target.checked })}
-                />
-                Block client login
-              </label>
-              <label className="flex items-center gap-2 bg-white/80 border rounded-xl px-3 py-2 min-h-[44px]">
-                <input
-                  type="checkbox"
-                  checked={maint.lockRegistration}
+                  onClick={() =>
+                    saveSiteMode({
+                      maintenanceMode: true,
+                      lockClientLogin: true,
+                      lockRegistration: true,
+                    })
+                  }
+                  className="min-h-[44px] px-4 rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
+                >
+                  {maintBusy ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Lock className="w-4 h-4" />
+                  )}
+                  Lock site
+                </button>
+                <button
+                  type="button"
                   disabled={maintBusy}
-                  onChange={(e) => saveSiteMode({ lockRegistration: e.target.checked })}
+                  onClick={() =>
+                    saveSiteMode({
+                      maintenanceMode: false,
+                      lockClientLogin: false,
+                      lockRegistration: false,
+                    })
+                  }
+                  className="min-h-[44px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
+                >
+                  <Unlock className="w-4 h-4" />
+                  Unlock site
+                </button>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-2.5 min-h-[44px] px-3.5 rounded-xl border border-slate-200 bg-white text-sm cursor-pointer hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                    checked={maint.lockClientLogin}
+                    disabled={maintBusy}
+                    onChange={(e) => saveSiteMode({ lockClientLogin: e.target.checked })}
+                  />
+                  Block client login
+                </label>
+                <label className="flex items-center gap-2.5 min-h-[44px] px-3.5 rounded-xl border border-slate-200 bg-white text-sm cursor-pointer hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                    checked={maint.lockRegistration}
+                    disabled={maintBusy}
+                    onChange={(e) => saveSiteMode({ lockRegistration: e.target.checked })}
+                  />
+                  Block new registration
+                </label>
+              </div>
+
+              <Field label="Message shown to users">
+                <textarea
+                  rows={3}
+                  className={`${inputClass} resize-y min-h-[88px]`}
+                  value={maint.message}
+                  onChange={(e) => setMaint((m) => ({ ...m, message: e.target.value }))}
+                  placeholder="Maintenance message…"
                 />
-                Block new account registration
-              </label>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600">Message shown to users</label>
-              <textarea
-                rows={3}
-                className="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
-                value={maint.message}
-                onChange={(e) => setMaint({ ...maint, message: e.target.value })}
-                placeholder="Site under maintenance…"
-              />
+              </Field>
               <button
                 type="button"
                 disabled={maintBusy}
                 onClick={() => saveSiteMode({ message: maint.message })}
-                className="mt-2 min-h-[40px] px-3 rounded-lg border text-xs font-semibold disabled:opacity-50"
+                className="min-h-[40px] px-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition"
               >
                 Save message
               </button>
-            </div>
-            <p className="text-xs font-medium">
-              Status:{" "}
-              <span
-                className={
-                  maint.maintenanceMode || maint.lockClientLogin || maint.lockRegistration
-                    ? "text-amber-800"
-                    : "text-emerald-700"
-                }
-              >
-                {maint.maintenanceMode
-                  ? "Maintenance ON"
-                  : maint.lockClientLogin || maint.lockRegistration
-                    ? "Partial lock"
-                    : "Open"}
-              </span>
-              {maint.lockClientLogin ? " · login locked" : ""}
-              {maint.lockRegistration ? " · registration locked" : ""}
-            </p>
-            {maintMsg && <p className="text-sm text-emerald-700">{maintMsg}</p>}
-            {maintErr && <p className="text-sm text-red-600">{maintErr}</p>}
-          </>
-        )}
-      </section>
 
-      <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
-        <h2 className="font-semibold text-construction-dark flex items-center gap-2">
-          <Shield className="w-4 h-4 text-primary-600" />
-          Change my admin password
-        </h2>
-        <form onSubmit={changeOwn} className="space-y-3">
-          <input
-            type="password"
-            autoComplete="current-password"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="Current password"
-            value={own.currentPassword}
-            onChange={(e) => setOwn({ ...own, currentPassword: e.target.value })}
-            required
-          />
-          <input
-            type="password"
-            autoComplete="new-password"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="New password (min 8 characters)"
-            value={own.newPassword}
-            onChange={(e) => setOwn({ ...own, newPassword: e.target.value })}
-            required
-            minLength={8}
-          />
-          <input
-            type="password"
-            autoComplete="new-password"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="Confirm new password"
-            value={own.confirmPassword}
-            onChange={(e) => setOwn({ ...own, confirmPassword: e.target.value })}
-            required
-            minLength={8}
-          />
+              <p className="text-xs text-slate-500">
+                Status:{" "}
+                <span className={`font-semibold ${locked ? "text-amber-700" : "text-emerald-600"}`}>
+                  {locked ? "Locked / maintenance" : "Open"}
+                </span>
+              </p>
+              {maintMsg && (
+                <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                  {maintMsg}
+                </p>
+              )}
+              {maintErr && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                  {maintErr}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead
+          icon={KeyRound}
+          title="Change my admin password"
+          subtitle="Update the password for the account you are signed in with."
+        />
+        <form onSubmit={changeOwn} className="px-5 py-4 space-y-3">
+          <Field>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className={inputClass}
+              placeholder="Current password"
+              value={own.currentPassword}
+              onChange={(e) => setOwn({ ...own, currentPassword: e.target.value })}
+              required
+            />
+          </Field>
+          <Field>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className={inputClass}
+              placeholder="New password (min 8 characters)"
+              value={own.newPassword}
+              onChange={(e) => setOwn({ ...own, newPassword: e.target.value })}
+              required
+              minLength={8}
+            />
+          </Field>
+          <Field>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className={inputClass}
+              placeholder="Confirm new password"
+              value={own.confirmPassword}
+              onChange={(e) => setOwn({ ...own, confirmPassword: e.target.value })}
+              required
+              minLength={8}
+            />
+          </Field>
           <button
             type="submit"
             disabled={ownBusy}
-            className="min-h-[44px] px-4 rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+            className="min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
           >
             {ownBusy && <Loader2 className="w-4 h-4 animate-spin" />}
             Update my password
@@ -371,35 +465,40 @@ export default function AdminSettingsPage() {
           {ownMsg && <p className="text-sm text-emerald-700">{ownMsg}</p>}
           {ownErr && <p className="text-sm text-red-600">{ownErr}</p>}
         </form>
-      </section>
+      </Card>
 
-      <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
-        <h2 className="font-semibold text-construction-dark flex items-center gap-2">
-          <KeyRound className="w-4 h-4 text-primary-600" />
-          Set a client password
-        </h2>
-        <form onSubmit={setUserPassword} className="space-y-3">
-          <input
-            type="email"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="Client email"
-            value={userForm.email}
-            onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-            required
-          />
-          <input
-            type="password"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="New password (min 8 characters)"
-            value={userForm.newPassword}
-            onChange={(e) => setUserForm({ ...userForm, newPassword: e.target.value })}
-            required
-            minLength={8}
-          />
+      <Card>
+        <CardHead
+          icon={Shield}
+          title="Set a client password"
+          subtitle="Directly set a new password for a client by email."
+        />
+        <form onSubmit={setUserPassword} className="px-5 py-4 space-y-3">
+          <Field label="Client email">
+            <input
+              type="email"
+              className={inputClass}
+              placeholder="client@email.com"
+              value={userForm.email}
+              onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+              required
+            />
+          </Field>
+          <Field label="New password">
+            <input
+              type="password"
+              className={inputClass}
+              placeholder="New password"
+              value={userForm.newPassword}
+              onChange={(e) => setUserForm({ ...userForm, newPassword: e.target.value })}
+              required
+              minLength={8}
+            />
+          </Field>
           <button
             type="submit"
             disabled={userBusy}
-            className="min-h-[44px] px-4 rounded-xl bg-construction-dark text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+            className="min-h-[44px] px-4 rounded-xl bg-construction-dark hover:bg-slate-800 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
           >
             {userBusy && <Loader2 className="w-4 h-4 animate-spin" />}
             Set password
@@ -407,26 +506,29 @@ export default function AdminSettingsPage() {
           {userMsg && <p className="text-sm text-emerald-700">{userMsg}</p>}
           {userErr && <p className="text-sm text-red-600">{userErr}</p>}
         </form>
-      </section>
+      </Card>
 
-      <section className="bg-white border rounded-2xl p-4 sm:p-5 space-y-3">
-        <h2 className="font-semibold text-construction-dark flex items-center gap-2">
-          <Mail className="w-4 h-4 text-primary-600" />
-          Send password reset link
-        </h2>
-        <form onSubmit={sendResetLink} className="space-y-3">
-          <input
-            type="email"
-            className="w-full border rounded-xl px-3 py-2.5 text-sm min-h-[44px]"
-            placeholder="Client email"
-            value={linkEmail}
-            onChange={(e) => setLinkEmail(e.target.value)}
-            required
-          />
+      <Card>
+        <CardHead
+          icon={Mail}
+          title="Send password reset link"
+          subtitle="Generate a one-time reset link for a client account."
+        />
+        <form onSubmit={sendResetLink} className="px-5 py-4 space-y-3">
+          <Field label="Client email">
+            <input
+              type="email"
+              className={inputClass}
+              placeholder="Client email"
+              value={linkEmail}
+              onChange={(e) => setLinkEmail(e.target.value)}
+              required
+            />
+          </Field>
           <button
             type="submit"
             disabled={linkBusy}
-            className="min-h-[44px] px-4 rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
+            className="min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
           >
             {linkBusy && <Loader2 className="w-4 h-4 animate-spin" />}
             Generate / send link
@@ -434,37 +536,42 @@ export default function AdminSettingsPage() {
           {linkMsg && <p className="text-sm text-emerald-700">{linkMsg}</p>}
           {linkErr && <p className="text-sm text-red-600">{linkErr}</p>}
           {resetLink && (
-            <div className="bg-slate-50 border rounded-xl p-3 text-xs break-all">
-              <p className="font-semibold mb-1">Reset link</p>
-              <a href={resetLink} className="text-primary-600 underline" target="_blank" rel="noreferrer">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs break-all">
+              <p className="font-semibold text-slate-700 mb-1">Reset link</p>
+              <a
+                href={resetLink}
+                className="text-primary-600 underline"
+                target="_blank"
+                rel="noreferrer"
+              >
                 {resetLink}
               </a>
             </div>
           )}
         </form>
-      </section>
+      </Card>
 
-      <section className="bg-red-50 border border-red-100 rounded-2xl p-4 sm:p-5 space-y-3">
-        <h2 className="font-semibold text-red-800 flex items-center gap-2">
-          <Trash2 className="w-4 h-4" />
-          Remove demo / sample catalog
-        </h2>
-        <p className="text-sm text-red-900/80">
-          Deletes demo services, tools, workers, and reservations so the site only shows what you add
-          for real. <strong>Payment records are kept.</strong> Your admin login is kept.
-        </p>
-        <button
-          type="button"
-          disabled={purgeBusy}
-          onClick={purgeCatalog}
-          className="min-h-[44px] px-4 rounded-xl bg-red-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2"
-        >
-          {purgeBusy && <Loader2 className="w-4 h-4 animate-spin" />}
-          Clear demo listings (keep payments)
-        </button>
-        {purgeMsg && <p className="text-sm text-emerald-800">{purgeMsg}</p>}
-        {purgeErr && <p className="text-sm text-red-700">{purgeErr}</p>}
-      </section>
+      <Card tone="danger">
+        <CardHead
+          icon={Trash2}
+          title="Remove demo / sample catalog"
+          subtitle="Deletes demo services, tools, workers, and reservations. Payment records and your admin login are kept."
+          iconClass="text-red-600"
+        />
+        <div className="px-5 py-4 space-y-3">
+          <button
+            type="button"
+            disabled={purgeBusy}
+            onClick={purgeCatalog}
+            className="min-h-[44px] px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2 shadow-sm transition"
+          >
+            {purgeBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+            Clear demo listings (keep payments)
+          </button>
+          {purgeMsg && <p className="text-sm text-emerald-800">{purgeMsg}</p>}
+          {purgeErr && <p className="text-sm text-red-700">{purgeErr}</p>}
+        </div>
+      </Card>
     </div>
   );
 }
