@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { buildTextPdf, money, PAYMENT_METHOD_LABEL, type PdfTable } from "@/lib/pdf";
+import {
+  buildReportPdf,
+  money,
+  PAYMENT_METHOD_LABEL,
+  type PdfTable,
+} from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,7 +32,7 @@ function periodRange(
     const m = Math.min(12, Math.max(1, month || new Date().getMonth() + 1));
     const start = new Date(year, m - 1, 1, 0, 0, 0, 0);
     const end = new Date(year, m, 0, 23, 59, 59, 999);
-    const label = start.toLocaleString("en-US", { month: "long", year: "numeric" });
+    const label = start.toLocaleString("en-GB", { month: "long", year: "numeric" });
     return { start, end, label };
   }
   if (period === "quarterly") {
@@ -79,30 +84,30 @@ export async function GET(req: NextRequest) {
       const clientsTable: PdfTable = {
         title: "Client register",
         columns: [
-          { key: "joined", header: "JOINED", width: 12 },
-          { key: "name", header: "NAME", width: 18 },
-          { key: "email", header: "EMAIL", width: 28 },
-          { key: "status", header: "STATUS", width: 14 },
-          { key: "counts", header: "RES/PAY", width: 10, align: "right" },
+          { key: "joined", header: "Joined", width: 2 },
+          { key: "name", header: "Name", width: 3 },
+          { key: "email", header: "Email", width: 4 },
+          { key: "status", header: "Status", width: 2.5 },
+          { key: "counts", header: "Res / Pays", width: 2 },
         ],
         rows: users.map((u) => ({
           joined: u.createdAt.toISOString().slice(0, 10),
-          name: (u.name || "").slice(0, 18),
-          email: (u.email || "").slice(0, 28),
-          status: `${u.status}/${u.verificationStatus}`.slice(0, 14),
-          counts: `r${u._count.reservations} p${u._count.payments}`,
+          name: u.name || "—",
+          email: u.email || "",
+          status: `${u.status}`,
+          counts: `r${u._count.reservations} / p${u._count.payments}`,
         })),
       };
 
-      const pdf = buildTextPdf({
-        title: "HAMA CONSTRUCTION — CLIENT REGISTER",
-        subtitle: `Period: ${label} · Exported by ${session.email}`,
-        meta: [
-          `Payment method: ${PAYMENT_METHOD_LABEL}`,
-          `Clients in period: ${users.length}`,
-        ],
+      const pdf = await buildReportPdf({
+        title: "Client Register",
+        periodLabel: label,
+        preparedBy: session.email,
+        rightHeader: "Client Register",
         tables: [clientsTable],
+        footer: "Hama Enterprise Ng  |  Confidential: for admin use only",
       });
+
       return new NextResponse(Buffer.from(pdf), {
         headers: {
           "Content-Type": "application/pdf",
@@ -113,118 +118,190 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const [clientCount, reservations, payments, deals] = await Promise.all([
-      prisma.user.count({
-        where: { role: "CLIENT", deletedAt: null, ...dateFilter },
-      }),
-      prisma.reservation.findMany({
-        where: { ...dateFilter },
-        include: { asset: true, user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 200,
-      }),
-      prisma.payment.findMany({
-        where: { ...dateFilter },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 300,
-      }),
-      prisma.project
-        .findMany({
-          where: {
-            status: { in: ["DEAL_PENDING", "DEAL_ACCEPTED", "DEAL_REJECTED"] },
-            ...dateFilter,
-          },
-          include: { client: { select: { name: true, email: true, phone: true } } },
+    const [clientCount, reservations, payments, deals, pendingPayments, overdueCount] =
+      await Promise.all([
+        prisma.user.count({
+          where: { role: "CLIENT", deletedAt: null, ...dateFilter },
+        }),
+        prisma.reservation.findMany({
+          where: { ...dateFilter },
+          include: { asset: true, user: { select: { name: true, email: true } } },
           orderBy: { createdAt: "desc" },
-          take: 100,
-        })
-        .catch(() => [] as any[]),
-    ]);
+          take: 200,
+        }),
+        prisma.payment.findMany({
+          where: { ...dateFilter },
+          include: {
+            user: { select: { name: true, email: true } },
+            reservation: { include: { asset: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 300,
+        }),
+        prisma.project
+          .findMany({
+            where: {
+              status: { in: ["DEAL_PENDING", "DEAL_ACCEPTED", "DEAL_REJECTED"] },
+              ...dateFilter,
+            },
+            include: { client: { select: { name: true, email: true } } },
+            orderBy: { createdAt: "desc" },
+            take: 100,
+          })
+          .catch(() => [] as any[]),
+        prisma.payment.count({
+          where: { status: "PENDING", ...dateFilter },
+        }),
+        prisma.reservation
+          .count({
+            where: {
+              paymentType: "INSTALLMENT",
+              nextDueAt: { lt: new Date() },
+              status: {
+                in: ["PENDING", "PARTIALLY_PAID", "INSTALLMENT_PLAN", "CONFIRMED"],
+              },
+            },
+          })
+          .catch(() => 0),
+      ]);
 
     let approvedTotal = 0;
-    const paymentRows = payments.map((p) => {
-      const isRefund = p.type === "REFUND";
-      const amt = Number(p.amount) || 0;
-      if (!isRefund && (p.status === "APPROVED" || p.status === "COMPLETED")) {
-        approvedTotal += amt;
+    for (const p of payments) {
+      if (
+        p.type !== "REFUND" &&
+        (p.status === "APPROVED" || p.status === "COMPLETED")
+      ) {
+        approvedTotal += Number(p.amount) || 0;
       }
-      return {
-        date: p.createdAt.toISOString().slice(0, 10),
-        client: (p.user?.name || p.user?.email || "").slice(0, 16),
-        type: String(p.type || "").slice(0, 12),
-        method: PAYMENT_METHOD_LABEL,
-        debit: isRefund ? money(amt) : "",
-        credit: !isRefund ? money(amt) : "",
-        status: String(p.status || "").slice(0, 12),
-      };
-    });
+    }
+
+    const activeReservations = reservations.filter((r) =>
+      ["PENDING", "CONFIRMED", "PARTIALLY_PAID", "INSTALLMENT_PLAN", "ACTIVE"].includes(
+        String(r.status)
+      )
+    ).length;
+
+    const installmentPlans = reservations.filter(
+      (r) =>
+        r.paymentType === "INSTALLMENT" ||
+        String(r.status).includes("INSTALLMENT")
+    );
+
+    const summaryTable: PdfTable = {
+      title: "Summary",
+      columns: [
+        { key: "m1", header: "Measure", width: 3 },
+        { key: "v1", header: "Value", width: 2 },
+        { key: "m2", header: "Measure", width: 3 },
+        { key: "v2", header: "Value", width: 2 },
+      ],
+      rows: [
+        {
+          m1: "Total clients",
+          v1: String(clientCount),
+          m2: "Active reservations",
+          v2: String(activeReservations),
+        },
+        {
+          m1: "Pending payments",
+          v1: String(pendingPayments),
+          m2: "Active installment plans",
+          v2: String(installmentPlans.length),
+        },
+        {
+          m1: "Payments listed",
+          v1: String(payments.length),
+          m2: "Overdue payments",
+          v2: String(overdueCount),
+        },
+        {
+          m1: "Project deals",
+          v1: String(deals.length),
+          m2: "Revenue (approved)",
+          v2: money(approvedTotal),
+        },
+      ],
+    };
 
     const paymentsTable: PdfTable = {
       title: "Payment ledger",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "client", header: "CLIENT", width: 16 },
-        { key: "type", header: "TYPE", width: 12 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "debit", header: "DEBIT", width: 12, align: "right" },
-        { key: "credit", header: "CREDIT", width: 12, align: "right" },
-        { key: "status", header: "STATUS", width: 12 },
+        { key: "ref", header: "Ref / Date", width: 2.2 },
+        { key: "client", header: "Client", width: 2.5 },
+        { key: "service", header: "Service", width: 2.2 },
+        { key: "amount", header: "Amount", width: 2 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "status", header: "Status", width: 1.8 },
       ],
-      rows: paymentRows,
+      rows: payments.slice(0, 80).map((p) => ({
+        ref: p.createdAt.toISOString().slice(0, 10),
+        client: (p.user?.name || p.user?.email || "—").slice(0, 22),
+        service: (p.reservation?.asset?.title || p.type || "—").slice(0, 18),
+        amount: money(p.amount),
+        method: PAYMENT_METHOD_LABEL,
+        status: String(p.status || ""),
+      })),
+    };
+
+    const installmentsTable: PdfTable = {
+      title: "Installment plans",
+      columns: [
+        { key: "client", header: "Client", width: 2.5 },
+        { key: "service", header: "Service", width: 2.2 },
+        { key: "total", header: "Total price", width: 2 },
+        { key: "paid", header: "Paid", width: 2 },
+        { key: "balance", header: "Balance", width: 2 },
+        { key: "status", header: "Status", width: 1.8 },
+      ],
+      rows: installmentPlans.slice(0, 40).map((r) => {
+        const total =
+          Number((r as any).installmentTotal) ||
+          Number((r as any).totalAmount) ||
+          0;
+        const paid =
+          Number((r as any).installmentPaid) ||
+          Number((r as any).amountPaid) ||
+          0;
+        return {
+          client: (r.user?.name || "—").slice(0, 22),
+          service: (r.asset?.title || "—").slice(0, 18),
+          total: money(total),
+          paid: money(paid),
+          balance: money(Math.max(0, total - paid)),
+          status: String(r.status || ""),
+        };
+      }),
     };
 
     const reservationsTable: PdfTable = {
       title: "Reservations",
       columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "client", header: "CLIENT", width: 16 },
-        { key: "asset", header: "ASSET", width: 22 },
-        { key: "status", header: "STATUS", width: 14 },
-        { key: "method", header: "METHOD", width: 14 },
-        { key: "paid", header: "PAID", width: 12, align: "right" },
+        { key: "date", header: "Date", width: 2 },
+        { key: "client", header: "Client", width: 2.5 },
+        { key: "asset", header: "Asset", width: 3 },
+        { key: "status", header: "Status", width: 2 },
+        { key: "method", header: "Method", width: 2.2 },
+        { key: "paid", header: "Paid", width: 2 },
       ],
-      rows: reservations.map((r) => ({
+      rows: reservations.slice(0, 60).map((r) => ({
         date: r.createdAt.toISOString().slice(0, 10),
-        client: (r.user?.name || "").slice(0, 16),
-        asset: (r.asset?.title || "").slice(0, 22),
-        status: String(r.status || "").slice(0, 14),
+        client: (r.user?.name || "—").slice(0, 20),
+        asset: (r.asset?.title || "—").slice(0, 24),
+        status: String(r.status || ""),
         method: PAYMENT_METHOD_LABEL,
-        paid: money((r as any).installmentPaid || (r as any).amountPaid || 0),
+        paid: money(
+          (r as any).installmentPaid || (r as any).amountPaid || 0
+        ),
       })),
     };
 
-    const dealsTable: PdfTable = {
-      title: "Project deals",
-      columns: [
-        { key: "date", header: "DATE", width: 11 },
-        { key: "client", header: "CLIENT", width: 18 },
-        { key: "title", header: "TITLE", width: 24 },
-        { key: "status", header: "STATUS", width: 14 },
-        { key: "budget", header: "BUDGET", width: 14, align: "right" },
-      ],
-      rows: (deals as any[]).map((d) => ({
-        date: d.createdAt.toISOString().slice(0, 10),
-        client: (d.client?.name || d.client?.email || "").slice(0, 18),
-        title: (d.title || "").slice(0, 24),
-        status: String(d.status || "").slice(0, 14),
-        budget: money(d.budget),
-      })),
-    };
-
-    const pdf = buildTextPdf({
-      title: "HAMA CONSTRUCTION — ADMIN OVERVIEW STATEMENT",
-      subtitle: `Period: ${label} · Exported by ${session.email}`,
-      meta: [
-        `Payment method: ${PAYMENT_METHOD_LABEL}`,
-        `Clients joined: ${clientCount}`,
-        `Reservations listed: ${reservations.length}`,
-        `Payments listed: ${payments.length}`,
-        `Project deals listed: ${deals.length}`,
-        `Approved payment volume: ${money(approvedTotal)}`,
-      ],
-      tables: [paymentsTable, reservationsTable, dealsTable],
-      footer: "Hama Construction | Building innovation through quality and trust",
+    const pdf = await buildReportPdf({
+      title: "Admin Overview Report",
+      periodLabel: label,
+      preparedBy: session.email || "Admin",
+      rightHeader: "Admin Overview Report",
+      tables: [summaryTable, paymentsTable, installmentsTable, reservationsTable],
+      footer: "Hama Enterprise Ng  |  Confidential: for admin use only",
     });
 
     return new NextResponse(Buffer.from(pdf), {
