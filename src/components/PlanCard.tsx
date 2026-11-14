@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatCurrency, PAYMENT_METHOD_LABEL } from "@/lib/utils";
+import {
+  formatCurrency,
+  PAYMENT_METHOD_LABEL,
+  BANK_TRANSFER_DETAILS,
+} from "@/lib/utils";
 import { Countdown } from "@/components/Countdown";
 import { ServiceImage } from "@/components/ServiceImage";
-import { FileText, Loader2, Lock, CheckCircle2 } from "lucide-react";
+import {
+  FileText,
+  Loader2,
+  Lock,
+  CheckCircle2,
+  Landmark,
+  Copy,
+} from "lucide-react";
 
 async function readJson(res: Response) {
   const text = await res.text();
@@ -26,6 +37,12 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const [docsOverall, setDocsOverall] = useState<string>(
     String(initial?.docsStatus || "INCOMPLETE").toUpperCase()
   );
+  const [showBankPay, setShowBankPay] = useState(false);
+  const [payAmount, setPayAmount] = useState<number | null>(null);
+  const [payAction, setPayAction] = useState<
+    "PAY_NOW" | "PAY_INSTALLMENT" | "PAY_REMAINING"
+  >("PAY_NOW");
+  const [copied, setCopied] = useState("");
   const docsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,8 +59,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const statusUpper = String(plan?.status || "").toUpperCase();
   const assetType = String(plan?.asset?.type || plan?.assetType || "HOUSE").toUpperCase();
   const fullyPaid =
-    balance <= 0.01 ||
-    ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
+    balance <= 0.01 || ["FULLY_PAID", "COMPLETED"].includes(statusUpper);
   const showInstallmentOption = !["WORKERS", "WORKER", "LABOR"].includes(assetType);
   const canCancel =
     !fullyPaid &&
@@ -68,7 +84,9 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
 
   const houseLandFee = ["HOUSE", "LAND"].includes(assetType) ? 50_000 : 0;
   const needsReservationFee =
-    houseLandFee > 0 && paid + 0.01 < houseLandFee && !fullyPaid &&
+    houseLandFee > 0 &&
+    paid + 0.01 < houseLandFee &&
+    !fullyPaid &&
     !["CANCELLED", "EXPIRED", "REFUNDED"].includes(statusUpper);
 
   const docsApproved = ["APPROVED"].includes(docsOverall);
@@ -90,9 +108,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         setMsg(
           "First-time installment: upload documents in Documents section first. Returning clients with approved docs can pay immediately."
         );
-        if (typeof window !== "undefined") {
-          window.location.hash = "documents";
-        }
+        if (typeof window !== "undefined") window.location.hash = "documents";
         return;
       }
 
@@ -113,6 +129,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         setPlan(data.plan);
         if (data.plan.docsStatus) setDocsOverall(String(data.plan.docsStatus).toUpperCase());
       }
+      if (action.startsWith("PAY")) setShowBankPay(false);
       if (action === "SET_PAYMENT_METHOD" && extra.paymentMethod === "INSTALLMENT") {
         if (data.redirectToDocs) {
           setMsg(data.message || "Installment selected. Upload documents next.");
@@ -129,6 +146,15 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
     } finally {
       setBusy("");
     }
+  }
+
+  function openBankPay(
+    action: "PAY_NOW" | "PAY_INSTALLMENT" | "PAY_REMAINING",
+    amount: number
+  ) {
+    setPayAction(action);
+    setPayAmount(amount);
+    setShowBankPay(true);
   }
 
   return (
@@ -164,7 +190,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
           <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-950">
             <p className="font-semibold">House / Land reservation fee</p>
             <p className="mt-0.5">
-              Pay {formatCurrency(houseLandFee)} by {PAYMENT_METHOD_LABEL} to fully lock this reservation.
+              Pay {formatCurrency(houseLandFee)} by {PAYMENT_METHOD_LABEL} to fully lock this
+              reservation.
             </p>
           </div>
         )}
@@ -202,18 +229,31 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
           <div className="space-y-2 border-t pt-3">
             <p className="text-sm font-semibold text-construction-dark">Hotel stay period</p>
             <p className="text-[11px] text-slate-500">
-              Choose dates or nights. Fee = nights × nightly rate ({formatCurrency(plan?.asset?.price || 0)}) — calculated before you pay.
+              Choose dates or nights. Fee = nights × nightly rate (
+              {formatCurrency(plan?.asset?.price || 0)}) — calculated before you pay.
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={stayIn} onChange={(e) => setStayIn(e.target.value)} className="border rounded-xl px-3 min-h-[40px] text-sm" />
-              <input type="date" value={stayOut} onChange={(e) => setStayOut(e.target.value)} className="border rounded-xl px-3 min-h-[40px] text-sm" />
+              <input
+                type="date"
+                value={stayIn}
+                onChange={(e) => setStayIn(e.target.value)}
+                className="border rounded-xl px-3 min-h-[40px] text-sm"
+              />
+              <input
+                type="date"
+                value={stayOut}
+                onChange={(e) => setStayOut(e.target.value)}
+                className="border rounded-xl px-3 min-h-[40px] text-sm"
+              />
             </div>
             <input
               type="number"
               min={1}
               max={90}
               value={stayNights}
-              onChange={(e) => setStayNights(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              onChange={(e) =>
+                setStayNights(Math.max(1, Math.floor(Number(e.target.value) || 1)))
+              }
               className="w-full border rounded-xl px-3 min-h-[40px] text-sm"
               placeholder="Nights"
             />
@@ -224,7 +264,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
           <div className="space-y-3 border-t pt-3">
             <p className="text-sm font-semibold text-construction-dark">Choose plan type</p>
             <p className="text-[11px] text-slate-500">
-              Settlement is always <strong>{PAYMENT_METHOD_LABEL}</strong>. Transfer to the company account, then submit payment for admin approval.
+              Settlement is always <strong>{PAYMENT_METHOD_LABEL}</strong>. Transfer to the company
+              account, then confirm on this screen.
             </p>
             <button
               type="button"
@@ -242,7 +283,9 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                   className="w-full border rounded-xl px-3 min-h-[44px] text-sm"
                 >
                   {["MONTHLY", "WEEKLY", "QUARTERLY", "YEARLY"].map((f) => (
-                    <option key={f} value={f}>{f}</option>
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
                   ))}
                 </select>
                 <button
@@ -261,16 +304,21 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                 <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-[11px] text-sky-950 space-y-1">
                   <p className="font-semibold">Installment structure</p>
                   <p>
-                    First payment <strong>40%</strong> of the plan total, then <strong>20%</strong> each until fully paid.
+                    First payment <strong>40%</strong>, then <strong>20%</strong> each until paid.
                   </p>
                   <p>
-                    House / building / land: <strong>5%</strong> plan administration fee. Other installment services: <strong>1%</strong>. <strong>This is not interest</strong>.
+                    House / land: <strong>5%</strong> admin fee. Other services: <strong>1%</strong>.
+                    Not interest.
                   </p>
-                  <p>All installments are settled by <strong>{PAYMENT_METHOD_LABEL}</strong>.</p>
+                  <p>
+                    Paid only by <strong>{PAYMENT_METHOD_LABEL}</strong>.
+                  </p>
                 </div>
               </div>
             ) : (
-              <p className="text-[11px] text-slate-500">Workers: full payment only via {PAYMENT_METHOD_LABEL}.</p>
+              <p className="text-[11px] text-slate-500">
+                Workers: full payment only via {PAYMENT_METHOD_LABEL}.
+              </p>
             )}
           </div>
         )}
@@ -282,7 +330,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
               <div className="text-xs text-primary-900">
                 <p className="font-semibold">Step 1 — Documents</p>
                 <p className="mt-0.5">
-                  Required only the <strong>first time</strong> you use an installment plan. Upload in <strong>Documents</strong>; admin approval unlocks payment.
+                  Required the first time you use installment. Upload under Documents; approval unlocks
+                  payment.
                 </p>
               </div>
             </div>
@@ -298,10 +347,7 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
             {docsApproved && paid <= 0 && (
               <div className="flex items-start gap-2 rounded-xl bg-green-50 border border-green-100 px-3 py-2.5 text-xs text-green-900">
                 <CheckCircle2 className="w-4 h-4 text-green-700 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold">Documents approved</p>
-                  <p className="mt-0.5">You may proceed with the first installment via {PAYMENT_METHOD_LABEL}.</p>
-                </div>
+                <p className="font-semibold">Documents approved — you can pay by bank transfer.</p>
               </div>
             )}
             {!docsApproved && (
@@ -317,39 +363,135 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
 
         {!needsMethod && balance > 0 && (
           <div className="flex flex-col gap-2 border-t pt-3">
-            <p className="text-[11px] text-slate-500 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2">
-              Pay by <strong>{PAYMENT_METHOD_LABEL}</strong> only. After transfer, submit here for admin confirmation.
-            </p>
             {isInstallment && (
               <p className="text-xs font-semibold text-construction-dark">
-                Step 2 — Payment {firstInstallmentGate ? "(available after document approval)" : ""}
+                Step 2 — Bank transfer payment{" "}
+                {firstInstallmentGate ? "(after document approval)" : ""}
               </p>
             )}
-            <button
-              type="button"
-              disabled={!!busy || firstInstallmentGate}
-              onClick={() => act(isInstallment ? "PAY_INSTALLMENT" : "PAY_NOW")}
-              className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold disabled:opacity-50"
-            >
-              {busy.startsWith("PAY") ? (
-                <span className="inline-flex items-center gap-2 justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
-                </span>
-              ) : isInstallment ? (
-                `Pay next installment (${PAYMENT_METHOD_LABEL})`
-              ) : (
-                `Pay now (${PAYMENT_METHOD_LABEL})`
-              )}
-            </button>
-            {balance > 0 && (
+
+            {firstInstallmentGate ? (
               <button
                 type="button"
-                disabled={!!busy || firstInstallmentGate}
-                onClick={() => act("PAY_REMAINING")}
-                className="w-full min-h-[44px] rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                disabled
+                className="w-full min-h-[44px] rounded-xl bg-slate-200 text-slate-500 text-sm font-semibold inline-flex items-center justify-center gap-2"
               >
-                Pay remaining balance
+                <Lock className="w-4 h-4" /> Complete documents first
               </button>
+            ) : !showBankPay ? (
+              <>
+                <p className="text-[11px] text-slate-500 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2">
+                  All payments use <strong>{PAYMENT_METHOD_LABEL}</strong>. Open transfer details, pay the
+                  exact amount, then confirm.
+                </p>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => {
+                    const amt = isInstallment
+                      ? Number(next?.amount || total * 0.4)
+                      : balance || total;
+                    openBankPay(isInstallment ? "PAY_INSTALLMENT" : "PAY_NOW", amt);
+                  }}
+                  className="w-full min-h-[48px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                >
+                  <Landmark className="w-4 h-4" />
+                  Pay with bank transfer
+                  {isInstallment && next ? ` · ${formatCurrency(Number(next.amount))}` : ""}
+                </button>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => openBankPay("PAY_REMAINING", balance || total)}
+                  className="w-full min-h-[44px] rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Pay remaining · {formatCurrency(balance)}
+                </button>
+              </>
+            ) : (
+              <div className="rounded-xl border-2 border-primary-300 bg-primary-50/50 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-construction-dark flex items-center gap-1.5">
+                    <Landmark className="w-4 h-4 text-primary-700" />
+                    {PAYMENT_METHOD_LABEL}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-slate-500"
+                    onClick={() => setShowBankPay(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Transfer <strong>{formatCurrency(payAmount ?? balance)}</strong> to this account:
+                </p>
+                <dl className="space-y-2 text-sm bg-white border border-slate-200 rounded-xl px-3 py-3">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 text-xs">Bank</dt>
+                    <dd className="font-semibold text-right">{BANK_TRANSFER_DETAILS.bankName}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 text-xs">Account name</dt>
+                    <dd className="font-semibold text-right">{BANK_TRANSFER_DETAILS.accountName}</dd>
+                  </div>
+                  <div className="flex justify-between items-center gap-2">
+                    <dt className="text-slate-500 text-xs">Account number</dt>
+                    <dd className="font-semibold inline-flex items-center gap-1">
+                      {BANK_TRANSFER_DETAILS.accountNumber}
+                      <button
+                        type="button"
+                        className="text-primary-700 p-1"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(
+                              BANK_TRANSFER_DETAILS.accountNumber
+                            );
+                            setCopied("acct");
+                            setTimeout(() => setCopied(""), 1500);
+                          } catch {
+                            /* */
+                          }
+                        }}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      {copied === "acct" && (
+                        <span className="text-[10px] text-emerald-700">Copied</span>
+                      )}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2 border-t pt-2">
+                    <dt className="text-slate-500 text-xs">Amount</dt>
+                    <dd className="font-bold text-primary-800">
+                      {formatCurrency(payAmount ?? balance)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-500 text-xs">Payment reference</dt>
+                    <dd className="font-mono text-xs text-right">
+                      {(plan?.id || "").slice(0, 10).toUpperCase()}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {BANK_TRANSFER_DETAILS.instructions}
+                </p>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => act(payAction, { amount: payAmount ?? undefined })}
+                  className="w-full min-h-[48px] rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                >
+                  {busy.startsWith("PAY") ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
+                    </>
+                  ) : (
+                    <>Confirm bank transfer · {formatCurrency(payAmount ?? balance)}</>
+                  )}
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -366,7 +508,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                 body: JSON.stringify({ action: "CANCEL_QUOTE" }),
               });
               const quote = await readJson(q);
-              const note = quote.message || "Cancellation may apply a fee on amounts already paid.";
+              const note =
+                quote.message || "Cancellation may apply a fee on amounts already paid.";
               if (!window.confirm(`${note}\n\nConfirm cancel?`)) return;
               await act("CANCEL_CONFIRM", { reason: "Client cancelled" });
             }}
@@ -377,7 +520,9 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
         )}
 
         {msg && (
-          <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2">{msg}</p>
+          <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2">
+            {msg}
+          </p>
         )}
       </div>
     </div>
