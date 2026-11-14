@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   ArrowRight,
   BadgeCheck,
-  Bell,
   Building2,
   CalendarClock,
   CreditCard,
@@ -89,7 +88,6 @@ export function ClientDashboardBody({
   verificationNote,
   stats,
   payments,
-  notifications,
 }: Props) {
   const [section, setSection] = useState<Section>("overview");
   const [paySelected, setPaySelected] = useState<Set<string>>(new Set());
@@ -153,7 +151,7 @@ export function ClientDashboardBody({
             </div>
           </div>
           <p className="text-sm text-slate-300 mt-2 max-w-xl leading-relaxed">
-            Manage reservations, installment plans, documents, and payments in one place. Settlement is {PAYMENT_METHOD_LABEL}.
+            Manage reservations, installment plans, documents, and payments. Settlement is {PAYMENT_METHOD_LABEL}.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link
@@ -251,65 +249,40 @@ export function ClientDashboardBody({
             })}
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-construction-dark flex items-center gap-2 text-sm sm:text-base">
-                  <span className="w-8 h-8 rounded-lg bg-slate-100 text-primary-700 inline-flex items-center justify-center">
-                    <CreditCard className="w-4 h-4" />
-                  </span>
-                  Recent payments
-                </h2>
-                <button type="button" onClick={() => go("payments")} className="text-xs font-semibold text-primary-700 hover:underline">
-                  View all
-                </button>
-              </div>
-              {payments.filter((p) => !hiddenPays.has(String(p.id))).length === 0 ? (
-                <p className="text-sm text-slate-500 py-6 text-center">No payments yet.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {payments
-                    .filter((p) => !hiddenPays.has(String(p.id)))
-                    .slice(0, 5)
-                    .map((p) => (
-                      <li key={p.id} className="py-3 flex justify-between gap-3 text-sm first:pt-0 last:pb-0">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-construction-dark">{formatCurrency(p.amount)}</p>
-                          <p className="text-xs text-slate-500 truncate">
-                            {p.type} · {PAYMENT_METHOD_LABEL} · {formatDate(p.createdAt)}
-                          </p>
-                        </div>
-                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(p.status)}`}>
-                          {p.status}
-                        </span>
-                      </li>
-                    ))}
-                </ul>
-              )}
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-construction-dark flex items-center gap-2 text-sm sm:text-base">
+                <span className="w-8 h-8 rounded-lg bg-slate-100 text-primary-700 inline-flex items-center justify-center">
+                  <CreditCard className="w-4 h-4" />
+                </span>
+                Recent payments
+              </h2>
+              <button type="button" onClick={() => go("payments")} className="text-xs font-semibold text-primary-700 hover:underline">
+                View all
+              </button>
             </div>
-
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-construction-dark flex items-center gap-2 text-sm sm:text-base">
-                  <span className="w-8 h-8 rounded-lg bg-slate-100 text-primary-700 inline-flex items-center justify-center">
-                    <Bell className="w-4 h-4" />
-                  </span>
-                  Notifications
-                </h2>
-              </div>
-              {notifications.length === 0 ? (
-                <p className="text-sm text-slate-500 py-6 text-center">No notifications yet.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                  {notifications.slice(0, 6).map((n) => (
-                    <li key={n.id} className="py-3 first:pt-0 last:pb-0">
-                      <p className="text-sm font-medium text-construction-dark">{n.title || "Update"}</p>
-                      {n.body && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>}
+            {payments.filter((p) => !hiddenPays.has(String(p.id))).length === 0 ? (
+              <p className="text-sm text-slate-500 py-6 text-center">No payments yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {payments
+                  .filter((p) => !hiddenPays.has(String(p.id)))
+                  .slice(0, 5)
+                  .map((p) => (
+                    <li key={p.id} className="py-3 flex justify-between gap-3 text-sm first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-construction-dark">{formatCurrency(p.amount)}</p>
+                        <p className="text-xs text-slate-500 truncate">
+                          {p.type} · {PAYMENT_METHOD_LABEL} · {formatDate(p.createdAt)}
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(p.status)}`}>
+                        {p.status}
+                      </span>
                     </li>
                   ))}
-                </ul>
-              )}
-            </div>
+              </ul>
+            )}
           </div>
 
           <div className="grid sm:grid-cols-3 gap-3">
