@@ -11,15 +11,28 @@ import { Countdown } from "@/components/Countdown";
 import { BankTransferPayPanel } from "@/components/BankTransferPayPanel";
 import { HardHat, Loader2, Landmark, Wrench } from "lucide-react";
 
+type Payment = { id: string; status: string; amount: number };
+
 type Rental = {
   id: string;
   status: string;
   total?: number | null;
+  installmentPaid?: number | null;
+  paymentType?: string | null;
+  scheduleJson?: string | null;
+  installmentFrequency?: string | null;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
   expiresAt?: string | Date | null;
-  tool?: { name?: string; category?: string; dailyRate?: number };
-  payments?: Array<{ id: string; status: string; amount: number }>;
+  tool?: {
+    id?: string;
+    name?: string;
+    category?: string;
+    dailyRate?: number;
+    weeklyRate?: number;
+    image?: string | null;
+  };
+  payments?: Payment[];
 };
 
 type Hire = {
@@ -32,10 +45,27 @@ type Hire = {
   endDate?: string | Date | null;
   expiresAt?: string | Date | null;
   worker?: { name?: string; specialty?: string; dailyRate?: number };
-  payments?: Array<{ id: string; status: string; amount: number }>;
+  payments?: Payment[];
 };
 
 const TERMINAL = ["CANCELLED", "EXPIRED", "COMPLETED", "REFUNDED", "REJECTED"];
+
+function approvedPaid(payments?: Payment[], fallback = 0) {
+  const sum = (payments || [])
+    .filter((p) => String(p.status).toUpperCase() === "APPROVED")
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  return Math.max(sum, fallback);
+}
+
+function parseSchedule(json?: string | null) {
+  if (!json) return [] as Array<{ amount: number; status?: string; dueDate?: string }>;
+  try {
+    const d = JSON.parse(json);
+    return Array.isArray(d) ? d : [];
+  } catch {
+    return [];
+  }
+}
 
 export function ClientOtherBookings() {
   const [rentals, setRentals] = useState<Rental[]>([]);
@@ -44,6 +74,8 @@ export function ClientOtherBookings() {
   const [busyId, setBusyId] = useState("");
   const [msg, setMsg] = useState("");
   const [payOpenId, setPayOpenId] = useState<string | null>(null);
+  const [payAmount, setPayAmount] = useState(0);
+  const [frequency, setFrequency] = useState("MONTHLY");
 
   async function load() {
     setLoading(true);
@@ -64,7 +96,31 @@ export function ClientOtherBookings() {
     load();
   }, []);
 
-  async function pay(kind: "tool" | "hire", id: string, amount: number) {
+  async function toolAct(id: string, action: string, extra: Record<string, unknown> = {}) {
+    setBusyId(id);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/tools/${id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.detail || "Request failed");
+      setMsg(data.message || "Updated");
+      if (String(action).startsWith("PAY")) setPayOpenId(null);
+      await load();
+      return data;
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed");
+      return null;
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function payHire(id: string, amount: number) {
     if (!(amount > 0)) {
       setMsg("No amount due on this booking.");
       return;
@@ -72,15 +128,16 @@ export function ClientOtherBookings() {
     setBusyId(id);
     setMsg("");
     try {
-      const body =
-        kind === "tool"
-          ? { toolRentalId: id, amount, type: "TOOL_RENTAL", currency: "NGN" }
-          : { hireRequestId: id, amount, type: "WORKER_HIRE", currency: "NGN" };
       const res = await fetch("/api/payments", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          hireRequestId: id,
+          amount,
+          type: "WORKER_HIRE",
+          currency: "NGN",
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Payment failed");
@@ -172,39 +229,61 @@ export function ClientOtherBookings() {
             <h3 className="text-base font-bold text-construction-dark">Tool rentals</h3>
           </div>
           <p className="text-xs text-slate-500">
-            Settlement is <strong>{PAYMENT_METHOD_LABEL}</strong> only. Transfer the amount, then
-            confirm on the booking card.
+            Full feature hire: choose full or installment, pay by{" "}
+            <strong>{PAYMENT_METHOD_LABEL}</strong>, cancel (10% fee), or extend after full payment.
+            Hold is typically 60 hours; installment extends hold by 24 hours.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {activeRentals.map((r) => {
-              const amount = Number(r.total || r.tool?.dailyRate || 0);
-              const pendingPay = (r.payments || []).some((p) => p.status === "PENDING");
-              const paid = (r.payments || []).some((p) => p.status === "APPROVED");
+              const total = Number(r.total || r.tool?.dailyRate || 0);
+              const paid = approvedPaid(r.payments, Number(r.installmentPaid || 0));
+              const balance = Math.max(0, total - paid);
+              const pendingPay = (r.payments || []).some(
+                (p) => String(p.status).toUpperCase() === "PENDING"
+              );
+              const fullyPaid = balance <= 0.01 && paid > 0;
+              const paymentType = String(r.paymentType || "UNSET").toUpperCase();
+              const needsMethod = !paymentType || paymentType === "UNSET";
+              const isInstallment = paymentType === "INSTALLMENT";
+              const schedule = parseSchedule(r.scheduleJson);
+              const next = schedule.find((i) => (i.status || "PENDING") === "PENDING");
               const open = payOpenId === r.id;
+              const canCancel = !fullyPaid && !["CANCELLED", "EXPIRED"].includes(r.status);
+
               return (
                 <div
                   key={r.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-2"
+                  className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3"
                 >
                   <div className="flex justify-between gap-2">
-                    <p className="font-semibold text-sm text-construction-dark">
-                      {r.tool?.name || "Tool"}
-                    </p>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-construction-dark truncate">
+                        {r.tool?.name || "Tool"}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {r.tool?.category || "Equipment"}
+                        {r.startDate ? ` · ${formatDate(r.startDate)}` : ""}
+                        {r.endDate ? ` → ${formatDate(r.endDate)}` : ""}
+                      </p>
+                    </div>
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full h-fit ${statusBadgeClass(
+                      className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(
                         r.status
                       )}`}
                     >
                       {r.status}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {r.tool?.category || "Equipment"}
-                    {r.startDate ? ` · ${formatDate(r.startDate)}` : ""}
-                    {r.endDate ? ` → ${formatDate(r.endDate)}` : ""}
-                  </p>
-                  <p className="text-sm font-semibold">{formatCurrency(amount)}</p>
-                  {r.expiresAt && (
+
+                  <span className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                    {needsMethod
+                      ? "Choose plan type"
+                      : isInstallment
+                        ? `Installment · ${PAYMENT_METHOD_LABEL}`
+                        : `Full · ${PAYMENT_METHOD_LABEL}`}
+                  </span>
+
+                  {r.expiresAt && !fullyPaid && (
                     <Countdown
                       expiresAt={r.expiresAt}
                       status={r.status}
@@ -213,33 +292,128 @@ export function ClientOtherBookings() {
                       showWhenSettled={false}
                     />
                   )}
-                  {!paid && !pendingPay && amount > 0 && !open && (
-                    <button
-                      type="button"
-                      onClick={() => setPayOpenId(r.id)}
-                      className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
-                    >
-                      <Landmark className="w-4 h-4" />
-                      Pay with bank transfer · {formatCurrency(amount)}
-                    </button>
+
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div className="bg-slate-50 rounded-xl p-2">
+                      <p className="text-[10px] text-slate-400">Total</p>
+                      <p className="font-semibold text-xs">{formatCurrency(total)}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-2">
+                      <p className="text-[10px] text-slate-400">Paid</p>
+                      <p className="font-semibold text-xs text-green-700">{formatCurrency(paid)}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-2">
+                      <p className="text-[10px] text-slate-400">Balance</p>
+                      <p className="font-semibold text-xs text-amber-700">
+                        {formatCurrency(balance)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {needsMethod && (
+                    <div className="space-y-2 border-t pt-3">
+                      <p className="text-xs font-semibold text-construction-dark">Choose plan type</p>
+                      <p className="text-[11px] text-slate-500">
+                        Settlement is always <strong>{PAYMENT_METHOD_LABEL}</strong> (Opay).
+                      </p>
+                      <button
+                        type="button"
+                        disabled={!!busyId}
+                        onClick={() => toolAct(r.id, "SET_PAYMENT_METHOD", { paymentMethod: "FULL" })}
+                        className="w-full min-h-[44px] rounded-xl bg-primary-600 text-white text-sm font-semibold disabled:opacity-50"
+                      >
+                        Full payment (bank transfer)
+                      </button>
+                      <select
+                        value={frequency}
+                        onChange={(e) => setFrequency(e.target.value)}
+                        className="w-full border rounded-xl px-3 min-h-[40px] text-sm"
+                      >
+                        {["MONTHLY", "WEEKLY", "QUARTERLY", "YEARLY"].map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!!busyId}
+                        onClick={() =>
+                          toolAct(r.id, "SET_PAYMENT_METHOD", {
+                            paymentMethod: "INSTALLMENT",
+                            paymentFrequency: frequency,
+                          })
+                        }
+                        className="w-full min-h-[44px] rounded-xl border border-primary-600 text-primary-700 text-sm font-semibold disabled:opacity-50"
+                      >
+                        Installment plan (bank transfer)
+                      </button>
+                      <p className="text-[10px] text-slate-500">
+                        Installment: 40% first, then 20% each. Tools: 1% admin fee (not interest).
+                        Choosing installment extends hold by 24h.
+                      </p>
+                    </div>
                   )}
-                  {!paid && !pendingPay && amount > 0 && open && (
-                    <BankTransferPayPanel
-                      amount={amount}
-                      reference={r.id}
-                      busy={busyId === r.id}
-                      onCancel={() => setPayOpenId(null)}
-                      onConfirm={() => pay("tool", r.id, amount)}
-                    />
+
+                  {!needsMethod && balance > 0 && !pendingPay && (
+                    <div className="space-y-2 border-t pt-3">
+                      {!open ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const amt = isInstallment
+                                ? Number(next?.amount || total * 0.4)
+                                : balance || total;
+                              setPayAmount(amt);
+                              setPayOpenId(r.id);
+                            }}
+                            className="w-full min-h-[48px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
+                          >
+                            <Landmark className="w-4 h-4" />
+                            Pay with bank transfer
+                            {isInstallment && next
+                              ? ` · ${formatCurrency(Number(next.amount))}`
+                              : ` · ${formatCurrency(balance)}`}
+                          </button>
+                          {isInstallment && balance > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPayAmount(balance);
+                                setPayOpenId(r.id);
+                              }}
+                              className="w-full min-h-[40px] rounded-xl border text-sm font-semibold text-slate-700"
+                            >
+                              Pay remaining · {formatCurrency(balance)}
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <BankTransferPayPanel
+                          amount={payAmount || balance}
+                          reference={r.id}
+                          busy={busyId === r.id}
+                          onCancel={() => setPayOpenId(null)}
+                          onConfirm={() =>
+                            toolAct(r.id, isInstallment ? "PAY_INSTALLMENT" : "PAY_NOW", {
+                              amount: payAmount || balance,
+                            })
+                          }
+                        />
+                      )}
+                    </div>
                   )}
+
                   {pendingPay && (
                     <p className="text-xs text-amber-700 font-medium">
                       Bank transfer pending admin approval
                     </p>
                   )}
-                  {paid && (
+
+                  {fullyPaid && (
                     <>
-                      <p className="text-xs text-green-700 font-medium">Payment approved</p>
+                      <p className="text-xs text-green-700 font-medium">Fully paid — hire confirmed</p>
                       <button
                         type="button"
                         disabled={busyId === `ext-${r.id}`}
@@ -248,7 +422,29 @@ export function ClientOtherBookings() {
                       >
                         {busyId === `ext-${r.id}` ? "…" : "Extend rental period"}
                       </button>
+                      <p className="text-[10px] text-slate-400">
+                        Extension fees are separate from installment rules.
+                      </p>
                     </>
+                  )}
+
+                  {canCancel && (
+                    <button
+                      type="button"
+                      disabled={!!busyId}
+                      onClick={async () => {
+                        const quote = await toolAct(r.id, "CANCEL_QUOTE");
+                        if (!quote) return;
+                        const note =
+                          quote.message ||
+                          "Cancellation may apply a 10% deduction on amounts already paid.";
+                        if (!window.confirm(`${note}\n\nConfirm cancel?`)) return;
+                        await toolAct(r.id, "CANCEL_CONFIRM", { reason: "Client cancelled" });
+                      }}
+                      className="w-full min-h-[36px] rounded-xl text-xs font-semibold text-red-700 border border-red-100 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Cancel tool rental
+                    </button>
                   )}
                 </div>
               );
@@ -270,8 +466,12 @@ export function ClientOtherBookings() {
           <div className="grid gap-3 sm:grid-cols-2">
             {activeHires.map((h) => {
               const amount = Number(h.total || h.worker?.dailyRate || 0);
-              const pendingPay = (h.payments || []).some((p) => p.status === "PENDING");
-              const paid = (h.payments || []).some((p) => p.status === "APPROVED");
+              const pendingPay = (h.payments || []).some(
+                (p) => String(p.status).toUpperCase() === "PENDING"
+              );
+              const paid = (h.payments || []).some(
+                (p) => String(p.status).toUpperCase() === "APPROVED"
+              );
               const open = payOpenId === h.id;
               return (
                 <div
@@ -308,7 +508,10 @@ export function ClientOtherBookings() {
                   {!paid && !pendingPay && amount > 0 && !open && (
                     <button
                       type="button"
-                      onClick={() => setPayOpenId(h.id)}
+                      onClick={() => {
+                        setPayAmount(amount);
+                        setPayOpenId(h.id);
+                      }}
                       className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
                     >
                       <Landmark className="w-4 h-4" />
@@ -321,7 +524,7 @@ export function ClientOtherBookings() {
                       reference={h.id}
                       busy={busyId === h.id}
                       onCancel={() => setPayOpenId(null)}
-                      onConfirm={() => pay("hire", h.id, amount)}
+                      onConfirm={() => payHire(h.id, amount)}
                     />
                   )}
                   {pendingPay && (
