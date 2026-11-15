@@ -9,13 +9,13 @@ export function cn(...inputs: ClassValue[]) {
 export const PAYMENT_METHOD_LABEL = "Bank Transfer";
 export const PAYMENT_METHOD_CODE = "BANK_TRANSFER";
 
-/** Company account clients transfer into (visible on pay flow) */
+/** Company Opay account clients transfer into */
 export const BANK_TRANSFER_DETAILS = {
-  bankName: "Access Bank",
-  accountName: "Hama Construction Ltd",
-  accountNumber: "0123456789",
+  bankName: "Opay",
+  accountName: "HAMA ENTERPRISE NG",
+  accountNumber: "6141488817",
   instructions:
-    "Transfer the exact amount, then tap Confirm transfer. Admin will approve after funds are verified.",
+    "Transfer the exact amount to Opay account 6141488817 (HAMA ENTERPRISE NG), then tap Confirm transfer. Admin will approve after funds are verified.",
 } as const;
 
 export function formatCurrency(amount: number | null | undefined, currency = "NGN") {
