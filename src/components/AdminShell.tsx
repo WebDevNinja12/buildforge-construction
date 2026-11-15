@@ -12,6 +12,7 @@ import {
   CreditCard,
   Layers,
   HardHat,
+  Wrench,
   FileText,
   RotateCcw,
   MessageSquare,
@@ -41,6 +42,7 @@ const PRIMARY = [
 const MORE = [
   { href: "/admin/reservations", label: "Reservations", icon: CalendarClock },
   { href: "/admin/installments", label: "Installment Plans", icon: Layers },
+  { href: "/admin/tools", label: "Tools", icon: Wrench },
   { href: "/admin/workers", label: "Workers", icon: HardHat },
   { href: "/admin/documents", label: "Documents", icon: FileText },
   { href: "/admin/cancellations", label: "Cancellations & Refunds", icon: RotateCcw },
@@ -61,7 +63,7 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [drawer, setDrawer] = useState(false);
+  const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
   function active(href: string) {
@@ -71,145 +73,147 @@ export function AdminShell({
 
   const pageTitle =
     ALL.find((i) => active(i.href))?.label ||
-    (pathname.startsWith("/admin/clients/") ? "Client profile" : "Admin");
+    "Admin";
 
-  const sideNav = (
-    <nav className="space-y-0.5">
-      {ALL.map((item) => {
-        const Icon = item.icon;
-        const isActive = active(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setDrawer(false)}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
-              isActive
-                ? "bg-primary-50 text-primary-800"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary-600" : "text-slate-400"}`} />
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+  function NavLink({ item, onClick }: { item: (typeof ALL)[0]; onClick?: () => void }) {
+    const Icon = item.icon;
+    const isActive = active(item.href);
+    return (
+      <Link
+        href={item.href}
+        onClick={onClick}
+        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+          isActive
+            ? "bg-primary-600 text-white shadow-sm"
+            : "text-slate-300 hover:bg-white/10 hover:text-white"
+        }`}
+      >
+        <Icon className="w-4 h-4 shrink-0" />
+        <span>{item.label}</span>
+      </Link>
+    );
+  }
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-slate-50">
-        {/* Desktop sidebar */}
-        <aside className="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col border-r border-slate-200 bg-white z-30">
-          <div className="h-16 flex items-center px-4 border-b border-slate-100">
+      <div className="min-h-screen bg-slate-100 flex">
+        <aside className="hidden lg:flex lg:flex-col w-64 bg-construction-dark text-white shrink-0">
+          <div className="p-4 border-b border-white/10">
             <Link href="/admin" className="flex items-center gap-2.5">
-              <Shield className="w-6 h-6 text-primary-600" />
-              <span className="font-bold text-construction-dark text-sm">Hama Admin</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="Hama" className="h-9 w-9 object-contain" />
+              <div>
+                <p className="font-bold text-sm tracking-wide leading-tight">Hama Construction</p>
+                <p className="text-[11px] text-slate-400">Admin console</p>
+              </div>
             </Link>
           </div>
-          <div className="flex-1 overflow-y-auto p-3">{sideNav}</div>
-          <div className="p-3 border-t border-slate-100">
-            <ProfileMenu name={name} />
-            <LogoutMenuItem />
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+            {PRIMARY.map((item) => (
+              <NavLink key={item.href} item={item} />
+            ))}
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 px-3 pt-4 pb-1">More</p>
+            {MORE.map((item) => (
+              <NavLink key={item.href} item={item} />
+            ))}
+          </nav>
+          <div className="p-3 border-t border-white/10 text-xs text-slate-400 flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5" />
+            Staff session
           </div>
         </aside>
 
-        {/* Mobile top bar */}
-        <header className="lg:hidden sticky top-0 z-40 bg-white border-b border-slate-200 px-4 h-14 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setDrawer(true)}
-            className="p-2 -ml-2 rounded-lg text-slate-600"
-            aria-label="Open menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <p className="font-semibold text-sm text-construction-dark truncate">{pageTitle}</p>
-          <ProfileMenu name={name} />
-        </header>
-
-        {/* Mobile drawer */}
-        {drawer && (
-          <div className="lg:hidden fixed inset-0 z-50">
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/40"
-              aria-label="Close"
-              onClick={() => setDrawer(false)}
-            />
-            <div className="absolute inset-y-0 left-0 w-72 bg-white shadow-xl flex flex-col">
-              <div className="h-14 flex items-center justify-between px-4 border-b">
-                <span className="font-bold text-sm">Menu</span>
-                <button type="button" onClick={() => setDrawer(false)} className="p-2">
-                  <X className="w-5 h-5" />
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+            <div className="flex items-center justify-between gap-3 px-4 h-14">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  type="button"
+                  className="lg:hidden p-2 rounded-lg hover:bg-slate-100"
+                  onClick={() => setOpen(true)}
+                  aria-label="Open menu"
+                >
+                  <Menu className="w-5 h-5" />
                 </button>
+                <h1 className="font-semibold text-construction-dark truncate">{pageTitle}</h1>
               </div>
-              <div className="flex-1 overflow-y-auto p-3">{sideNav}</div>
-              <div className="p-3 border-t">
+              <div className="flex items-center gap-2">
+                <ProfileMenu name={name} />
                 <LogoutMenuItem />
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Bottom nav mobile */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-1 py-1 flex justify-around safe-pb">
-          {PRIMARY.slice(0, 4).map((item) => {
-            const Icon = item.icon;
-            const isActive = active(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex flex-col items-center gap-0.5 py-1 px-2 min-w-[56px] ${
-                  isActive ? "text-primary-700" : "text-slate-400"
-                }`}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-medium truncate max-w-[64px]">{item.label}</span>
-              </Link>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setMoreOpen(true)}
-            className="flex flex-col items-center gap-0.5 py-1 px-2 min-w-[56px] text-slate-400"
-          >
-            <MoreHorizontal className="w-5 h-5" />
-            <span className="text-[10px] font-medium">More</span>
-          </button>
-        </nav>
-
-        {moreOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-black/40 flex items-end">
-            <button type="button" className="absolute inset-0" onClick={() => setMoreOpen(false)} aria-label="Close" />
-            <div className="relative w-full bg-white rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto space-y-1">
-              <p className="text-xs font-semibold text-slate-400 uppercase mb-2">More</p>
-              {[...PRIMARY.slice(4), ...MORE].map((item) => {
+            <div className="lg:hidden flex gap-1 overflow-x-auto px-2 pb-2">
+              {PRIMARY.map((item) => {
                 const Icon = item.icon;
                 const isActive = active(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMoreOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium ${
-                      isActive ? "bg-primary-50 text-primary-800" : "text-slate-700"
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                      isActive ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-600"
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-3.5 h-3.5" />
                     {item.label}
                   </Link>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => setMoreOpen((v) => !v)}
+                className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600"
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" /> More
+              </button>
+            </div>
+            {moreOpen && (
+              <div className="lg:hidden px-3 pb-3 grid grid-cols-2 gap-1">
+                {MORE.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = active(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMoreOpen(false)}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold ${
+                        isActive ? "bg-primary-50 text-primary-800" : "bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span className="truncate">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </header>
+
+          <main className="flex-1 p-4 sm:p-6">{children}</main>
+        </div>
+
+        {open && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+            />
+            <div className="absolute left-0 top-0 bottom-0 w-72 bg-construction-dark text-white p-3 overflow-y-auto">
+              <div className="flex justify-between items-center mb-3">
+                <p className="font-bold text-sm">Menu</p>
+                <button type="button" onClick={() => setOpen(false)} className="p-2">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {ALL.map((item) => (
+                <NavLink key={item.href} item={item} onClick={() => setOpen(false)} />
+              ))}
             </div>
           </div>
         )}
-
-        <main className="lg:pl-64 pb-20 lg:pb-8">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">{children}</div>
-        </main>
       </div>
     </ToastProvider>
   );
