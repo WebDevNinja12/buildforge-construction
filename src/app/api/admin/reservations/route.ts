@@ -20,6 +20,7 @@ function normalizeAction(body: Record<string, unknown>): string | null {
   if (["ACCEPT", "APPROVE", "APPROVED", "CONFIRM"].includes(raw)) return "ACCEPT";
   if (["REJECT", "REJECTED", "CANCEL"].includes(raw)) return "CANCEL";
   if (["CLEANUP", "PURGE_HISTORY", "DELETE_HISTORY"].includes(raw)) return "CLEANUP";
+  if (["MARK_REFUND", "REFUND_PROCESSED", "NOTE"].includes(raw)) return "MARK_REFUND";
   return null;
 }
 
@@ -37,17 +38,18 @@ async function cancelOne(
   });
   if (!reservation) return { id, ok: false, error: "Not found" };
 
-  if (["CANCELLED", "EXPIRED", "REJECTED"].includes(reservation.status)) {
-    return { id, ok: false, error: `Already ${reservation.status}` };
+  if (!["PENDING", "CONFIRMED", "ACTIVE"].includes(reservation.status)) {
+    if (reservation.status === "FULLY_PAID" || reservation.status === "COMPLETED") {
+      // still allow admin cancel with refund options
+    } else if (reservation.status === "CANCELLED" || reservation.status === "EXPIRED") {
+      return { id, ok: false, error: `Already ${reservation.status}` };
+    }
   }
 
-  const paid = (reservation.payments || []).reduce(
-    (s: number, p: any) => s + Number(p.amount || 0),
+  const totalPaid = (reservation.payments || []).reduce(
+    (s, p) => s + Number(p.amount || 0),
     0
   );
-  const installmentPaid = Number((reservation as any).installmentPaid || 0);
-  const totalPaid = Math.max(paid, installmentPaid);
-
   let deducted = 0;
   let refundAmount = totalPaid;
   let refundNote = "Full refund (no deduction).";
@@ -57,16 +59,18 @@ async function cancelOne(
     refundAmount = summary.refundAmount;
     refundNote = summary.message;
   } else {
-    refundNote = `Full refund of NGN ${totalPaid.toLocaleString("en-NG")}. Processed within 7 days.`;
+    refundNote = `Full refund of ₦${totalPaid.toLocaleString("en-NG")}. Processed within 7 days.`;
   }
 
   const cancelReason = [
     reason || "Cancelled by admin",
     `Refund: ${refundMode === "FULL" ? "100% (full)" : "90% after 10% deduction"}`,
     totalPaid > 0
-      ? `Paid NGN ${totalPaid.toLocaleString("en-NG")}, deduct NGN ${deducted.toLocaleString("en-NG")}, refund NGN ${refundAmount.toLocaleString("en-NG")}`
-      : "No approved payments on record",
-  ].join(" | ");
+      ? `Paid ₦${totalPaid.toLocaleString("en-NG")}, deduct ₦${deducted.toLocaleString("en-NG")}, refund ₦${refundAmount.toLocaleString("en-NG")}`
+      : "No approved payments to refund",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   await prisma.reservation.update({
     where: { id },
@@ -83,27 +87,18 @@ async function cancelOne(
     })
     .catch(() => null);
 
-  const other = await prisma.reservation.findFirst({
-    where: {
-      assetId: reservation.assetId,
-      id: { not: id },
-      status: { in: ["PENDING", "CONFIRMED", "ACTIVE"] },
-    },
-  });
-  if (!other) {
-    await prisma.$executeRaw`
+  if (reservation.assetId) {
+    try {
+      await prisma.$executeRaw`
       UPDATE "Asset" SET status = 'AVAILABLE', "updatedAt" = ${new Date()}
-      WHERE id = ${reservation.assetId}
-    `.catch(() => null);
+      WHERE id = ${reservation.assetId}`;
+    } catch {
+      /* */
+    }
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: reservation.userId },
-    select: { email: true },
-  });
-
-  await prisma.notification
-    .create({
+  try {
+    await prisma.notification.create({
       data: {
         userId: reservation.userId,
         title: "Plan cancelled",
@@ -111,8 +106,10 @@ async function cancelOne(
         type: "RESERVATION",
         link: "/dashboard#reservations",
       },
-    })
-    .catch(() => null);
+    });
+  } catch {
+    /* */
+  }
 
   await recordAdminActivity({
     adminId: admin.id,
@@ -122,14 +119,12 @@ async function cancelOne(
     entity: "Reservation",
     entityId: id,
     details: {
-      reason,
       refundMode,
       totalPaid,
       deducted,
       refundAmount,
-      assetId: reservation.assetId,
+      reason: cancelReason.slice(0, 200),
     },
-    alsoNotifyEmails: user?.email ? [user.email] : [],
   }).catch(() => null);
 
   return {
@@ -192,7 +187,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(
         {
           error: "action required",
-          hint: "ACCEPT | CANCEL | CLEANUP, with id or ids[]",
+          hint: "ACCEPT | CANCEL | CLEANUP | MARK_REFUND, with id or ids[]",
         },
         { status: 400 }
       );
@@ -200,6 +195,44 @@ export async function PATCH(req: NextRequest) {
 
     if (!ids.length) {
       return NextResponse.json({ error: "id or ids required" }, { status: 400 });
+    }
+
+    if (action === "MARK_REFUND") {
+      const results = [];
+      for (const id of ids) {
+        const r = await prisma.reservation.findUnique({ where: { id } });
+        if (!r) {
+          results.push({ id, ok: false, error: "Not found" });
+          continue;
+        }
+        const st = String(r.status || "").toUpperCase();
+        if (!["CANCELLED", "REJECTED", "EXPIRED"].includes(st)) {
+          results.push({ id, ok: false, error: `Not a cancelled record (${st})` });
+          continue;
+        }
+        const reason =
+          String(body.reason || "").trim() ||
+          `${r.cancelReason || "Cancelled"}\n[Refund processed ${new Date().toISOString().slice(0, 10)}]`;
+        await prisma.reservation.update({
+          where: { id },
+          data: { cancelReason: reason.slice(0, 900) },
+        });
+        await recordAdminActivity({
+          adminId: admin.id,
+          adminEmail: admin.email,
+          adminName: admin.name,
+          action: "REFUND_MARKED",
+          entity: "Reservation",
+          entityId: id,
+          details: { reason: reason.slice(0, 200) },
+        }).catch(() => null);
+        results.push({ id, ok: true });
+      }
+      return NextResponse.json({
+        ok: true,
+        results,
+        okCount: results.filter((x) => x.ok).length,
+      });
     }
 
     if (action === "CLEANUP") {
@@ -217,16 +250,13 @@ export async function PATCH(req: NextRequest) {
         }
         try {
           await prisma.payment.deleteMany({ where: { reservationId: id } }).catch(() => null);
-          await prisma.contract
-            .updateMany({ where: { reservationId: id }, data: { reservationId: null as any } })
-            .catch(() => null);
           await prisma.reservation.delete({ where: { id } });
           results.push({ id, ok: true });
         } catch (e) {
           results.push({
             id,
             ok: false,
-            error: e instanceof Error ? e.message : "Delete failed",
+            error: e instanceof Error ? e.message : "delete failed",
           });
         }
       }
@@ -236,13 +266,12 @@ export async function PATCH(req: NextRequest) {
         adminName: admin.name,
         action: "RESERVATION_CLEANUP",
         entity: "Reservation",
-        details: { count: results.filter((x) => x.ok).length, ids },
+        details: { count: results.filter((x) => x.ok).length },
       }).catch(() => null);
       return NextResponse.json({
         ok: true,
-        bulk: true,
         results,
-        message: `Cleaned ${results.filter((x) => x.ok).length} of ${results.length}`,
+        okCount: results.filter((x) => x.ok).length,
       });
     }
 
@@ -260,21 +289,6 @@ export async function PATCH(req: NextRequest) {
         where: { id },
         data: { status: "CONFIRMED" },
       });
-      const user = await prisma.user.findUnique({
-        where: { id: reservation.userId },
-        select: { email: true },
-      });
-      await prisma.notification
-        .create({
-          data: {
-            userId: reservation.userId,
-            title: "Reservation confirmed",
-            body: "Your reservation was accepted by admin.",
-            type: "RESERVATION",
-            link: "/dashboard#reservations",
-          },
-        })
-        .catch(() => null);
       await recordAdminActivity({
         adminId: admin.id,
         adminEmail: admin.email,
@@ -282,34 +296,30 @@ export async function PATCH(req: NextRequest) {
         action: "RESERVATION_ACCEPT",
         entity: "Reservation",
         entityId: id,
-        details: { assetId: reservation.assetId },
-        alsoNotifyEmails: user?.email ? [user.email] : [],
-      });
+      }).catch(() => null);
       return NextResponse.json({ ok: true, message: "Reservation accepted", status: "CONFIRMED" });
     }
 
-    const reason = body.reason ? String(body.reason).slice(0, 500) : "Cancelled by admin";
-    const refundMode =
-      String(body.refundMode || body.refund || "DEDUCT_10").toUpperCase() === "FULL"
-        ? "FULL"
-        : "DEDUCT_10";
-
-    const results = [];
-    for (const id of ids) {
-      results.push(await cancelOne(admin, id, reason, refundMode));
+    if (action === "CANCEL") {
+      const reason = String(body.reason || "Cancelled by admin").trim();
+      const refundMode =
+        String(body.refundMode || "DEDUCT_10").toUpperCase() === "FULL" ? "FULL" : "DEDUCT_10";
+      const results = [];
+      for (const id of ids) {
+        results.push(await cancelOne(admin, id, reason, refundMode));
+      }
+      return NextResponse.json({
+        ok: true,
+        results,
+        okCount: results.filter((x) => x.ok).length,
+      });
     }
-    const ok = results.filter((r) => r.ok).length;
-    return NextResponse.json({
-      ok: ok > 0,
-      bulk: ids.length > 1,
-      results,
-      message: `Cancelled ${ok} of ${results.length}`,
-      refundMode,
-    });
+
+    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (e) {
     console.error(e);
     return NextResponse.json(
-      { error: "Update failed", detail: e instanceof Error ? e.message : String(e) },
+      { error: e instanceof Error ? e.message : "Failed" },
       { status: 500 }
     );
   }
