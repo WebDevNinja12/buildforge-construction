@@ -49,7 +49,7 @@ async function processOne(
       where: { id },
       data: {
         status: "APPROVED",
-        method: payment.method || "ADMIN",
+        method: payment.method || "BANK_TRANSFER",
         reviewedBy: admin.id,
         reviewedAt: new Date(),
         rejectReason: null,
@@ -67,12 +67,42 @@ async function processOne(
     }
 
     if (payment.toolRentalId) {
-      await prisma.toolRental
-        .update({
+      try {
+        const rental = await prisma.toolRental.findUnique({
           where: { id: payment.toolRentalId },
-          data: { status: "CONFIRMED", expiresAt: null },
-        })
-        .catch(() => null);
+          include: { payments: { where: { status: "APPROVED" } } },
+        });
+        if (rental) {
+          const approvedOnly = (rental.payments || []).reduce(
+            (s, p) => s + Number(p.amount || 0),
+            0
+          );
+          const prev = Number((rental as any).installmentPaid || 0);
+          const totalPaid = Math.max(approvedOnly, prev);
+          const total = Number(rental.total || 0);
+          const fully = total > 0 && totalPaid + 0.01 >= total;
+          await prisma.toolRental.update({
+            where: { id: payment.toolRentalId },
+            data: {
+              installmentPaid: totalPaid,
+              status: fully ? "CONFIRMED" : rental.status === "PENDING" ? "PENDING" : rental.status,
+              ...(fully ? { expiresAt: null } : {}),
+            } as any,
+          });
+          if (fully) {
+            balanceNote += ` Tool hire fully paid (₦${totalPaid.toLocaleString("en-NG")}).`;
+          } else {
+            balanceNote += ` Tool paid ₦${totalPaid.toLocaleString("en-NG")}; balance ₦${Math.max(0, total - totalPaid).toLocaleString("en-NG")}.`;
+          }
+        }
+      } catch {
+        await prisma.toolRental
+          .update({
+            where: { id: payment.toolRentalId },
+            data: { status: "CONFIRMED", expiresAt: null },
+          })
+          .catch(() => null);
+      }
     }
     if (payment.hireRequestId) {
       await prisma.hireRequest
@@ -140,6 +170,7 @@ async function processOne(
       reason,
       client: payment.user?.email,
       reservationId: payment.reservationId,
+      toolRentalId: payment.toolRentalId,
     },
     alsoNotifyEmails: payment.user?.email ? [payment.user.email] : [],
   }).catch(() => null);
