@@ -1,8 +1,405 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("construction_storage_PRISMA_DATABASE_URL")
+}
+
+model User {
+  id                 String                @id @default(cuid())
+  email              String                @unique
+  password           String
+  name               String
+  phone              String?
+  clientType         String                @default("INDIVIDUAL")
+  role               String                @default("CLIENT")
+  status             String                @default("PENDING_APPROVAL")
+  verificationStatus String                @default("PENDING")
+  verificationNote   String?
+  avatarUrl          String?
+  signatureUrl       String?
+  address            String?
+  nin                String?
+  bvn                String?
+  companyRc          String?
+  companyTin         String?
+  companyProfileJson String?
+  nextOfKinJson      String?
+  historyClearedAt   DateTime?
+  agreedTermsAt      DateTime?
+  approvedAt         DateTime?
+  verifiedAt         DateTime?
+  archivedAt         DateTime?
+  archiveReason      String?
+  deletedAt          DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  reservations       Reservation[]
+  toolRentals        ToolRental[]
+  hireRequests       HireRequest[]
+  projects           Project[]             @relation("ClientProjects")
+  managedProjects    Project[]             @relation("ManagerProjects")
+  payments           Payment[]
+  documents          UserDocument[]
+  notifications      Notification[]
+  adminLogs          AdminActivityLog[]    @relation("AdminActor")
+  installmentDocs    InstallmentDocument[]
+  workerReviews      WorkerReview[]
+  contracts          Contract[]
+}
+
+model UserDocument {
+  id           String   @id @default(cuid())
+  userId       String
+  type         String
+  label        String?
+  fileUrl      String
+  fileName     String?
+  status       String   @default("PENDING")
+  rejectReason String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CategoryDefault {
+  id                       String   @id @default(cuid())
+  category                 String   @unique
+  name                     String
+  defaultExpiryHours       Int
+  installmentPlanMonths    Int?
+  cancelDeductionPercent   Int      @default(10)
+  continuesAfterHold       Boolean  @default(false)
+  installmentRulesText     String?
+  graceHours               Int      @default(0)
+  allowedFrequencies       String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model Asset {
+  id               String        @id @default(cuid())
+  title            String
+  description      String
+  type             String
+  category         String?
+  price            Float
+  location         String?
+  bedrooms         Int?
+  bathrooms        Int?
+  area             Float?
+  features         String?
+  image            String?
+  images           String?
+  mainImageIndex   Int           @default(0)
+  status           String        @default("AVAILABLE")
+  active           Boolean       @default(true)
+  reservationHours Int?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  reservations     Reservation[]
+}
+
+model Reservation {
+  id                   String                @id @default(cuid())
+  userId               String
+  assetId              String
+  status               String                @default("PENDING")
+  paymentType          String?
+  totalAmount          Float?
+  amountPaid           Float                 @default(0)
+  installmentTotal     Float?
+  installmentPaid      Float                 @default(0)
+  installmentCount     Int?
+  installmentFrequency String?
+  scheduleJson         String?
+  nextDueAt            DateTime?
+  planDeadlineAt       DateTime?
+  expiresAt            DateTime?
+  paidAt               DateTime?
+  docsStatus           String                @default("INCOMPLETE")
+  rulesAgreedAt        DateTime?
+  cancelReason         String?
+  hotelCheckIn         DateTime?
+  hotelCheckOut        DateTime?
+  hotelNights          Int?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  user                 User                  @relation(fields: [userId], references: [id])
+  asset                Asset                 @relation(fields: [assetId], references: [id])
+  payments             Payment[]
+  installmentDocs      InstallmentDocument[]
+  contracts            Contract[]
+}
+
+model Tool {
+  id          String       @id @default(cuid())
+  name        String
+  description String
+  category    String
+  dailyRate   Float
+  weeklyRate  Float
+  quantity    Int          @default(1)
+  available   Int          @default(1)
+  image       String?
+  images      String?
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  rentals     ToolRental[]
+}
+
+model ToolRental {
+  id                   String    @id @default(cuid())
+  userId               String
+  toolId               String
+  status               String    @default("PENDING")
+  startDate            DateTime?
+  endDate              DateTime?
+  expiresAt            DateTime?
+  total                Float?
+  quantity             Int       @default(1)
+  paymentType          String?
+  installmentPaid      Float     @default(0)
+  installmentFrequency String?
+  scheduleJson         String?
+  cancelReason         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id])
+  tool                 Tool      @relation(fields: [toolId], references: [id])
+  payments             Payment[]
+}
+
+model Worker {
+  id         String         @id @default(cuid())
+  name       String
+  specialty  String
+  experience Int            @default(0)
+  dailyRate  Float
+  rating     Float          @default(5)
+  bio        String?
+  image      String?
+  location   String?
+  skills     String?
+  active     Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  hires      HireRequest[]
+  reviews    WorkerReview[]
+}
+
+model HireRequest {
+  id        String    @id @default(cuid())
+  userId    String
+  workerId  String
+  status    String    @default("PENDING")
+  location  String?
+  notes     String?
+  total     Float?
+  startDate DateTime?
+  endDate   DateTime?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id])
+  worker    Worker    @relation(fields: [workerId], references: [id])
+  payments  Payment[]
+}
+
+model WorkerReview {
+  id        String   @id @default(cuid())
+  workerId  String
+  userId    String
+  rating    Int      @default(5)
+  comment   String?
+  visible   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("DEAL_PENDING")
+  budget      Float?
+  location    String?
+  clientId    String
+  managerId   String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      User     @relation("ClientProjects", fields: [clientId], references: [id])
+  manager     User?    @relation("ManagerProjects", fields: [managerId], references: [id])
+}
+
+model InstallmentDocument {
+  id                   String       @id @default(cuid())
+  userId               String
+  reservationId        String?
+  type                 String
+  label                String?
+  fileUrl              String       @default("")
+  fileName             String?
+  textValue            String?
+  metaJson             String?
+  inputType            String       @default("FILE")
+  required             Boolean      @default(true)
+  status               String       @default("PENDING")
+  rejectReason         String?
+  previousFileUrl      String?
+  previousRejectReason String?
+  expiresAt            DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservation          Reservation? @relation(fields: [reservationId], references: [id])
+}
+
+model RequiredDocumentType {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  required    Boolean  @default(true)
+  category    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Payment {
+  id            String       @id @default(cuid())
+  userId        String
+  amount        Float
+  currency      String       @default("NGN")
+  type          String?
+  method        String?
+  status        String       @default("PENDING")
+  proofUrl      String?
+  rejectReason  String?
+  referenceId   String?
+  reservationId String?
+  toolRentalId  String?
+  hireRequestId String?
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id])
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  toolRental    ToolRental?  @relation(fields: [toolRentalId], references: [id])
+  hireRequest   HireRequest? @relation(fields: [hireRequestId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String?
+  type      String?
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminActivityLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  entity    String?
+  entityId  String?
+  details   String?
+  createdAt DateTime @default(now())
+  admin     User     @relation("AdminActor", fields: [adminId], references: [id])
+}
+
+model FinishedProject {
+  id          String    @id @default(cuid())
+  title       String
+  description String
+  location    String?
+  category    String?   @default("RESIDENTIAL")
+  completedAt DateTime?
+  imageUrl    String?
+  image       String?
+  images      String?
+  featured    Boolean   @default(true)
+  published   Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model QuoteRequest {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  service     String?
+  projectType String?
+  description String?
+  location    String?
+  budgetRange String?
+  timeline    String?
+  message     String
+  status      String   @default("NEW")
+  adminNote   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  role      String?
+  quote     String
+  rating    Int      @default(5)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Contract {
+  id             String             @id @default(cuid())
+  contractNumber String             @unique
+  verifyToken    String             @unique
+  userId         String
+  reservationId  String?
+  status         String             @default("ACTIVE")
+  pdfUrl         String?
+  clientName     String?
+  serviceTitle   String?
+  paymentMethod  String?
+  totalAmount    Float?
+  issuedAt       DateTime           @default(now())
+  expiresAt      DateTime?
+  metaJson       String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservation    Reservation?       @relation(fields: [reservationId], references: [id])
+  scans          VerificationScan[]
+}
+
+model VerificationScan {
+  id         String   @id @default(cuid())
+  contractId String
+  scannedBy  String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
 }
