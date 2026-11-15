@@ -1,21 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  formatCurrency,
-  PAYMENT_METHOD_LABEL,
-  BANK_TRANSFER_DETAILS,
-} from "@/lib/utils";
+import { formatCurrency, PAYMENT_METHOD_LABEL } from "@/lib/utils";
+import { BankTransferPayPanel } from "@/components/BankTransferPayPanel";
 import { Countdown } from "@/components/Countdown";
 import { ServiceImage } from "@/components/ServiceImage";
-import {
-  FileText,
-  Loader2,
-  Lock,
-  CheckCircle2,
-  Landmark,
-  Copy,
-} from "lucide-react";
+import { FileText, Loader2, Lock, CheckCircle2, Landmark } from "lucide-react";
 
 async function readJson(res: Response) {
   const text = await res.text();
@@ -42,7 +32,6 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
   const [payAction, setPayAction] = useState<
     "PAY_NOW" | "PAY_INSTALLMENT" | "PAY_REMAINING"
   >("PAY_NOW");
-  const [copied, setCopied] = useState("");
   const docsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -381,8 +370,8 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
             ) : !showBankPay ? (
               <>
                 <p className="text-[11px] text-slate-500 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2">
-                  All payments use <strong>{PAYMENT_METHOD_LABEL}</strong>. Open transfer details, pay the
-                  exact amount, then confirm.
+                  All payments use <strong>{PAYMENT_METHOD_LABEL}</strong>. Open transfer details, pay
+                  the exact amount, then confirm.
                 </p>
                 <button
                   type="button"
@@ -409,89 +398,13 @@ export function PlanCard({ plan: initial, onUpdated }: { plan: any; onUpdated?: 
                 </button>
               </>
             ) : (
-              <div className="rounded-xl border-2 border-primary-300 bg-primary-50/50 p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-construction-dark flex items-center gap-1.5">
-                    <Landmark className="w-4 h-4 text-primary-700" />
-                    {PAYMENT_METHOD_LABEL}
-                  </p>
-                  <button
-                    type="button"
-                    className="text-[11px] font-semibold text-slate-500"
-                    onClick={() => setShowBankPay(false)}
-                  >
-                    Close
-                  </button>
-                </div>
-                <p className="text-xs text-slate-600">
-                  Transfer <strong>{formatCurrency(payAmount ?? balance)}</strong> to this account:
-                </p>
-                <dl className="space-y-2 text-sm bg-white border border-slate-200 rounded-xl px-3 py-3">
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500 text-xs">Bank</dt>
-                    <dd className="font-semibold text-right">{BANK_TRANSFER_DETAILS.bankName}</dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500 text-xs">Account name</dt>
-                    <dd className="font-semibold text-right">{BANK_TRANSFER_DETAILS.accountName}</dd>
-                  </div>
-                  <div className="flex justify-between items-center gap-2">
-                    <dt className="text-slate-500 text-xs">Account number</dt>
-                    <dd className="font-semibold inline-flex items-center gap-1">
-                      {BANK_TRANSFER_DETAILS.accountNumber}
-                      <button
-                        type="button"
-                        className="text-primary-700 p-1"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(
-                              BANK_TRANSFER_DETAILS.accountNumber
-                            );
-                            setCopied("acct");
-                            setTimeout(() => setCopied(""), 1500);
-                          } catch {
-                            /* */
-                          }
-                        }}
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                      {copied === "acct" && (
-                        <span className="text-[10px] text-emerald-700">Copied</span>
-                      )}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2 border-t pt-2">
-                    <dt className="text-slate-500 text-xs">Amount</dt>
-                    <dd className="font-bold text-primary-800">
-                      {formatCurrency(payAmount ?? balance)}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-slate-500 text-xs">Payment reference</dt>
-                    <dd className="font-mono text-xs text-right">
-                      {(plan?.id || "").slice(0, 10).toUpperCase()}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  {BANK_TRANSFER_DETAILS.instructions}
-                </p>
-                <button
-                  type="button"
-                  disabled={!!busy}
-                  onClick={() => act(payAction, { amount: payAmount ?? undefined })}
-                  className="w-full min-h-[48px] rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                >
-                  {busy.startsWith("PAY") ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
-                    </>
-                  ) : (
-                    <>Confirm bank transfer · {formatCurrency(payAmount ?? balance)}</>
-                  )}
-                </button>
-              </div>
+              <BankTransferPayPanel
+                amount={payAmount ?? balance}
+                reference={plan?.id}
+                busy={!!busy && String(busy).startsWith("PAY")}
+                onCancel={() => setShowBankPay(false)}
+                onConfirm={() => act(payAction, { amount: payAmount ?? undefined })}
+              />
             )}
           </div>
         )}
