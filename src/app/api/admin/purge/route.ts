@@ -6,7 +6,11 @@ import { recordAdminActivity } from "@/lib/admin-activity";
 export const dynamic = "force-dynamic";
 
 /**
- * Clear demo/sample catalog. Payments are always kept.
+ * Clear demo/sample catalog and related holds.
+ * Payments and admin/real client accounts are always kept.
+ *
+ * Body: { "confirm": "CLEAR CATALOG" }
+ * Optional flags (default true): assets, tools, workers, transactions, finishedProjects, projects
  */
 export async function POST(req: NextRequest) {
   try {
@@ -27,6 +31,9 @@ export async function POST(req: NextRequest) {
     const clearTools = body.tools !== false;
     const clearWorkers = body.workers !== false;
     const clearTx = body.transactions !== false;
+    const clearFinished = body.finishedProjects !== false;
+    const clearProjects = body.projects !== false;
+
     const counts: Record<string, number> = { paymentsKept: 0 };
 
     try {
@@ -36,7 +43,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (clearTx || clearAssets) {
-      // Do NOT delete payments
       counts.reservations = (
         await prisma.reservation.deleteMany({}).catch(() => ({ count: 0 }))
       ).count;
@@ -59,33 +65,58 @@ export async function POST(req: NextRequest) {
     if (clearWorkers) {
       counts.workers = (await prisma.worker.deleteMany({}).catch(() => ({ count: 0 }))).count;
     }
-
-    if (body.finishedProjects === true) {
+    if (clearFinished) {
       counts.finished = (
         await prisma.finishedProject.deleteMany({}).catch(() => ({ count: 0 }))
       ).count;
     }
-    if (body.projects === true) {
+    if (clearProjects) {
       counts.projects = (await prisma.project.deleteMany({}).catch(() => ({ count: 0 }))).count;
+    }
+
+    const DEMO_EMAILS = [
+      "client@example.com",
+      "demo@example.com",
+      "test@example.com",
+      "user@example.com",
+      "admin@example.com",
+      "admin@buildforge.com",
+    ];
+    if (body.demoUsers !== false) {
+      const demoUsers = await prisma.user
+        .findMany({
+          where: {
+            email: { in: DEMO_EMAILS },
+            role: { not: "ADMIN" },
+          },
+          select: { id: true, email: true },
+        })
+        .catch(() => [] as { id: string; email: string }[]);
+      for (const u of demoUsers) {
+        await prisma.notification.deleteMany({ where: { userId: u.id } }).catch(() => null);
+        await prisma.userDocument.deleteMany({ where: { userId: u.id } }).catch(() => null);
+        await prisma.user.delete({ where: { id: u.id } }).catch(() => null);
+      }
+      counts.demoUsersRemoved = demoUsers.length;
     }
 
     await recordAdminActivity({
       adminId: session.id,
       adminEmail: session.email,
       adminName: session.name,
-      action: "PURGE_CATALOG",
-      entity: "System",
+      action: "CATALOG_PURGE",
+      entity: "Catalog",
       details: counts,
-    });
+    }).catch(() => null);
 
     return NextResponse.json({
       ok: true,
-      counts,
       message:
-        "Demo catalog cleared. Payment records were kept. Add real services, tools, and workers from Admin.",
+        "Demo catalog cleared. Payments kept. Admin and real clients kept. Add real services under Admin.",
+      counts,
     });
   } catch (e) {
-    console.error(e);
+    console.error("purge", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Purge failed" },
       { status: 500 }
