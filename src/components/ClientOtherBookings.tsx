@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatCurrency, formatDate, statusBadgeClass } from "@/lib/utils";
+import {
+  formatCurrency,
+  formatDate,
+  statusBadgeClass,
+  PAYMENT_METHOD_LABEL,
+} from "@/lib/utils";
 import { Countdown } from "@/components/Countdown";
-import { HardHat, Loader2, Wrench } from "lucide-react";
+import { BankTransferPayPanel } from "@/components/BankTransferPayPanel";
+import { HardHat, Loader2, Landmark, Wrench } from "lucide-react";
 
 type Rental = {
   id: string;
@@ -37,6 +43,7 @@ export function ClientOtherBookings() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [msg, setMsg] = useState("");
+  const [payOpenId, setPayOpenId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -67,8 +74,8 @@ export function ClientOtherBookings() {
     try {
       const body =
         kind === "tool"
-          ? { toolRentalId: id, amount, type: "TOOL_RENTAL" }
-          : { hireRequestId: id, amount, type: "WORKER_HIRE" };
+          ? { toolRentalId: id, amount, type: "TOOL_RENTAL", currency: "NGN" }
+          : { hireRequestId: id, amount, type: "WORKER_HIRE", currency: "NGN" };
       const res = await fetch("/api/payments", {
         method: "POST",
         credentials: "include",
@@ -77,7 +84,8 @@ export function ClientOtherBookings() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Payment failed");
-      setMsg(data.message || "Payment submitted for admin approval");
+      setMsg(data.message || "Bank transfer submitted for admin approval");
+      setPayOpenId(null);
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Payment failed");
@@ -106,7 +114,7 @@ export function ClientOtherBookings() {
       const quote = await quoteRes.json().catch(() => ({}));
       if (
         !window.confirm(
-          `${quote.message || quote.note || "Confirm extension"}\nFee: ${quote.fee ?? "—"}\n\nSubmit?`
+          `${quote.message || quote.note || "Confirm extension"}\nFee: ${quote.fee ?? "—"}\n\nPay by ${PAYMENT_METHOD_LABEL} then submit?`
         )
       ) {
         setBusyId("");
@@ -120,7 +128,7 @@ export function ClientOtherBookings() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Extension failed");
-      setMsg(data.message || "Extension submitted");
+      setMsg(data.message || "Extension requested (bank transfer pending approval)");
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Extension failed");
@@ -131,34 +139,48 @@ export function ClientOtherBookings() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-6">
-        <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
-      </div>
+      <p className="text-sm text-slate-500 flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading tools & worker bookings…
+      </p>
     );
   }
 
-  const activeRentals = rentals.filter((r) => !TERMINAL.includes(String(r.status || "").toUpperCase()));
-  const activeHires = hires.filter((h) => !TERMINAL.includes(String(h.status || "").toUpperCase()));
+  const activeRentals = rentals.filter((r) => !TERMINAL.includes(String(r.status).toUpperCase()));
+  const activeHires = hires.filter((h) => !TERMINAL.includes(String(h.status).toUpperCase()));
 
   if (!activeRentals.length && !activeHires.length) {
-    return null;
+    return (
+      <p className="text-sm text-slate-500 text-center py-6 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+        No tool or worker bookings yet. Reserve from Services, then pay by {PAYMENT_METHOD_LABEL}{" "}
+        here.
+      </p>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <h3 className="text-base font-bold text-construction-dark">Tools & worker hires</h3>
-      {msg && <p className="text-xs text-slate-600 bg-slate-50 border rounded-xl px-3 py-2">{msg}</p>}
+    <div className="space-y-6">
+      {msg && (
+        <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+          {msg}
+        </p>
+      )}
 
       {activeRentals.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <Wrench className="w-3.5 h-3.5" /> Tool rentals
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-primary-700" />
+            <h3 className="text-base font-bold text-construction-dark">Tool rentals</h3>
+          </div>
+          <p className="text-xs text-slate-500">
+            Settlement is <strong>{PAYMENT_METHOD_LABEL}</strong> only. Transfer the amount, then
+            confirm on the booking card.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {activeRentals.map((r) => {
               const amount = Number(r.total || r.tool?.dailyRate || 0);
               const pendingPay = (r.payments || []).some((p) => p.status === "PENDING");
               const paid = (r.payments || []).some((p) => p.status === "APPROVED");
+              const open = payOpenId === r.id;
               return (
                 <div
                   key={r.id}
@@ -191,19 +213,29 @@ export function ClientOtherBookings() {
                       showWhenSettled={false}
                     />
                   )}
-                  {!paid && !pendingPay && amount > 0 && (
+                  {!paid && !pendingPay && amount > 0 && !open && (
                     <button
                       type="button"
-                      disabled={busyId === r.id}
-                      onClick={() => pay("tool", r.id, amount)}
-                      className="w-full min-h-[44px] rounded-xl bg-accent-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      onClick={() => setPayOpenId(r.id)}
+                      className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
                     >
-                      {busyId === r.id && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Submit payment
+                      <Landmark className="w-4 h-4" />
+                      Pay with bank transfer · {formatCurrency(amount)}
                     </button>
                   )}
+                  {!paid && !pendingPay && amount > 0 && open && (
+                    <BankTransferPayPanel
+                      amount={amount}
+                      reference={r.id}
+                      busy={busyId === r.id}
+                      onCancel={() => setPayOpenId(null)}
+                      onConfirm={() => pay("tool", r.id, amount)}
+                    />
+                  )}
                   {pendingPay && (
-                    <p className="text-xs text-amber-700 font-medium">Payment pending admin approval</p>
+                    <p className="text-xs text-amber-700 font-medium">
+                      Bank transfer pending admin approval
+                    </p>
                   )}
                   {paid && (
                     <>
@@ -214,11 +246,8 @@ export function ClientOtherBookings() {
                         onClick={() => extendBooking("TOOL", r.id)}
                         className="w-full min-h-[40px] rounded-xl border border-primary-600 text-primary-700 text-xs font-semibold disabled:opacity-50"
                       >
-                        {busyId === `ext-${r.id}` ? "…" : "Extend hire period"}
+                        {busyId === `ext-${r.id}` ? "…" : "Extend rental period"}
                       </button>
-                      <p className="text-[10px] text-slate-400">
-                        Extension fees are separate from installment rules.
-                      </p>
                     </>
                   )}
                 </div>
@@ -230,14 +259,20 @@ export function ClientOtherBookings() {
 
       {activeHires.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <HardHat className="w-3.5 h-3.5" /> Worker hires
+          <div className="flex items-center gap-2">
+            <HardHat className="w-4 h-4 text-primary-700" />
+            <h3 className="text-base font-bold text-construction-dark">Worker hires</h3>
+          </div>
+          <p className="text-xs text-slate-500">
+            Workers use full payment only (no installment). Pay by{" "}
+            <strong>{PAYMENT_METHOD_LABEL}</strong>.
           </p>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {activeHires.map((h) => {
               const amount = Number(h.total || h.worker?.dailyRate || 0);
               const pendingPay = (h.payments || []).some((p) => p.status === "PENDING");
               const paid = (h.payments || []).some((p) => p.status === "APPROVED");
+              const open = payOpenId === h.id;
               return (
                 <div
                   key={h.id}
@@ -258,8 +293,8 @@ export function ClientOtherBookings() {
                   <p className="text-xs text-slate-500">
                     {h.worker?.specialty || "Labour"}
                     {h.location ? ` · ${h.location}` : ""}
+                    {h.startDate ? ` · ${formatDate(h.startDate)}` : ""}
                   </p>
-                  {h.notes && <p className="text-xs text-slate-600 line-clamp-2">{h.notes}</p>}
                   <p className="text-sm font-semibold">{formatCurrency(amount)}</p>
                   {h.expiresAt && (
                     <Countdown
@@ -270,19 +305,29 @@ export function ClientOtherBookings() {
                       showWhenSettled={false}
                     />
                   )}
-                  {!paid && !pendingPay && amount > 0 && (
+                  {!paid && !pendingPay && amount > 0 && !open && (
                     <button
                       type="button"
-                      disabled={busyId === h.id}
-                      onClick={() => pay("hire", h.id, amount)}
-                      className="w-full min-h-[44px] rounded-xl bg-accent-500 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      onClick={() => setPayOpenId(h.id)}
+                      className="w-full min-h-[44px] rounded-xl bg-accent-500 hover:bg-accent-600 text-white text-sm font-semibold inline-flex items-center justify-center gap-2"
                     >
-                      {busyId === h.id && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Submit full payment
+                      <Landmark className="w-4 h-4" />
+                      Pay with bank transfer · {formatCurrency(amount)}
                     </button>
                   )}
+                  {!paid && !pendingPay && amount > 0 && open && (
+                    <BankTransferPayPanel
+                      amount={amount}
+                      reference={h.id}
+                      busy={busyId === h.id}
+                      onCancel={() => setPayOpenId(null)}
+                      onConfirm={() => pay("hire", h.id, amount)}
+                    />
+                  )}
                   {pendingPay && (
-                    <p className="text-xs text-amber-700 font-medium">Payment pending admin approval</p>
+                    <p className="text-xs text-amber-700 font-medium">
+                      Bank transfer pending admin approval
+                    </p>
                   )}
                   {paid && (
                     <>
@@ -295,9 +340,6 @@ export function ClientOtherBookings() {
                       >
                         {busyId === `ext-${h.id}` ? "…" : "Extend hire period"}
                       </button>
-                      <p className="text-[10px] text-slate-400">
-                        Workers: full payment only (no installment). Extend after payment.
-                      </p>
                     </>
                   )}
                 </div>
