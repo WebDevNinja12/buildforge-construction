@@ -40,3 +40,42 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
+/* Mobile safe areas & touch */
+.safe-pb {
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+}
+.safe-pt {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Horizontal tab scroller (phone) */
+.tab-scroll {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding-bottom: 0.25rem;
+  margin-left: -0.25rem;
+  margin-right: -0.25rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+.tab-scroll::-webkit-scrollbar {
+  display: none;
+}
+.tab-scroll > * {
+  scroll-snap-align: start;
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hero-mobile-tight {
+    min-height: 42vh !important;
+  }
+}
