@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getExpiryHours, runMaintenance } from "@/lib/maintenance";
+import { healSchema } from "@/lib/schema-heal";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
 /** Reserve tool first — payment on dashboard */
 export async function POST(req: NextRequest) {
   try {
+    await healSchema().catch(() => null);
     await runMaintenance().catch(() => null);
 
     const session = await getSession();
@@ -92,7 +94,6 @@ export async function POST(req: NextRequest) {
         where: { id: toolId },
         data: { available: { decrement: quantity } },
       });
-      // Schema fields: total (not totalCost), no quantity/paymentMethod columns
       return tx.toolRental.create({
         data: {
           userId: session.id,
@@ -102,7 +103,9 @@ export async function POST(req: NextRequest) {
           total,
           status: "PENDING",
           expiresAt,
-        },
+          quantity,
+          paymentType: "UNSET",
+        } as any,
         include: { tool: true },
       });
     });
@@ -112,9 +115,9 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.id,
           title: "Tool reserved",
-          body: `"${tool.name}" reserved. Open Dashboard to pay before the hold expires (${hours}h).`,
+          body: `"${tool.name}" reserved. Open Dashboard → Reservations to choose Full or Installment and pay by bank transfer (Opay) within ${hours}h.`,
           type: "RESERVATION",
-          link: "/dashboard",
+          link: "/dashboard#reservations",
         },
       });
     } catch {
@@ -125,8 +128,8 @@ export async function POST(req: NextRequest) {
       {
         ...rental,
         quantity,
-        message: `Tool reserved. Pay from Dashboard within ${hours} hours.`,
-        nextStep: "/dashboard",
+        message: `Tool reserved. Open Dashboard → Reservations to choose Full or Installment and pay by bank transfer (Opay) within ${hours} hours.`,
+        nextStep: "/dashboard#reservations",
       },
       { status: 201 }
     );
