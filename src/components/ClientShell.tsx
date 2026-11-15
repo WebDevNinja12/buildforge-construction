@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   LayoutDashboard,
-  User,
-  Building2,
   CalendarClock,
-  Layers,
-  FileText,
   CreditCard,
-  MessageSquare,
+  FileText,
+  ScrollText,
   Menu,
   X,
   Home,
@@ -19,27 +16,24 @@ import {
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
-import { ToastProvider } from "@/components/Toast";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ToastProvider } from "@/components/Toast";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/profile", label: "My Profile", icon: User },
-  { href: "/services", label: "Browse Services", icon: Building2 },
-  { href: "/dashboard#reservations", label: "My Reservations", icon: CalendarClock },
-  { href: "/dashboard#plans", label: "Installment Plans", icon: Layers },
-  { href: "/dashboard#documents", label: "My Documents", icon: FileText },
-  { href: "/dashboard#payments", label: "Payment History", icon: CreditCard },
-  { href: "/dashboard#contracts", label: "My Contracts", icon: FileText },
-  { href: "/dashboard#deal", label: "Project Deal", icon: Briefcase },
-  { href: "/quote", label: "Request Quote", icon: MessageSquare },
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard#reservations", label: "Reservations", icon: CalendarClock },
+  { href: "/dashboard#payments", label: "Payments", icon: CreditCard },
+  { href: "/dashboard#documents", label: "Documents", icon: FileText },
+  { href: "/dashboard#contracts", label: "Contracts", icon: ScrollText },
+  { href: "/dashboard#deals", label: "Deals", icon: Briefcase },
 ];
 
 const BOTTOM = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/services", label: "Services", icon: Building2 },
-  { href: "/dashboard#plans", label: "Plans", icon: Layers },
-  { href: "/profile", label: "Profile", icon: User },
+  { href: "/dashboard#reservations", label: "Plans", icon: CalendarClock },
+  { href: "/dashboard#payments", label: "Pay", icon: CreditCard },
+  { href: "/dashboard#documents", label: "Docs", icon: FileText },
+  { href: "/services", label: "Services", icon: Home },
 ];
 
 export function ClientShell({
@@ -51,51 +45,30 @@ export function ClientShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [hash, setHash] = useState("");
-
-  useEffect(() => {
-    const sync = () =>
-      setHash((window.location.hash || "").replace(/^#/, "").toLowerCase());
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, [pathname]);
 
   function active(href: string) {
-    const [base, frag] = href.split("#");
-    const path = pathname || "";
-    if (frag) {
-      if (path !== base && path !== base + "/") return false;
-      const h = hash || "";
-      if (frag === "reservations") return h === "reservations" || h === "reservation";
-      if (frag === "plans") return h === "plans" || h === "installments" || h === "installment";
-      if (frag === "documents") return h === "documents" || h === "docs";
-      if (frag === "payments") return h === "payments";
-      if (frag === "contracts") return h === "contracts";
-      if (frag === "deal") return h === "deal" || h === "project";
-      return h === frag;
-    }
-    if (base === "/dashboard") {
-      if (path !== "/dashboard" && path !== "/dashboard/") return false;
-      return !hash || hash === "overview";
-    }
-    if (path === base) return true;
-    if (path.startsWith(base + "/")) return true;
-    return false;
+    if (href === "/dashboard") return pathname === "/dashboard" || pathname === "/dashboard/";
+    if (href.startsWith("/dashboard#")) return pathname.startsWith("/dashboard");
+    return pathname === href || pathname.startsWith(href + "/");
   }
 
   const pageTitle =
-    NAV.find((i) => active(i.href))?.label ||
-    (pathname?.startsWith("/profile") ? "My Profile" : "Client portal");
+    NAV.find((i) => active(i.href) && i.href !== "/dashboard#reservations")?.label ||
+    (pathname.startsWith("/profile") ? "Profile" : "Dashboard");
 
   const links = (
     <nav className="space-y-0.5">
       {NAV.map((item) => {
         const Icon = item.icon;
-        const isActive = active(item.href);
+        const isActive =
+          item.href === "/dashboard"
+            ? pathname === "/dashboard" || pathname === "/dashboard/"
+            : item.href.includes("#")
+              ? false
+              : active(item.href);
         return (
           <Link
-            key={item.href + item.label}
+            key={item.href}
             href={item.href}
             onClick={() => setOpen(false)}
             className={`flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
@@ -198,7 +171,7 @@ export function ClientShell({
           </div>
         )}
 
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 flex justify-around px-1 py-1 safe-pb">
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/98 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] flex justify-around px-0.5 pt-1 safe-pb">
           {BOTTOM.map((item) => {
             const Icon = item.icon;
             const isActive = active(item.href);
@@ -206,19 +179,25 @@ export function ClientShell({
               <Link
                 key={item.href + item.label}
                 href={item.href}
-                className={`flex flex-col items-center justify-center gap-0.5 min-h-[52px] min-w-[64px] text-[10px] font-semibold transition-colors ${
+                className={`flex flex-col items-center justify-center gap-0.5 min-h-[56px] flex-1 max-w-[5.5rem] text-[10px] font-semibold transition-colors ${
                   isActive ? "text-primary-600" : "text-slate-500"
                 }`}
               >
-                <Icon className={`w-5 h-5 ${isActive ? "text-primary-600" : ""}`} />
-                {item.label}
+                <span
+                  className={`inline-flex items-center justify-center w-10 h-8 rounded-xl ${
+                    isActive ? "bg-primary-50" : ""
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isActive ? "text-primary-600" : "text-slate-400"}`} />
+                </span>
+                <span className="truncate max-w-full px-0.5">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
         <main className="flex-1 lg:ml-64 pt-14 pb-24 lg:pb-10 min-h-screen w-full max-w-[100vw] overflow-x-hidden">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">{children}</div>
+          <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">{children}</div>
         </main>
       </div>
     </ToastProvider>
