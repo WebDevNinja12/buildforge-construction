@@ -13,15 +13,35 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
 
-    const tools = await prisma.tool.findMany({
-      where: {
-        active: true,
-        available: { gt: 0 },
-        ...(category ? { category } : {}),
-      },
-      orderBy: { name: "asc" },
-    });
-    return NextResponse.json(tools);
+    let tools: unknown[] = [];
+    try {
+      tools = await prisma.tool.findMany({
+        where: {
+          active: true,
+          available: { gt: 0 },
+          ...(category ? { category } : {}),
+        },
+        orderBy: { name: "asc" },
+      });
+    } catch (e) {
+      console.error("tools findMany", e);
+      try {
+        if (category) {
+          tools = await prisma.$queryRawUnsafe(
+            `SELECT * FROM "Tool" WHERE COALESCE(active, true) = true AND available > 0 AND category = $1 ORDER BY name ASC`,
+            category
+          );
+        } else {
+          tools = await prisma.$queryRawUnsafe(
+            `SELECT * FROM "Tool" WHERE COALESCE(active, true) = true AND available > 0 ORDER BY name ASC`
+          );
+        }
+      } catch (e2) {
+        console.error("tools raw", e2);
+        tools = [];
+      }
+    }
+    return NextResponse.json(Array.isArray(tools) ? tools : []);
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Failed to fetch tools" }, { status: 500 });
