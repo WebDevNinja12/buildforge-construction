@@ -95,20 +95,39 @@ export async function POST(req: NextRequest) {
         where: { id: toolId },
         data: { available: { decrement: quantity } },
       });
-      return tx.toolRental.create({
-        data: {
-          userId: session.id,
-          toolId,
-          startDate: start,
-          endDate: end,
-          total,
-          status: "PENDING",
-          expiresAt,
-          quantity,
-          paymentType: "UNSET",
-        } as any,
-        include: { tool: true },
-      });
+      try {
+        return await tx.toolRental.create({
+          data: {
+            userId: session.id,
+            toolId,
+            startDate: start,
+            endDate: end,
+            total,
+            status: "PENDING",
+            expiresAt,
+            quantity,
+            paymentType: "UNSET",
+          },
+          include: { tool: true },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/Unknown argument|Unknown field|paymentType|quantity/i.test(msg)) {
+          return tx.toolRental.create({
+            data: {
+              userId: session.id,
+              toolId,
+              startDate: start,
+              endDate: end,
+              total,
+              status: "PENDING",
+              expiresAt,
+            },
+            include: { tool: true },
+          });
+        }
+        throw e;
+      }
     });
 
     try {
