@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    await healSchema().catch(() => null);
     await runMaintenance().catch(() => null);
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
