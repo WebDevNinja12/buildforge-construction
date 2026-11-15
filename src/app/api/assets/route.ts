@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordAdminActivity } from "@/lib/admin-activity";
+import { getCategory } from "@/lib/service-categories";
+import { reservationHoldFee } from "@/lib/booking-rules";
 
 async function listAssets(opts: { type?: string | null; status?: string | null; all?: boolean }) {
   try {
     return await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT id, title, description, type, price, location, image, images,
               status, active, bedrooms, bathrooms, area, features,
+              "listingMode", "reservationFee",
               "createdAt", "updatedAt"
        FROM "Asset"
        WHERE ($1::text IS NULL OR type = $1)
@@ -18,10 +21,25 @@ async function listAssets(opts: { type?: string | null; status?: string | null; 
       opts.status || null
     );
   } catch {
-    return prisma.$queryRaw<
-      Record<string, unknown>[]
-    >`SELECT id, title, description, type, price, location, status, "createdAt"
-      FROM "Asset" ORDER BY "createdAt" DESC`;
+    try {
+      return await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+        `SELECT id, title, description, type, price, location, image, images,
+                status, active, bedrooms, bathrooms, area, features,
+                "createdAt", "updatedAt"
+         FROM "Asset"
+         WHERE ($1::text IS NULL OR type = $1)
+           AND ($2::boolean OR status = COALESCE($3::text, 'AVAILABLE'))
+         ORDER BY "createdAt" DESC`,
+        opts.type || null,
+        opts.all === true,
+        opts.status || null
+      );
+    } catch {
+      return prisma.$queryRaw<
+        Record<string, unknown>[]
+      >`SELECT id, title, description, type, price, location, status, "createdAt"
+        FROM "Asset" ORDER BY "createdAt" DESC`;
+    }
   }
 }
 
@@ -87,17 +105,38 @@ export async function POST(req: NextRequest) {
       body.area != null ? Number(body.area) : body.size != null ? Number(body.size) : null;
     const features = body.features ? JSON.stringify(body.features) : null;
 
-    await prisma.$executeRaw`
-      INSERT INTO "Asset" (
-        id, title, description, type, price, location, image, images,
-        status, active, bedrooms, bathrooms, area, features,
-        "createdAt", "updatedAt"
-      ) VALUES (
-        ${id}, ${title}, ${description}, ${type}, ${price}, ${location}, ${image}, ${imagesJson},
-        ${status}, true, ${bedrooms}, ${bathrooms}, ${area}, ${features},
-        ${now}, ${now}
-      )
-    `;
+    const cat = getCategory(type);
+    const listingMode = cat?.mode || "SALE";
+    const reservationFee =
+      body.reservationFee != null ? Number(body.reservationFee) : reservationHoldFee(type);
+
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO "Asset" (
+          id, title, description, type, price, location, image, images,
+          status, active, bedrooms, bathrooms, area, features,
+          "listingMode", "reservationFee",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          ${id}, ${title}, ${description}, ${type}, ${price}, ${location}, ${image}, ${imagesJson},
+          ${status}, true, ${bedrooms}, ${bathrooms}, ${area}, ${features},
+          ${listingMode}, ${reservationFee},
+          ${now}, ${now}
+        )
+      `;
+    } catch {
+      await prisma.$executeRaw`
+        INSERT INTO "Asset" (
+          id, title, description, type, price, location, image, images,
+          status, active, bedrooms, bathrooms, area, features,
+          "createdAt", "updatedAt"
+        ) VALUES (
+          ${id}, ${title}, ${description}, ${type}, ${price}, ${location}, ${image}, ${imagesJson},
+          ${status}, true, ${bedrooms}, ${bathrooms}, ${area}, ${features},
+          ${now}, ${now}
+        )
+      `;
+    }
 
     const rows = await prisma.$queryRaw<
       Record<string, unknown>[]
@@ -110,7 +149,7 @@ export async function POST(req: NextRequest) {
       action: "SERVICE_CREATE",
       entity: "Asset",
       entityId: id,
-      details: { title, type, price },
+      details: { title, type, price, listingMode, reservationFee },
     });
 
     return NextResponse.json(rows[0] || { id }, { status: 201 });
