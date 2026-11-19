@@ -56,45 +56,59 @@ export function ClientShell({
   useEffect(() => {
     const sync = () =>
       setHash((window.location.hash || "").replace(/^#/, "").toLowerCase());
+    const onCustom = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { hash?: string; section?: string } | undefined;
+      if (detail?.hash != null) setHash(String(detail.hash).toLowerCase());
+      else if (detail?.section === "overview") setHash("");
+      else sync();
+    };
     sync();
     window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
+    window.addEventListener("hama:dashboard-section", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("hama:dashboard-section", onCustom as EventListener);
+    };
   }, [pathname]);
 
-  /** Hash sections live on /dashboard — Next Link often skips same-path hash changes. */
+  /** Same section switching as dashboard tabs (custom event + hash). */
   const goNav = useCallback(
     (href: string, e?: React.MouseEvent) => {
       setOpen(false);
-      const [base, frag] = href.split("#");
+      const [base, fragRaw] = href.split("#");
+      const frag = (fragRaw || "").toLowerCase();
       const path = pathname || "";
-      const onBase =
-        path === base ||
-        path === base + "/" ||
-        (base === "/dashboard" && (path === "/dashboard" || path === "/dashboard/"));
+      const onDashboard = path === "/dashboard" || path === "/dashboard/";
 
-      if (frag) {
+      if (base === "/dashboard" && (frag || href === "/dashboard")) {
         e?.preventDefault();
-        if (onBase) {
-          const next = "#" + frag;
-          if (window.location.hash !== next) {
-            window.location.hash = frag;
-          } else {
-            window.dispatchEvent(new HashChangeEvent("hashchange"));
+        const section = frag || "overview";
+        if (onDashboard) {
+          try {
+            if (frag) history.pushState(null, "", "/dashboard#" + frag);
+            else history.replaceState(null, "", "/dashboard");
+          } catch {
+            if (frag) window.location.hash = frag;
           }
-          setHash(frag.toLowerCase());
+          setHash(frag);
+          window.dispatchEvent(
+            new CustomEvent("hama:dashboard-section", {
+              detail: { section, hash: frag },
+            })
+          );
+          try {
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+          } catch {
+            /* older browsers */
+          }
         } else {
-          window.location.assign(base + "#" + frag);
+          window.location.assign(frag ? `/dashboard#${frag}` : "/dashboard");
         }
         return;
       }
 
-      if (path === base || path === base + "/") {
+      if (!frag && (path === base || path === base + "/")) {
         e?.preventDefault();
-        if (base === "/dashboard") {
-          history.replaceState(null, "", "/dashboard");
-          setHash("");
-          window.dispatchEvent(new HashChangeEvent("hashchange"));
-        }
         return;
       }
     },
