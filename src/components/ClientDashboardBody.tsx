@@ -111,31 +111,57 @@ export function ClientDashboardBody({
   useEffect(() => {
     const sync = () => setSection(sectionFromHash());
     sync();
+    const onCustom = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { section?: string } | undefined;
+      const s = String(detail?.section || "").toLowerCase();
+      const allowed: Section[] = [
+        "overview",
+        "reservations",
+        "plans",
+        "documents",
+        "payments",
+        "contracts",
+        "deal",
+      ];
+      if (allowed.includes(s as Section)) setSection(s as Section);
+    };
     window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    window.addEventListener("hama:dashboard-section", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("hama:dashboard-section", onCustom as EventListener);
+    };
   }, []);
 
   function go(s: Section) {
-    const hash =
-      s === "overview"
-        ? ""
-        : s === "reservations"
-          ? "#reservations"
-          : s === "plans"
-            ? "#plans"
-            : s === "documents"
-              ? "#documents"
-              : s === "payments"
-                ? "#payments"
-                : s === "contracts"
-                  ? "#contracts"
-                  : "#deal";
-    if (hash) window.location.hash = hash;
-    else {
-      history.replaceState(null, "", window.location.pathname);
-      setSection("overview");
-    }
+    const map: Record<Section, string> = {
+      overview: "",
+      reservations: "reservations",
+      plans: "plans",
+      documents: "documents",
+      payments: "payments",
+      contracts: "contracts",
+      deal: "deal",
+    };
+    const frag = map[s] || "";
     setSection(s);
+    try {
+      if (frag) {
+        const next = "#" + frag;
+        if (window.location.hash !== next) {
+          history.pushState(null, "", window.location.pathname + next);
+        }
+      } else {
+        history.replaceState(null, "", window.location.pathname);
+      }
+    } catch {
+      if (frag) window.location.hash = frag;
+    }
+    window.dispatchEvent(
+      new CustomEvent("hama:dashboard-section", { detail: { section: s, hash: frag } })
+    );
   }
 
   return (
@@ -427,14 +453,14 @@ export function ClientDashboardBody({
                                 }}
                                 className="mt-1 rounded border-slate-300"
                               />
-                              <span>
+                              <span className="min-w-0">
                                 <span className="font-semibold text-construction-dark block">{formatCurrency(p.amount)}</span>
-                                <span className="text-xs text-slate-500">
+                                <span className="text-xs text-slate-500 block">
                                   {p.type} · {PAYMENT_METHOD_LABEL} · {formatDate(p.createdAt)}
                                 </span>
                               </span>
                             </label>
-                            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit ${statusBadgeClass(p.status)}`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full h-fit shrink-0 ${statusBadgeClass(p.status)}`}>
                               {p.status}
                             </span>
                           </li>
@@ -451,14 +477,14 @@ export function ClientDashboardBody({
 
       {section === "contracts" && (
         <div id="contracts" className="scroll-mt-24 space-y-4">
-          <SectionHead title="My contracts" subtitle="Issued agreements for approved services." />
+          <SectionHead title="My contracts" subtitle="Issued agreements for approved payments." />
           <ClientContracts />
         </div>
       )}
 
       {section === "deal" && (
         <div id="deal" className="scroll-mt-24 space-y-4">
-          <SectionHead title="Project deal" subtitle="Open a construction deal for admin review. Accepted deals are followed up offline." />
+          <SectionHead title="Project deal" subtitle="Submit or track a construction project deal." />
           <ClientProjectDeal />
         </div>
       )}
@@ -466,11 +492,11 @@ export function ClientDashboardBody({
   );
 }
 
-function SectionHead({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHead({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
-      <h2 className="text-lg font-bold text-construction-dark tracking-tight">{title}</h2>
-      {subtitle && <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
+      <h2 className="text-lg font-bold text-construction-dark">{title}</h2>
+      <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
     </div>
   );
 }
