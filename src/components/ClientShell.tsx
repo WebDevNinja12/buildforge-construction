@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   LayoutDashboard,
+  User,
+  Building2,
   CalendarClock,
-  CreditCard,
+  Layers,
   FileText,
-  ScrollText,
+  CreditCard,
+  MessageSquare,
   Menu,
   X,
   Home,
@@ -16,24 +19,27 @@ import {
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
-import { NotificationBell } from "@/components/NotificationBell";
 import { ToastProvider } from "@/components/Toast";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const NAV = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/dashboard#reservations", label: "Reservations", icon: CalendarClock },
-  { href: "/dashboard#payments", label: "Payments", icon: CreditCard },
-  { href: "/dashboard#documents", label: "Documents", icon: FileText },
-  { href: "/dashboard#contracts", label: "Contracts", icon: ScrollText },
-  { href: "/dashboard#deals", label: "Deals", icon: Briefcase },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/profile", label: "My Profile", icon: User },
+  { href: "/services", label: "Browse Services", icon: Building2 },
+  { href: "/dashboard#reservations", label: "My Reservations", icon: CalendarClock },
+  { href: "/dashboard#plans", label: "Installment Plans", icon: Layers },
+  { href: "/dashboard#documents", label: "My Documents", icon: FileText },
+  { href: "/dashboard#payments", label: "Payment History", icon: CreditCard },
+  { href: "/dashboard#contracts", label: "My Contracts", icon: FileText },
+  { href: "/dashboard#deal", label: "Project Deal", icon: Briefcase },
+  { href: "/quote", label: "Request Quote", icon: MessageSquare },
 ];
 
 const BOTTOM = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/dashboard#reservations", label: "Plans", icon: CalendarClock },
-  { href: "/dashboard#payments", label: "Pay", icon: CreditCard },
-  { href: "/dashboard#documents", label: "Docs", icon: FileText },
-  { href: "/services", label: "Services", icon: Home },
+  { href: "/services", label: "Services", icon: Building2 },
+  { href: "/dashboard#plans", label: "Plans", icon: Layers },
+  { href: "/profile", label: "Profile", icon: User },
 ];
 
 export function ClientShell({
@@ -45,32 +51,93 @@ export function ClientShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [hash, setHash] = useState("");
+
+  useEffect(() => {
+    const sync = () =>
+      setHash((window.location.hash || "").replace(/^#/, "").toLowerCase());
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [pathname]);
+
+  /** Hash sections live on /dashboard — Next Link often skips same-path hash changes. */
+  const goNav = useCallback(
+    (href: string, e?: React.MouseEvent) => {
+      setOpen(false);
+      const [base, frag] = href.split("#");
+      const path = pathname || "";
+      const onBase =
+        path === base ||
+        path === base + "/" ||
+        (base === "/dashboard" && (path === "/dashboard" || path === "/dashboard/"));
+
+      if (frag) {
+        e?.preventDefault();
+        if (onBase) {
+          const next = "#" + frag;
+          if (window.location.hash !== next) {
+            window.location.hash = frag;
+          } else {
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+          }
+          setHash(frag.toLowerCase());
+        } else {
+          window.location.assign(base + "#" + frag);
+        }
+        return;
+      }
+
+      if (path === base || path === base + "/") {
+        e?.preventDefault();
+        if (base === "/dashboard") {
+          history.replaceState(null, "", "/dashboard");
+          setHash("");
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+        }
+        return;
+      }
+    },
+    [pathname]
+  );
 
   function active(href: string) {
-    if (href === "/dashboard") return pathname === "/dashboard" || pathname === "/dashboard/";
-    if (href.startsWith("/dashboard#")) return pathname.startsWith("/dashboard");
-    return pathname === href || pathname.startsWith(href + "/");
+    const [base, frag] = href.split("#");
+    const path = pathname || "";
+    if (frag) {
+      if (path !== base && path !== base + "/") return false;
+      const h = hash || "";
+      if (frag === "reservations") return h === "reservations" || h === "reservation";
+      if (frag === "plans") return h === "plans" || h === "installments" || h === "installment";
+      if (frag === "documents") return h === "documents" || h === "docs";
+      if (frag === "payments") return h === "payments";
+      if (frag === "contracts") return h === "contracts";
+      if (frag === "deal") return h === "deal" || h === "project";
+      return h === frag;
+    }
+    if (base === "/dashboard") {
+      if (path !== "/dashboard" && path !== "/dashboard/") return false;
+      return !hash || hash === "overview";
+    }
+    if (path === base) return true;
+    if (path.startsWith(base + "/")) return true;
+    return false;
   }
 
   const pageTitle =
-    NAV.find((i) => active(i.href) && i.href !== "/dashboard#reservations")?.label ||
-    (pathname.startsWith("/profile") ? "Profile" : "Dashboard");
+    NAV.find((i) => active(i.href))?.label ||
+    (pathname?.startsWith("/profile") ? "My Profile" : "Client portal");
 
   const links = (
     <nav className="space-y-0.5">
       {NAV.map((item) => {
         const Icon = item.icon;
-        const isActive =
-          item.href === "/dashboard"
-            ? pathname === "/dashboard" || pathname === "/dashboard/"
-            : item.href.includes("#")
-              ? false
-              : active(item.href);
+        const isActive = active(item.href);
         return (
           <Link
-            key={item.href}
+            key={item.href + item.label}
             href={item.href}
-            onClick={() => setOpen(false)}
+            onClick={(e) => goNav(item.href, e)}
             className={`flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
               isActive
                 ? "bg-primary-600 text-white shadow-sm"
@@ -179,6 +246,7 @@ export function ClientShell({
               <Link
                 key={item.href + item.label}
                 href={item.href}
+                onClick={(e) => goNav(item.href, e)}
                 className={`flex flex-col items-center justify-center gap-0.5 min-h-[56px] flex-1 max-w-[5.5rem] text-[10px] font-semibold transition-colors ${
                   isActive ? "text-primary-600" : "text-slate-500"
                 }`}
