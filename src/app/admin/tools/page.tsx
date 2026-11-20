@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Wrench, Plus, Loader2, Pencil, Trash2, Power } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { MediaUploader } from "@/components/MediaUploader";
 
 type Tool = {
   id: string;
@@ -12,8 +11,6 @@ type Tool = {
   category: string;
   dailyRate: number;
   weeklyRate: number;
-  hourlyRate?: number | null;
-  rateUnit?: string | null;
   securityDeposit?: number | null;
   minHireDays?: number | null;
   maxHireDays?: number | null;
@@ -22,7 +19,6 @@ type Tool = {
   quantity: number;
   available: number;
   image?: string | null;
-  images?: string | null;
   active: boolean;
 };
 
@@ -32,8 +28,6 @@ const emptyForm = {
   category: "POWER_TOOLS",
   dailyRate: "",
   weeklyRate: "",
-  hourlyRate: "",
-  rateUnit: "DAY",
   securityDeposit: "0",
   minHireDays: "1",
   maxHireDays: "",
@@ -41,7 +35,6 @@ const emptyForm = {
   serialNumber: "",
   quantity: "1",
   image: "",
-  images: [] as string[],
   active: true,
 };
 
@@ -56,12 +49,19 @@ export default function AdminToolsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setMsg("");
     try {
       const res = await fetch("/api/admin/tools", { credentials: "include" });
+      if (res.status === 401 || res.status === 403) {
+        setMsg("Admin session required");
+        setTools([]);
+        return;
+      }
       const data = await res.json().catch(() => []);
-      setTools(Array.isArray(data) ? data : Array.isArray(data.tools) ? data.tools : []);
+      setTools(Array.isArray(data) ? data : []);
     } catch {
       setTools([]);
+      setMsg("Failed to load tools");
     } finally {
       setLoading(false);
     }
@@ -79,13 +79,6 @@ export default function AdminToolsPage() {
   }
 
   function startEdit(t: Tool) {
-    let imgs: string[] = [];
-    try {
-      imgs = t.images ? JSON.parse(t.images) : [];
-    } catch {
-      imgs = [];
-    }
-    if (t.image && !imgs.includes(t.image)) imgs = [t.image, ...imgs];
     setEditId(t.id);
     setForm({
       name: t.name,
@@ -93,8 +86,6 @@ export default function AdminToolsPage() {
       category: t.category || "POWER_TOOLS",
       dailyRate: String(t.dailyRate ?? ""),
       weeklyRate: String(t.weeklyRate ?? ""),
-      hourlyRate: t.hourlyRate != null ? String(t.hourlyRate) : "",
-      rateUnit: t.rateUnit || "DAY",
       securityDeposit: String(t.securityDeposit ?? 0),
       minHireDays: String(t.minHireDays ?? 1),
       maxHireDays: t.maxHireDays != null ? String(t.maxHireDays) : "",
@@ -102,7 +93,6 @@ export default function AdminToolsPage() {
       serialNumber: t.serialNumber || "",
       quantity: String(t.quantity ?? 1),
       image: t.image || "",
-      images: imgs,
       active: t.active !== false,
     });
     setShowForm(true);
@@ -121,16 +111,13 @@ export default function AdminToolsPage() {
         category: form.category,
         dailyRate: Number(form.dailyRate),
         weeklyRate: Number(form.weeklyRate),
-        hourlyRate: form.hourlyRate ? Number(form.hourlyRate) : null,
-        rateUnit: form.rateUnit,
         securityDeposit: Number(form.securityDeposit) || 0,
         minHireDays: Number(form.minHireDays) || 1,
         maxHireDays: form.maxHireDays ? Number(form.maxHireDays) : null,
         condition: form.condition || null,
         serialNumber: form.serialNumber || null,
         quantity: Math.max(1, Number(form.quantity) || 1),
-        image: form.images[0] || form.image || null,
-        images: form.images,
+        image: form.image || null,
         active: form.active,
       };
       if (!payload.name || !payload.description) throw new Error("Name and description are required");
@@ -173,7 +160,7 @@ export default function AdminToolsPage() {
   }
 
   async function remove(t: Tool) {
-    if (!confirm(`Delete tool "${t.name}"? This cannot be undone.`)) return;
+    if (!confirm('Delete tool "' + t.name + '"? This cannot be undone.')) return;
     try {
       const res = await fetch("/api/admin/tools", {
         method: "DELETE",
@@ -200,24 +187,14 @@ export default function AdminToolsPage() {
             <Wrench className="w-6 h-6 text-primary-600" />
             Tools inventory
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage hire stock, rates, deposits, and availability.
-          </p>
+          <p className="text-sm text-slate-500 mt-1">Manage hire stock, rates, deposits, and availability.</p>
         </div>
-        <button
-          type="button"
-          onClick={startCreate}
-          className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold"
-        >
+        <button type="button" onClick={startCreate} className="inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold">
           <Plus className="w-4 h-4" /> Add tool
         </button>
       </div>
 
-      {msg && (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-          {msg}
-        </div>
-      )}
+      {msg && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{msg}</div>}
 
       {showForm && (
         <form onSubmit={save} className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
@@ -246,11 +223,11 @@ export default function AdminToolsPage() {
               <input type="number" min={1} className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))} />
             </label>
             <label className="text-xs font-semibold text-slate-600 space-y-1">
-              Daily rate
+              Daily rate (NGN)
               <input type="number" min={0} required className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.dailyRate} onChange={(e) => setForm((f) => ({ ...f, dailyRate: e.target.value }))} />
             </label>
             <label className="text-xs font-semibold text-slate-600 space-y-1">
-              Weekly rate
+              Weekly rate (NGN)
               <input type="number" min={0} required className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.weeklyRate} onChange={(e) => setForm((f) => ({ ...f, weeklyRate: e.target.value }))} />
             </label>
             <label className="text-xs font-semibold text-slate-600 space-y-1">
@@ -261,46 +238,20 @@ export default function AdminToolsPage() {
               Min hire days
               <input type="number" min={1} className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.minHireDays} onChange={(e) => setForm((f) => ({ ...f, minHireDays: e.target.value }))} />
             </label>
-            <label className="text-xs font-semibold text-slate-600 space-y-1">
-              Max hire days
-              <input type="number" min={1} className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.maxHireDays} onChange={(e) => setForm((f) => ({ ...f, maxHireDays: e.target.value }))} />
-            </label>
-            <label className="text-xs font-semibold text-slate-600 space-y-1">
-              Condition
-              <input className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))} />
-            </label>
-            <label className="text-xs font-semibold text-slate-600 space-y-1">
-              Serial number
-              <input className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" value={form.serialNumber} onChange={(e) => setForm((f) => ({ ...f, serialNumber: e.target.value }))} />
+            <label className="text-xs font-semibold text-slate-600 space-y-1 sm:col-span-2">
+              Image URL (optional)
+              <input className="w-full min-h-[42px] rounded-xl border border-slate-200 px-3 text-sm" placeholder="https://..." value={form.image} onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))} />
             </label>
           </div>
-
-          <MediaUploader
-            folder="tools"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            value={form.images.map((url) => ({ url, kind: "image" as const }))}
-            onChange={(files) =>
-              setForm((f) => ({
-                ...f,
-                images: files.map((x) => x.url),
-                image: files[0]?.url || "",
-              }))
-            }
-            label="Tool photos"
-          />
-
           <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} className="rounded border-slate-300" />
             Active (visible for hire)
           </label>
-
           <div className="flex flex-wrap gap-2 pt-2">
             <button type="submit" disabled={saving} className="min-h-[44px] px-5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-50">
               {saving ? "Saving..." : editId ? "Update tool" : "Create tool"}
             </button>
-            <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="min-h-[44px] px-4 rounded-xl border border-slate-200 text-sm font-semibold">
-              Cancel
-            </button>
+            <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="min-h-[44px] px-4 rounded-xl border border-slate-200 text-sm font-semibold">Cancel</button>
           </div>
         </form>
       )}
@@ -326,7 +277,7 @@ export default function AdminToolsPage() {
                     <Wrench className="w-10 h-10" />
                   </div>
                 )}
-                <span className={`absolute top-2 left-2 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${t.active ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-100 text-slate-600 border border-slate-200"}`}>
+                <span className={"absolute top-2 left-2 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full " + (t.active ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-100 text-slate-600 border border-slate-200")}>
                   {t.active ? "Active" : "Off"}
                 </span>
               </div>
@@ -343,15 +294,7 @@ export default function AdminToolsPage() {
                   </div>
                   <div className="bg-slate-50 rounded-lg p-2">
                     <p className="text-slate-400">Stock</p>
-                    <p className="font-semibold">{t.available} / {t.quantity ?? t.available} available</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-2">
-                    <p className="text-slate-400">Deposit</p>
-                    <p className="font-semibold">{formatCurrency(t.securityDeposit || 0)}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-2">
-                    <p className="text-slate-400">Hire period</p>
-                    <p className="font-semibold">{t.minHireDays || 1}{t.maxHireDays ? `-${t.maxHireDays}` : "+"} days</p>
+                    <p className="font-semibold">{t.available} / {t.quantity ?? t.available}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1 mt-auto">
@@ -359,7 +302,7 @@ export default function AdminToolsPage() {
                     <Pencil className="w-3.5 h-3.5" /> Edit
                   </button>
                   <button type="button" onClick={() => toggleActive(t)} className="inline-flex items-center gap-1 text-xs font-semibold px-3 min-h-[36px] rounded-lg border">
-                    <Power className="w-3.5 h-3.5" /> {t.active ? "Deactivate" : "Activate"}
+                    <Power className="w-3.5 h-3.5" /> {t.active ? "Off" : "On"}
                   </button>
                   <button type="button" onClick={() => remove(t)} className="inline-flex items-center gap-1 text-xs font-semibold px-3 min-h-[36px] rounded-lg border border-red-100 text-red-700">
                     <Trash2 className="w-3.5 h-3.5" /> Delete
