@@ -37,7 +37,7 @@ const PRIMARY = [
   { href: "/admin/scan", label: "Scan QR", icon: QrCode },
   { href: "/admin/finished-projects", label: "Finished Projects", icon: Sparkles },
   { href: "/admin/services", label: "Services", icon: Building2 },
-  { href: "/admin/tool-inventory", label: "Tools", icon: Wrench },
+  { href: "/admin/services?section=tools", label: "Tools", icon: Wrench },
 ];
 
 const MORE = [
@@ -68,13 +68,13 @@ export function AdminShell({
 
   function active(href: string) {
     if (href === "/admin") return pathname === "/admin";
-    if (href === "/admin/tool-inventory") {
-      return (
-        pathname === "/admin/tool-inventory" ||
-        pathname === "/admin/tools" ||
-        pathname.startsWith("/admin/tool-inventory/") ||
-        pathname.startsWith("/admin/tools/")
-      );
+    if (href.includes("section=tools")) {
+      if (typeof window === "undefined") return false;
+      return pathname.startsWith("/admin/services") && window.location.search.includes("section=tools");
+    }
+    if (href === "/admin/services") {
+      if (typeof window !== "undefined" && window.location.search.includes("section=tools")) return false;
+      return pathname === "/admin/services" || pathname.startsWith("/admin/services/");
     }
     return pathname === href || pathname.startsWith(href + "/");
   }
