@@ -37,12 +37,12 @@ const PRIMARY = [
   { href: "/admin/scan", label: "Scan QR", icon: QrCode },
   { href: "/admin/finished-projects", label: "Finished Projects", icon: Sparkles },
   { href: "/admin/services", label: "Services", icon: Building2 },
+  { href: "/admin/tools", label: "Tools", icon: Wrench },
 ];
 
 const MORE = [
   { href: "/admin/reservations", label: "Reservations", icon: CalendarClock },
   { href: "/admin/installments", label: "Installment Plans", icon: Layers },
-  { href: "/admin/tools", label: "Tools", icon: Wrench },
   { href: "/admin/workers", label: "Workers", icon: HardHat },
   { href: "/admin/documents", label: "Documents", icon: FileText },
   { href: "/admin/cancellations", label: "Cancellations & Refunds", icon: RotateCcw },
@@ -71,9 +71,7 @@ export function AdminShell({
     return pathname === href || pathname.startsWith(href + "/");
   }
 
-  const pageTitle =
-    ALL.find((i) => active(i.href))?.label ||
-    "Admin";
+  const pageTitle = ALL.find((i) => active(i.href))?.label || "Admin";
 
   function NavLink({ item, onClick }: { item: (typeof ALL)[0]; onClick?: () => void }) {
     const Icon = item.icon;
@@ -195,12 +193,7 @@ export function AdminShell({
 
         {open && (
           <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-            />
+            <button type="button" className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} aria-label="Close" />
             <div className="absolute left-0 top-0 bottom-0 w-72 bg-construction-dark text-white p-3 overflow-y-auto">
               <div className="flex justify-between items-center mb-3">
                 <p className="font-bold text-sm">Menu</p>
