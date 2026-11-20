@@ -73,13 +73,23 @@ export function AdminShell({
 
   const pageTitle = ALL.find((i) => active(i.href))?.label || "Admin";
 
-  function NavLink({ item, onClick }: { item: (typeof ALL)[0]; onClick?: () => void }) {
+  /** Full page load avoids soft-navigation 404s after deploy. */
+  function go(href: string, e?: React.MouseEvent) {
+    e?.preventDefault();
+    setOpen(false);
+    setMoreOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.assign(href);
+    }
+  }
+
+  function NavLink({ item }: { item: (typeof ALL)[0] }) {
     const Icon = item.icon;
     const isActive = active(item.href);
     return (
-      <Link
+      <a
         href={item.href}
-        onClick={onClick}
+        onClick={(e) => go(item.href, e)}
         className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
           isActive
             ? "bg-primary-600 text-white shadow-sm"
@@ -88,7 +98,7 @@ export function AdminShell({
       >
         <Icon className="w-4 h-4 shrink-0" />
         <span>{item.label}</span>
-      </Link>
+      </a>
     );
   }
 
@@ -145,16 +155,17 @@ export function AdminShell({
                 const Icon = item.icon;
                 const isActive = active(item.href);
                 return (
-                  <Link
+                  <a
                     key={item.href}
                     href={item.href}
+                    onClick={(e) => go(item.href, e)}
                     className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
                       isActive ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-600"
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {item.label}
-                  </Link>
+                  </a>
                 );
               })}
               <button
@@ -171,17 +182,17 @@ export function AdminShell({
                   const Icon = item.icon;
                   const isActive = active(item.href);
                   return (
-                    <Link
+                    <a
                       key={item.href}
                       href={item.href}
-                      onClick={() => setMoreOpen(false)}
+                      onClick={(e) => go(item.href, e)}
                       className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold ${
                         isActive ? "bg-primary-50 text-primary-800" : "bg-slate-50 text-slate-700"
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                       <span className="truncate">{item.label}</span>
-                    </Link>
+                    </a>
                   );
                 })}
               </div>
@@ -202,7 +213,7 @@ export function AdminShell({
                 </button>
               </div>
               {ALL.map((item) => (
-                <NavLink key={item.href} item={item} onClick={() => setOpen(false)} />
+                <NavLink key={item.href} item={item} />
               ))}
             </div>
           </div>
