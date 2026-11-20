@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Trash2, CheckSquare, Square } from "lucide-react";
 import { MultiImageUpload } from "@/components/ImageUploadField";
 import { formatCurrency } from "@/lib/utils";
+import { AdminToolsClient } from "@/components/AdminToolsClient";
 
 export default function AdminServicesPage() {
+  const [section, setSection] = useState<"assets" | "tools">("assets");
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,6 +40,12 @@ export default function AdminServicesPage() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search).get("section");
+    if (q && q.toLowerCase() === "tools") setSection("tools");
   }, []);
 
   const allIds = useMemo(() => assets.map((a) => a.id as string), [assets]);
@@ -144,7 +152,7 @@ export default function AdminServicesPage() {
       )
     )
       return;
-    const typed = window.prompt('Type CLEAR ALL to confirm');
+    const typed = window.prompt("Type CLEAR ALL to confirm");
     if (typed !== "CLEAR ALL") {
       alert("Cancelled — confirmation text did not match.");
       return;
@@ -167,8 +175,43 @@ export default function AdminServicesPage() {
     }
   }
 
+  if (section === "tools") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setSection("assets");
+              window.history.replaceState(null, "", "/admin/services");
+            }}
+            className="px-3 py-1.5 rounded-lg border bg-white text-slate-600"
+          >
+            Assets
+          </button>
+          <span className="px-3 py-1.5 rounded-lg bg-primary-600 text-white font-semibold">Tools hire</span>
+        </div>
+        <AdminToolsClient />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2 text-sm">
+        <span className="px-3 py-1.5 rounded-lg bg-primary-600 text-white font-semibold">Assets</span>
+        <button
+          type="button"
+          onClick={() => {
+            setSection("tools");
+            window.history.replaceState(null, "", "/admin/services?section=tools");
+          }}
+          className="px-3 py-1.5 rounded-lg border bg-white text-slate-600"
+        >
+          Tools hire
+        </button>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-construction-dark">Services</h1>
         <div className="flex flex-wrap gap-2">
