@@ -37,7 +37,7 @@ const PRIMARY = [
   { href: "/admin/scan", label: "Scan QR", icon: QrCode },
   { href: "/admin/finished-projects", label: "Finished Projects", icon: Sparkles },
   { href: "/admin/services", label: "Services", icon: Building2 },
-  { href: "/admin/tools", label: "Tools", icon: Wrench },
+  { href: "/admin/tool-inventory", label: "Tools", icon: Wrench },
 ];
 
 const MORE = [
@@ -68,12 +68,19 @@ export function AdminShell({
 
   function active(href: string) {
     if (href === "/admin") return pathname === "/admin";
+    if (href === "/admin/tool-inventory") {
+      return (
+        pathname === "/admin/tool-inventory" ||
+        pathname === "/admin/tools" ||
+        pathname.startsWith("/admin/tool-inventory/") ||
+        pathname.startsWith("/admin/tools/")
+      );
+    }
     return pathname === href || pathname.startsWith(href + "/");
   }
 
   const pageTitle = ALL.find((i) => active(i.href))?.label || "Admin";
 
-  /** Full page load avoids soft-navigation 404s after deploy. */
   function go(href: string, e?: React.MouseEvent) {
     e?.preventDefault();
     setOpen(false);
