@@ -94,7 +94,11 @@ export async function POST(
     const balance = Math.max(0, total - paid);
     const status = String(rental.status || "").toUpperCase();
 
-    if (["CANCELLED", "EXPIRED", "REFUNDED"].includes(status) && action !== "CANCEL_QUOTE") {
+    if (
+      ["CANCELLED", "EXPIRED", "REFUNDED", "RETURNED"].includes(status) &&
+      action !== "CANCEL_QUOTE" &&
+      action !== "RETURN_COMPLETE"
+    ) {
       return NextResponse.json({ error: "This tool rental is closed" }, { status: 400 });
     }
 
@@ -317,6 +321,44 @@ export async function POST(
         payment,
         autoApproved: false,
         message: "Bank transfer submitted for admin approval",
+      });
+    }
+
+    if (action === "RETURN_COMPLETE") {
+      if (session.role !== "ADMIN") {
+        return NextResponse.json({ error: "Admin only" }, { status: 403 });
+      }
+      const { completeToolReturn } = await import("@/lib/tool-return");
+      const condition = String(body.condition || "GOOD").toUpperCase();
+      const mapped =
+        condition === "GOOD" || condition === "FAIR" || condition === "DAMAGED" || condition === "MISSING"
+          ? condition
+          : condition.includes("DAMAGE")
+            ? "DAMAGED"
+            : condition.includes("MISS")
+              ? "MISSING"
+              : condition.includes("FAIR")
+                ? "FAIR"
+                : "GOOD";
+      const result = await completeToolReturn({
+        rentalId: id,
+        adminId: session.id,
+        adminEmail: (session as any).email,
+        adminName: (session as any).name,
+        condition: mapped as any,
+        notes: body.notes ? String(body.notes).slice(0, 1000) : undefined,
+        depositRefund: body.depositRefund != null ? Number(body.depositRefund) : undefined,
+        damageCharge: body.damageCharge != null ? Number(body.damageCharge) : undefined,
+        checklist: {
+          bodyOk: !!body.bodyOk,
+          accessoriesComplete: !!body.accessoriesComplete,
+          cleaned: !!body.cleaned,
+          serialMatches: !!body.serialMatches,
+        },
+      });
+      return NextResponse.json({
+        ...result,
+        message: result.message || `Return recorded (${mapped}). Stock restocked.`,
       });
     }
 
