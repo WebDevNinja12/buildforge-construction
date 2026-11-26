@@ -25,6 +25,7 @@ import {
   MoreHorizontal,
   Shield,
   QrCode,
+  ClipboardCheck,
 } from "lucide-react";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { LogoutMenuItem } from "@/components/LogoutMenuItem";
@@ -37,10 +38,11 @@ const PRIMARY = [
   { href: "/admin/scan", label: "Scan QR", icon: QrCode },
   { href: "/admin/finished-projects", label: "Finished Projects", icon: Sparkles },
   { href: "/admin/services", label: "Services", icon: Building2 },
-  { href: "/admin/services?section=tools", label: "Tools", icon: Wrench },
+  { href: "/admin/tools", label: "Tools", icon: Wrench },
 ];
 
 const MORE = [
+  { href: "/admin/tool-returns", label: "Tool returns", icon: ClipboardCheck },
   { href: "/admin/reservations", label: "Reservations", icon: CalendarClock },
   { href: "/admin/installments", label: "Installment Plans", icon: Layers },
   { href: "/admin/workers", label: "Workers", icon: HardHat },
@@ -68,13 +70,14 @@ export function AdminShell({
 
   function active(href: string) {
     if (href === "/admin") return pathname === "/admin";
-    if (href.includes("section=tools")) {
-      if (typeof window === "undefined") return false;
-      return pathname.startsWith("/admin/services") && window.location.search.includes("section=tools");
-    }
-    if (href === "/admin/services") {
-      if (typeof window !== "undefined" && window.location.search.includes("section=tools")) return false;
-      return pathname === "/admin/services" || pathname.startsWith("/admin/services/");
+    if (href === "/admin/tools") {
+      return (
+        pathname === "/admin/tools" ||
+        pathname.startsWith("/admin/tools/") ||
+        (pathname.startsWith("/admin/services") &&
+          typeof window !== "undefined" &&
+          window.location.search.includes("section=tools"))
+      );
     }
     return pathname === href || pathname.startsWith(href + "/");
   }
