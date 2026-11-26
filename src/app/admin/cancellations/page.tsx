@@ -34,8 +34,8 @@ function parseRefundFromReason(reason?: string | null) {
     : /10%|90%/i.test(text)
       ? "DEDUCT_10"
       : "—";
-  const refundMatch = text.match(/refund ₦?([\d,]+)/i);
-  const paidMatch = text.match(/Paid ₦?([\d,]+)/i);
+  const refundMatch = text.match(/refund\s*([\d,]+)/i);
+  const paidMatch = text.match(/Paid\s*([\d,]+)/i);
   const refundAmount = refundMatch
     ? Number(String(refundMatch[1]).replace(/,/g, ""))
     : null;
@@ -86,9 +86,7 @@ export default function AdminCancellationsPage() {
       const paidFromPayments = (r.payments || [])
         .filter((p) => ["APPROVED", "COMPLETED", "CONFIRMED"].includes(String(p.status)))
         .reduce((s, p) => s + Number(p.amount || 0), 0);
-      // Parentheses required: cannot mix ?? and || without them
-      const paid =
-        meta.paidAmount ?? (Number(r.amountPaid || 0) || paidFromPayments);
+      const paid = meta.paidAmount ?? (Number(r.amountPaid || 0) || paidFromPayments);
       const refund =
         meta.refundAmount ??
         (meta.mode === "FULL"
@@ -135,7 +133,11 @@ export default function AdminCancellationsPage() {
     }
     if (
       !confirm(
-        `Mark refund processed for ${ids.length} item(s)? (typically within ${REFUND_DAYS} days)`
+        "Mark refund processed for " +
+          ids.length +
+          " item(s)? (typically within " +
+          REFUND_DAYS +
+          " days)"
       )
     ) {
       return;
@@ -147,9 +149,11 @@ export default function AdminCancellationsPage() {
       let ok = 0;
       for (const id of ids) {
         const row = rows.find((r) => r.id === id);
-        const note = `${row?.cancelReason || "Cancelled"}\n[Refund processed ${new Date()
-          .toISOString()
-          .slice(0, 10)}]`;
+        const note =
+          (row?.cancelReason || "Cancelled") +
+          "\n[Refund processed " +
+          new Date().toISOString().slice(0, 10) +
+          "]";
         const res = await fetch("/api/admin/reservations", {
           method: "PATCH",
           credentials: "include",
@@ -162,7 +166,7 @@ export default function AdminCancellationsPage() {
         });
         if (res.ok) ok++;
       }
-      setMsg(`Marked ${ok} of ${ids.length} refund(s) as processed`);
+      setMsg("Marked " + ok + " of " + ids.length + " refund(s) as processed");
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
@@ -176,7 +180,9 @@ export default function AdminCancellationsPage() {
     if (!ids.length) return;
     if (
       !confirm(
-        `Remove ${ids.length} cancelled record(s) from history? This cannot be undone.`
+        "Remove " +
+          ids.length +
+          " cancelled record(s) from history? This cannot be undone."
       )
     )
       return;
@@ -191,7 +197,7 @@ export default function AdminCancellationsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Cleanup failed");
-      setMsg(`Cleaned ${data.okCount ?? ids.length} record(s)`);
+      setMsg("Cleaned " + (data.okCount ?? ids.length) + " record(s)");
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Cleanup failed");
@@ -257,11 +263,11 @@ export default function AdminCancellationsPage() {
             key={id}
             type="button"
             onClick={() => setFilter(id)}
-            className={`text-xs font-semibold px-3 min-h-[36px] rounded-full border ${
+            className={
               filter === id
-                ? "bg-primary-600 text-white border-primary-600"
-                : "bg-white text-slate-600"
-            }`}
+                ? "text-xs font-semibold px-3 min-h-[36px] rounded-full border bg-primary-600 text-white border-primary-600"
+                : "text-xs font-semibold px-3 min-h-[36px] rounded-full border bg-white text-slate-600"
+            }
           >
             {label}
           </button>
@@ -331,12 +337,11 @@ export default function AdminCancellationsPage() {
           <div className="grid gap-3">
             {visible.map((r) => {
               const on = selected.has(r.id);
+              const cardClass = on
+                ? "bg-white border rounded-2xl p-4 flex gap-3 shadow-sm ring-2 ring-primary-500 border-primary-300"
+                : "bg-white border rounded-2xl p-4 flex gap-3 shadow-sm";
               return (
-                <div
-                  key={r.id}
-                  className={`bg-white border rounded-2xl p-4 flex gap-3 shadow-sm ${\n                    on ? "ring-2 ring-primary-500 border-primary-300" : ""
-                  }`}
-                >
+                <div key={r.id} className={cardClass}>
                   <button
                     type="button"
                     className="shrink-0 mt-1 min-h-[44px] min-w-[44px] flex items-start justify-center"
@@ -373,7 +378,7 @@ export default function AdminCancellationsPage() {
                         <>
                           {" · "}
                           <Link
-                            href={`/admin/clients/${r.user.id}`}
+                            href={"/admin/clients/" + r.user.id}
                             className="text-primary-700 font-medium inline-flex items-center gap-0.5"
                           >
                             Profile <ExternalLink className="w-3 h-3" />
@@ -385,7 +390,9 @@ export default function AdminCancellationsPage() {
                       Paid {formatCurrency(r.paid)} · Expected refund{" "}
                       <strong>{formatCurrency(r.refund)}</strong>
                       {r.meta.mode !== "—"
-                        ? ` (${r.meta.mode === "FULL" ? "full" : "10% deduct"})`
+                        ? r.meta.mode === "FULL"
+                          ? " (full)"
+                          : " (10% deduct)"
                         : ""}
                     </p>
                     {r.cancelReason && (
