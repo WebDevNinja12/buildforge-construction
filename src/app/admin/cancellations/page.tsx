@@ -86,7 +86,9 @@ export default function AdminCancellationsPage() {
       const paidFromPayments = (r.payments || [])
         .filter((p) => ["APPROVED", "COMPLETED", "CONFIRMED"].includes(String(p.status)))
         .reduce((s, p) => s + Number(p.amount || 0), 0);
-      const paid = meta.paidAmount ?? Number(r.amountPaid || 0) || paidFromPayments;
+      // Parentheses required: cannot mix ?? and || without them
+      const paid =
+        meta.paidAmount ?? (Number(r.amountPaid || 0) || paidFromPayments);
       const refund =
         meta.refundAmount ??
         (meta.mode === "FULL"
@@ -332,8 +334,7 @@ export default function AdminCancellationsPage() {
               return (
                 <div
                   key={r.id}
-                  className={`bg-white border rounded-2xl p-4 flex gap-3 shadow-sm ${
-                    on ? "ring-2 ring-primary-500 border-primary-300" : ""
+                  className={`bg-white border rounded-2xl p-4 flex gap-3 shadow-sm ${\n                    on ? "ring-2 ring-primary-500 border-primary-300" : ""
                   }`}
                 >
                   <button
