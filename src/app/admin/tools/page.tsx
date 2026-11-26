@@ -1,7 +1,8 @@
-import { AdminToolsClient } from "./ToolsClient";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { AdminToolsClient } from "@/components/AdminToolsClient";
 
+/** Standalone Tools inventory — same UI as Services → Tools hire tab. */
 export default function AdminToolsPage() {
   return (
     <div className="space-y-4">
